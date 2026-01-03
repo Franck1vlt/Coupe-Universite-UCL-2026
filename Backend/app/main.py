@@ -1,20 +1,25 @@
 """
 Point d'entrée de l'application FastAPI
-Coupe Universitaire UCL 2026 - Backend API
+Coupe de l'Université - Backend API
 """
-from fastapi import FastAPI, Request
+
+import os
+import shutil
+from pathlib import Path
+
+from fastapi import (
+    FastAPI, Request, Query, Depends, status, Body, UploadFile, File, HTTPException
+)
 from fastapi.responses import JSONResponse
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.exceptions import RequestValidationError
 from sqlalchemy.exc import SQLAlchemyError
 import logging
-from fastapi import Query, Depends
-from typing import Optional
-from sqlalchemy.orm import Session
-from app.db import get_db
+from typing import Optional, List
 
+from sqlalchemy.orm import Session
+from app.db import get_db, init_db
 from app.config import settings
-from app.db import init_db
 from app.exceptions import (
     AppException,
     app_exception_handler,
@@ -22,6 +27,8 @@ from app.exceptions import (
     sqlalchemy_exception_handler,
     general_exception_handler,
     create_success_response,
+    NotFoundError,
+    ConflictError,
 )
 from app.middleware import (
     SecurityHeadersMiddleware,
@@ -29,14 +36,14 @@ from app.middleware import (
     setup_cors,
 )
 
-# Configuration du logging
+# Logging configuration
 logging.basicConfig(
     level=logging.DEBUG if settings.DEBUG else logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
-# Création de l'application FastAPI
+# Create FastAPI app
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
@@ -46,23 +53,23 @@ app = FastAPI(
     openapi_url="/openapi.json" if settings.DEBUG else None,
 )
 
-# Configuration CORS
+# CORS setup
 setup_cors(app, settings)
 
-# Middleware de sécurité
+# Middlewares
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(LoggingMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
-# Gestionnaires d'exceptions
+# Exception handlers
 app.add_exception_handler(AppException, app_exception_handler)
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
 app.add_exception_handler(SQLAlchemyError, sqlalchemy_exception_handler)
 app.add_exception_handler(Exception, general_exception_handler)
 
-# Import des routes (seront ajoutées plus tard)
-# from app.routers import auth, tournaments, matches, sports, teams, players, courts
-
+# Créer le dossier img s'il n'existe pas
+UPLOAD_DIR = Path("public/img")
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 @app.on_event("startup")
 async def startup_event():
@@ -70,7 +77,6 @@ async def startup_event():
     logger.info(f"Starting {settings.APP_NAME} v{settings.APP_VERSION}")
     logger.info(f"Debug mode: {settings.DEBUG}")
     logger.info(f"Database: {settings.DATABASE_URL}")
-    
     # Initialiser la base de données (créer les tables si elles n'existent pas)
     try:
         init_db()
@@ -79,12 +85,10 @@ async def startup_event():
         logger.error(f"Error initializing database: {e}")
         raise
 
-
 @app.on_event("shutdown")
 async def shutdown_event():
     """Actions à effectuer à l'arrêt de l'application"""
     logger.info("Shutting down application")
-
 
 @app.get("/", tags=["General"])
 async def root():
@@ -99,20 +103,15 @@ async def root():
         message="Welcome to Coupe Universitaire UCL 2026 API"
     )
 
-
 @app.get("/health", tags=["General"])
 async def health_check():
     """Vérification de l'état de l'API"""
     try:
-        # Vérifier la connexion à la base de données
         from app.db import engine
         from sqlalchemy import text
-        
-        # Utiliser begin() pour gérer automatiquement la transaction
         with engine.begin() as conn:
             result = conn.execute(text("SELECT 1"))
             result.scalar()
-        
         return create_success_response(
             data={
                 "status": "healthy",
@@ -133,19 +132,9 @@ async def health_check():
             }
         )
 
-"""
-Authentification
-"""
-
-"""
-Gestion des utilisateurs
-"""
-
-"""
-Sports
-"""
+# --- Sports ---
 from app.models.sport import Sport
-from app.schemas.sport import SportResponse
+from app.schemas.sport import SportResponse, SportCreate, SportUpdate
 
 @app.get("/sports", tags=["Sports"])
 async def get_sports(
@@ -159,18 +148,13 @@ async def get_sports(
     Liste tous les sports (avec pagination, filtres)
     """
     query = db.query(Sport)
-
     if name:
         query = query.filter(Sport.name.ilike(f"%{name}%"))
     if score_type:
         query = query.filter(Sport.score_type == score_type)
-
     total = query.count()
     sports = query.offset(skip).limit(limit).all()
-
-    # Use model_dump to convert Pydantic models to dicts for JSON serialization
     items = [SportResponse.model_validate(s).model_dump() for s in sports]
-
     return create_success_response(
         data={
             "items": items,
@@ -187,26 +171,14 @@ async def get_sport_by_id(
     db: Session = Depends(get_db),
 ):
     """Récupère un sport par ID"""
-    from app.exceptions import NotFoundError
-    
     sport = db.query(Sport).filter(Sport.id == sport_id).first()
     if not sport:
         raise NotFoundError(f"Sport with id {sport_id} not found")
-    
-    # Use model_dump for serialization
     return create_success_response(
         data=SportResponse.model_validate(sport).model_dump(),
         message="Sport récupéré avec succès"
     )
 
-# Endpoints Admin (🔐)
-
-from app.schemas.sport import SportCreate, SportUpdate, SportResponse
-from app.models.sport import Sport
-from sqlalchemy.orm import Session
-from fastapi import status, Body
-
-# POST /sports - Crée un nouveau sport
 @app.post(
     "/sports",
     tags=["Sports"],
@@ -221,26 +193,19 @@ async def create_sport(
 ):
     """
     Crée un nouveau sport.
-
-    L'utilisateur doit fournir au moins le nom du sport (unique) et le type de score via les paramètres de requête.
-    L'identifiant (id) sera généré automatiquement côté serveur.
     """
-    # Vérifie unicité du nom du sport
     existing = db.query(Sport).filter(Sport.name == name).first()
     if existing:
-        from fastapi import HTTPException
         raise HTTPException(status_code=400, detail=f"Un sport nommé '{name}' existe déjà.")
     sport = Sport(name=name, score_type=score_type)
     db.add(sport)
     db.commit()
     db.refresh(sport)
-    # Serialize to primitive dict to avoid non-serializable Pydantic objects in JSON responses
     return create_success_response(
         data=SportResponse.model_validate(sport).model_dump(),
         message="Sport créé avec succès"
     )
 
-# PUT /sports/{sport_id} - Modifie un sport
 @app.put(
     "/sports/{sport_id}",
     tags=["Sports"],
@@ -255,12 +220,7 @@ async def update_sport(
 ):
     """
     Modifie un sport existant.
-
-    L'utilisateur doit fournir au moins un des champs à mettre à jour dans le corps de la requête (nom ou type de score).
-    L'identifiant (id) n'est pas modifiable.
-    Le nom reste unique.
     """
-    from app.exceptions import NotFoundError
     sport = db.query(Sport).filter(Sport.id == sport_id).first()
     if not sport:
         raise NotFoundError(f"Sport with id {sport_id} not found")
@@ -268,7 +228,6 @@ async def update_sport(
     if name is not None and name != sport.name:
         existing = db.query(Sport).filter(Sport.name == name).first()
         if existing:
-            from app.exceptions import BadRequestError
             raise BadRequestError(f"Un sport nommé '{name}' existe déjà.")
         sport.name = name
     if score_type is not None:
@@ -276,13 +235,11 @@ async def update_sport(
     db.commit()
     db.refresh(sport)
     try:
-        # Use .model_dump() to ensure JSON serializability
         return create_success_response(
             data=SportResponse.model_validate(sport).model_dump(),
             message="Sport modifié avec succès"
         )
-    except Exception as e:
-        # Return error like in the prompt if serialization fails or any error occurs
+    except Exception:
         return {
             "success": False,
             "error": {
@@ -291,7 +248,6 @@ async def update_sport(
             }
         }
 
-# DELETE /sports/{sport_id} - Supprime un sport
 @app.delete(
     "/sports/{sport_id}",
     tags=["Sports"],
@@ -304,10 +260,7 @@ async def delete_sport(
 ):
     """
     Supprime un sport existant.
-
-    Le client doit fournir l'identifiant du sport à supprimer dans l'URL. L'opération retourne l'id supprimé en réponse.
     """
-    from app.exceptions import NotFoundError
     sport = db.query(Sport).filter(Sport.id == sport_id).first()
     if not sport:
         raise NotFoundError(f"Sport with id {sport_id} not found")
@@ -318,11 +271,9 @@ async def delete_sport(
         message="Sport supprimé avec succès"
     )
 
-"""
-Équipes
-"""
+# --- Equipes ---
 from app.models.team import Team
-from app.schemas.team import TeamResponse
+from app.schemas.team import TeamResponse, TeamCreate, TeamUpdate
 
 @app.get("/teams", tags=["Teams"])
 async def get_teams(
@@ -340,7 +291,6 @@ async def get_teams(
     total = query.count()
     teams = query.offset(skip).limit(limit).all()
     try:
-        # Use model_dump(mode="json") to serialize datetime fields
         items = [TeamResponse.model_validate(t).model_dump(mode="json") for t in teams]
         return create_success_response(
             data={
@@ -360,20 +310,16 @@ async def get_teams(
             }
         }
 
-
 @app.get("/teams/{team_id}", tags=["Teams"])
 async def get_team_by_id(
     team_id: int,
     db: Session = Depends(get_db),
 ):
     """Récupère une équipe par ID"""
-    from app.exceptions import NotFoundError
-
     team = db.query(Team).filter(Team.id == team_id).first()
     if not team:
         raise NotFoundError(f"Team with id {team_id} not found")
     try:
-        # Use model_dump(mode="json") to serialize datetime fields
         return create_success_response(
             data=TeamResponse.model_validate(team).model_dump(mode="json"),
             message="Équipe récupérée avec succès"
@@ -387,14 +333,6 @@ async def get_team_by_id(
             }
         }
 
-# Endpoints Admin (🔐)
-
-from app.schemas.team import TeamCreate, TeamUpdate, TeamResponse
-from app.models.team import Team
-from sqlalchemy.orm import Session
-from fastapi import status, Body
-
-# POST /teams - Crée une nouvelle équipe
 @app.post(
     "/teams",
     tags=["Teams"],
@@ -404,20 +342,15 @@ from fastapi import status, Body
 )
 async def create_team(
     name: str = Query(..., description="Le nom de l'équipe", examples=["JUNIA", "FGES"]),
-    logo_url: str = Query(None, description="Logo de l'équipe"),
+    logo_url: Optional[str] = Query(None, description="Logo de l'équipe"),
     primary_color: str = Query(..., description="Couleur de l'équipe", examples=["bleu", "rouge"]),
     db: Session = Depends(get_db),
 ):
     """
     Crée une nouvelle équipe.
-
-    Le nom de l'équipe doit être unique.
-    L'identifiant (id) et la date de création (created_at) sont générés automatiquement côté serveur.
     """
-    # Vérifie unicité du nom de l'équipe
     existing = db.query(Team).filter(Team.name == name).first()
     if existing:
-        from fastapi import HTTPException
         raise HTTPException(status_code=400, detail=f"Une équipe nommée '{name}' existe déjà.")
     team = Team(name=name, logo_url=logo_url, primary_color=primary_color)
     db.add(team)
@@ -428,7 +361,6 @@ async def create_team(
         message="Team créée avec succès"
     )
 
-# PUT /teams/{team_id} - Modifie une équipe existante
 @app.put(
     "/teams/{team_id}",
     tags=["Teams"],
@@ -437,26 +369,20 @@ async def create_team(
 )
 async def update_team(
     team_id: int,
-    name: str = Query(None, description="Nouveau nom de l'équipe"),
-    logo_url: str = Query(None, description="URL du nouveau logo"),
-    primary_color: str = Query(None, description="Nouvelle couleur principale de l'équipe"),
+    name: Optional[str] = Query(None, description="Nouveau nom de l'équipe"),
+    logo_url: Optional[str] = Query(None, description="URL du nouveau logo"),
+    primary_color: Optional[str] = Query(None, description="Nouvelle couleur principale de l'équipe"),
     db: Session = Depends(get_db),
 ):
     """
     Modifie une équipe existante.
-
-    Le client peut modifier le nom, le logo ou la couleur principale.
-    Le nom reste unique.
     """
-    from app.exceptions import NotFoundError
     team = db.query(Team).filter(Team.id == team_id).first()
     if not team:
         raise NotFoundError(f"Team with id {team_id} not found")
-    # Si le nom est modifié, vérifier unicité
     if name is not None and name != team.name:
         existing = db.query(Team).filter(Team.name == name).first()
         if existing:
-            from app.exceptions import BadRequestError
             raise BadRequestError(f"Une équipe nommée '{name}' existe déjà.")
         team.name = name
     if logo_url is not None:
@@ -470,7 +396,6 @@ async def update_team(
         message="Équipe modifiée avec succès"
     )
 
-# DELETE /teams/{team_id} - Supprime une équipe existante
 @app.delete(
     "/teams/{team_id}",
     tags=["Teams"],
@@ -483,10 +408,7 @@ async def delete_team(
 ):
     """
     Supprime une équipe existante.
-
-    Le client doit fournir l'identifiant de l'équipe à supprimer dans l'URL. L'opération retourne l'id supprimé en réponse.
     """
-    from app.exceptions import NotFoundError
     team = db.query(Team).filter(Team.id == team_id).first()
     if not team:
         raise NotFoundError(f"Team with id {team_id} not found")
@@ -497,20 +419,47 @@ async def delete_team(
         message="Équipe supprimée avec succès"
     )
 
-"""
-Inscriptions d'une équipe dans un ou des sports (TeamSport)
-"""
-from typing import List
-from fastapi import Depends, Body, status
-from sqlalchemy.orm import Session
+@app.post("/upload-logo", tags=["Teams"])
+async def upload_logo(file: UploadFile = File(...)):
+    """
+    Endpoint pour uploader un logo d'équipe
+    Retourne l'URL relative du fichier sauvegardé
+    """
+    try:
+        # Vérifier le type de fichier
+        if file.content_type not in ["image/png", "image/jpeg", "image/jpg"]:
+            raise HTTPException(
+                status_code=400,
+                detail="Format de fichier non autorisé. Utilisez PNG, JPG ou JPEG."
+            )
+        # Nettoyer le nom du fichier
+        filename = file.filename.replace(" ", "_")
+        file_path = UPLOAD_DIR / filename
+        # Vérifier si le fichier existe déjà
+        counter = 1
+        original_filename = filename
+        while file_path.exists():
+            name, ext = os.path.splitext(original_filename)
+            filename = f"{name}_{counter}{ext}"
+            file_path = UPLOAD_DIR / filename
+            counter += 1
+        # Sauvegarder le fichier
+        with file_path.open("wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        # Retourner l'URL relative
+        logo_url = f"/img/{filename}"
+        return {
+            "success": True,
+            "logo_url": logo_url,
+            "message": "Logo uploadé avec succès"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur lors de l'upload : {str(e)}")
 
-from app.models.team import Team
+# --- Inscriptions d'équipe à un ou plusieurs sports ---
 from app.models.teamsport import TeamSport
-from app.models.sport import Sport
 from app.schemas.teamsport import TeamSportResponse, TeamSportCreate, TeamSportUpdate
-from app.exceptions import NotFoundError, ConflictError
 
-# | `GET`  | `/teams/{team_id}/sports`| 🌐      | Liste les sports d'une équipe (avec statut actif/inactif)             |
 @app.get(
     "/teams/{team_id}/sports",
     tags=["TeamSport"],
@@ -523,25 +472,18 @@ async def get_team_sports(
     db: Session = Depends(get_db),
 ):
     """Liste tous les sports d'une équipe avec leur statut d'inscription."""
-    # Vérification de l'existence de l'équipe
     team = db.query(Team).filter(Team.id == team_id).first()
     if not team:
         raise NotFoundError(f"Équipe avec l'id {team_id} introuvable")
-    
-    # Récupération des inscriptions
     team_sports = (
         db.query(TeamSport)
         .filter(TeamSport.team_id == team_id)
         .all()
     )
-    
     return create_success_response(
         data=[TeamSportResponse.model_validate(ts).model_dump() for ts in team_sports],
         message=f"{len(team_sports)} sport(s) trouvé(s) pour cette équipe"
     )
-
-# | `POST`  | `/teams/{team_id}/sports`| 🔐      | Inscrit une équipe à un ou plusieurs sports             |
-from fastapi import HTTPException
 
 @app.post(
     "/teams/{team_id}/sports",
@@ -556,21 +498,12 @@ async def create_team_sports(
     payload: List[TeamSportCreate] = Body(..., min_length=1, embed=False),
     db: Session = Depends(get_db),
 ):
-    """
-    Inscrit une équipe à un ou plusieurs sports.
-    
-    Le body doit être une liste d'objets sans champ `team_id` :
-    [
-      {"sport_id": 2, "team_sport_name": "Nom facultatif", "is_active": true},
-      ...
-    ]
-    """
-    # Vérification de l'existence de l'équipe
+    """Inscrit une équipe à un ou plusieurs sports."""
     team = db.query(Team).filter(Team.id == team_id).first()
     if not team:
         raise NotFoundError(f"Équipe avec l'id {team_id} introuvable")
 
-    # Vérifier que le payload ne contient PAS de team_id dans chaque objet
+    # On interdit team_id dans le payload
     payload_has_team_id = [
         (idx, getattr(item, "team_id", None)) for idx, item in enumerate(payload) if getattr(item, "team_id", None) is not None
     ]
@@ -592,17 +525,13 @@ async def create_team_sports(
         }
         raise HTTPException(status_code=422, detail=err["error"])
 
-    # Validation : récupérer tous les sport_ids demandés
     sport_ids = [item.sport_id for item in payload]
     existing_sports = db.query(Sport.id).filter(Sport.id.in_(sport_ids)).all()
     existing_sport_ids = {s.id for s in existing_sports}
-    
-    # Vérifier que tous les sports existent
     missing_sports = set(sport_ids) - existing_sport_ids
     if missing_sports:
         raise NotFoundError(f"Sport(s) introuvable(s) : {', '.join(map(str, missing_sports))}")
-    
-    # Vérifier les doublons existants
+
     existing_registrations = (
         db.query(TeamSport.sport_id)
         .filter(
@@ -612,13 +541,11 @@ async def create_team_sports(
         .all()
     )
     existing_reg_ids = {reg.sport_id for reg in existing_registrations}
-    
     if existing_reg_ids:
         raise ConflictError(
             f"L'équipe est déjà inscrite dans le(s) sport(s) : {', '.join(map(str, existing_reg_ids))}"
         )
-    
-    # Création des inscriptions
+
     created_items = []
     for item in payload:
         team_sport = TeamSport(
@@ -629,20 +556,14 @@ async def create_team_sports(
         )
         db.add(team_sport)
         created_items.append(team_sport)
-    
     db.commit()
-    
-    # Refresh pour obtenir les IDs générés
     for ts in created_items:
         db.refresh(ts)
-    
     return create_success_response(
         data=[TeamSportResponse.model_validate(ts).model_dump() for ts in created_items],
         message=f"{len(created_items)} inscription(s) créée(s) avec succès"
     )
 
-
-# | `DELETE`  | `/teams/{team_id}/sports/{sport_id}`| 🔐      | Supprime l'inscription d'une équipe à un sport             |
 @app.delete(
     "/teams/{team_id}/sports/{sport_id}",
     tags=["TeamSport"],
@@ -665,15 +586,12 @@ async def delete_team_sport(
         )
         .first()
     )
-    
     if not team_sport:
         raise NotFoundError(
             f"Inscription introuvable (équipe #{team_id}, sport #{sport_id})"
         )
-    
     db.delete(team_sport)
     db.commit()
-    
     return create_success_response(
         data={
             "team_id": team_id,
@@ -683,7 +601,6 @@ async def delete_team_sport(
         message="Inscription supprimée avec succès"
     )
 
-# | `PATCH`  | `/teams/{team_id}/sports/{sport_id}`| 🔐      | Modifie le statut ou le nom spécifique             |
 @app.patch(
     "/teams/{team_id}/sports/{sport_id}",
     tags=["TeamSport"],
@@ -706,28 +623,21 @@ async def update_team_sport(
         )
         .first()
     )
-    
     if not team_sport:
         raise NotFoundError(
             f"Inscription introuvable (équipe #{team_id}, sport #{sport_id})"
         )
-    
-    # Mise à jour des champs si fournis
     update_data = payload.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(team_sport, field, value)
-    
     db.commit()
     db.refresh(team_sport)
-    
     return create_success_response(
         data=TeamSportResponse.model_validate(team_sport).model_dump(),
         message="Inscription modifiée avec succès"
     )
 
-"""
-Joueurs
-"""
+# --- Joueurs ---
 from app.models.player import Player
 from app.schemas.player import PlayerResponse
 
@@ -765,8 +675,6 @@ async def get_player_by_id(
     db: Session = Depends(get_db),
 ):
     """Récupère un joueur par ID"""
-    from app.exceptions import NotFoundError
-
     player = db.query(Player).filter(Player.id == player_id).first()
     if not player:
         raise NotFoundError(f"Player with id {player_id} not found")
@@ -787,15 +695,9 @@ async def get_players_of_team_sport(
         message="Liste des joueurs de l'équipe-sport récupérée avec succès"
     )
 
-
-
-"""
-Terrains
-"""
+# --- Terrains ---
 from app.models.court import Court
 from app.schemas.court import CourtResponse, CourtCreate, CourtUpdate
-
-# Assure the Sport model is available for join queries on court-sport links
 from app.models.sport import Sport
 
 @app.get("/courts", status_code=status.HTTP_200_OK, tags=["Courts"])
@@ -821,23 +723,20 @@ async def get_court_by_id(court_id: int, db: Session = Depends(get_db)):
     )
 
 @app.post("/courts", status_code=status.HTTP_201_CREATED, tags=["Courts"])
-async def create_court(payload: CourtCreate, db: Session = Depends(get_db)):
-    """ 
-    Crée un nouveau terrain. Paramètres : 
-    - name : str (nom du terrain) 
-    - sport_id : int ou None (id du sport associé ou None) 
-    - is_active : bool (terrain utilisable ou hors service) 
-    """
-    court = Court(name=payload.name, is_active=payload.is_active)
-
-    if payload.sports:
-        sports = db.query(Sport).filter(Sport.id.in_(payload.sports)).all()
-        existing_ids = {s.id for s in sports}
-        missing = set(payload.sports) - existing_ids
+async def create_court(
+    name: str = Query(..., description="Nom du terrain"),
+    is_active: bool = Query(..., description="Le terrain est-il utilisé ?"),
+    sports: Optional[List[int]] = Body(default=None, description="Liste des ids des sports associés (peut être vide)"),
+    db: Session = Depends(get_db),
+):
+    court = Court(name=name, is_active=is_active)
+    if sports:
+        found_sports = db.query(Sport).filter(Sport.id.in_(sports)).all()
+        existing_ids = {s.id for s in found_sports}
+        missing = set(sports) - existing_ids
         if missing:
             raise NotFoundError(f"Sport(s) introuvable(s) : {missing}")
-        court.sports = sports
-
+        court.sports = found_sports
     db.add(court)
     db.commit()
     db.refresh(court)
@@ -847,29 +746,27 @@ async def create_court(payload: CourtCreate, db: Session = Depends(get_db)):
     )
 
 @app.put("/courts/{court_id}", status_code=status.HTTP_200_OK, tags=["Courts"])
-async def update_court(court_id: int, payload: CourtCreate, db: Session = Depends(get_db)):
-    """ 
-    Modifie entièrement un terrain. 
-    Paramètres : 
-    - name : str (nom du terrain) 
-    - sport_id : int ou None (id du sport associé ou None) 
-    - is_active : bool (terrain utilisable ou hors service) 
-    """
+async def update_court(
+    court_id: int,
+    name: Optional[str] = Query(None, description="Nom du terrain"),
+    is_active: Optional[bool] = Query(None, description="Le terrain est-il utilisé ?"),
+    sports: Optional[List[int]] = Body(default=None, description="Liste des ids des sports associés (peut être vide)"),
+    db: Session = Depends(get_db),
+):
     court = db.query(Court).filter(Court.id == court_id).first()
     if not court:
-        raise NotFoundError(f"Terrain {court_id} introuvable")
-
-    court.name = payload.name
-    court.is_active = payload.is_active
-
-    if payload.sports is not None:
-        sports = db.query(Sport).filter(Sport.id.in_(payload.sports)).all()
-        existing_ids = {s.id for s in sports}
-        missing = set(payload.sports) - existing_ids
+        raise NotFoundError(f"Court {court_id} introuvable")
+    if name is not None:
+        court.name = name
+    if is_active is not None:
+        court.is_active = is_active
+    if sports is not None:
+        found_sports = db.query(Sport).filter(Sport.id.in_(sports)).all()
+        existing_ids = {s.id for s in found_sports}
+        missing = set(sports) - existing_ids
         if missing:
             raise NotFoundError(f"Sport(s) introuvable(s) : {missing}")
-        court.sports = sports
-
+        court.sports = found_sports
     db.commit()
     db.refresh(court)
     return create_success_response(
@@ -881,15 +778,10 @@ async def update_court(court_id: int, payload: CourtCreate, db: Session = Depend
 async def partial_update_court(court_id: int, payload: CourtUpdate, db: Session = Depends(get_db)):
     """
     Modifie partiellement un terrain (ex : actif). 
-    Paramètres (tous facultatifs) : 
-    - name : str (nom du terrain) 
-    - sport_id : int ou None (id du sport associé ou None) 
-    - is_active : bool (terrain utilisable ou hors service) 
     """
     court = db.query(Court).filter(Court.id == court_id).first()
     if not court:
         raise NotFoundError(f"Court {court_id} introuvable")
-
     if payload.name is not None:
         court.name = payload.name
     if payload.is_active is not None:
@@ -901,7 +793,6 @@ async def partial_update_court(court_id: int, payload: CourtUpdate, db: Session 
         if missing:
             raise NotFoundError(f"Sport(s) introuvable(s) : {missing}")
         court.sports = sports
-
     db.commit()
     db.refresh(court)
     return create_success_response(
@@ -911,7 +802,9 @@ async def partial_update_court(court_id: int, payload: CourtUpdate, db: Session 
 
 @app.delete("/courts/{court_id}", status_code=status.HTTP_200_OK, tags=["Courts"])
 async def delete_court(court_id: int, db: Session = Depends(get_db)):
-    """ Supprime un terrain . """
+    """
+    Supprime un terrain.
+    """
     court = db.query(Court).filter(Court.id == court_id).first()
     if not court:
         raise NotFoundError(f"Court {court_id} introuvable")
@@ -919,10 +812,7 @@ async def delete_court(court_id: int, db: Session = Depends(get_db)):
     db.commit()
     return create_success_response(message="Terrain supprimé avec succès")
 
-
-"""
-Tournois
-"""
+# --- Tournois ---
 from app.models.tournament import Tournament
 from app.schemas.tournament import TournamentResponse
 
@@ -946,8 +836,6 @@ async def get_tournament_by_id(
     db: Session = Depends(get_db),
 ):
     """Récupère un tournoi par ID"""
-    from app.exceptions import NotFoundError
-
     tournament = db.query(Tournament).filter(Tournament.id == tournament_id).first()
     if not tournament:
         raise NotFoundError(f"Tournament with id {tournament_id} not found")
@@ -960,7 +848,6 @@ from app.models.tournamentphase import TournamentPhase
 from app.schemas.tournamentphase import TournamentPhaseResponse
 from app.models.tournamentranking import TournamentRanking
 from app.schemas.tournamentranking import TournamentRankingResponse
-from app.exceptions import NotFoundError
 
 @app.get("/tournaments/{tournament_id}/phases", tags=["Tournaments"])
 async def get_phases_of_tournament(
@@ -986,15 +873,9 @@ async def get_ranking_of_tournament(
         message="Classement du tournoi récupéré avec succès"
     )
 
-"""
-Configuration de tournoi
-"""
+# --- Configuration de tournoi ---
 from app.models.tournamentconfiguration import TournamentConfiguration
 from app.schemas.tournamentconfiguration import TournamentConfigurationResponse
-from app.models.tournamentphase import TournamentPhase
-from app.schemas.tournamentphase import TournamentPhaseResponse
-from app.models.match import Match
-from app.schemas.match import MatchResponse
 
 @app.get("/tournaments/{tournament_id}/configuration", tags=["TournamentConfiguration"])
 async def get_tournament_configuration(
@@ -1010,9 +891,7 @@ async def get_tournament_configuration(
         message="Configuration du tournoi récupérée avec succès"
     )
 
-"""
-Phases de tournoi
-"""
+# --- Phases de tournoi ---
 @app.get("/tournament-phases/{phase_id}", tags=["TournamentPhases"])
 async def get_tournament_phase_by_id(
     phase_id: int,
@@ -1042,21 +921,14 @@ async def get_matches_of_tournament_phase(
         message="Matchs de la phase récupérés avec succès"
     )
 
-"""
-Poules
-"""
+# --- Poules ---
 from app.models.pool import Pool
 from app.schemas.pool import PoolResponse
-from app.models.team import Team
 from app.schemas.team import TeamResponse
-from app.models.match import Match
 from app.schemas.match import MatchResponse
 from app.models.teampool import TeamPool
 from app.schemas.teampool import TeamPoolResponse
-from app.services.pool_service import calculate_pool_standings  # À implémenter.
-from app.exceptions import NotFoundError
-from fastapi import Depends
-from sqlalchemy.orm import Session
+from app.services.pool_service import calculate_pool_standings
 
 @app.get("/pools/{pool_id}", response_model=dict, tags=["Pools"])
 async def get_pool(pool_id: int, db: Session = Depends(get_db)):
@@ -1106,10 +978,7 @@ async def get_pool_standings(pool_id: int, db: Session = Depends(get_db)):
         message="Classement de la poule récupéré avec succès"
     )
 
-"""
-Équipes dans les poules
-"""
-from app.models.teampool import TeamPool
+# --- Equipes dans les poules ---
 from app.schemas.teampool import TeamPoolResponse
 
 @app.get("/team-pools/{team_pool_id}", response_model=dict, tags=["TeamPool"])
@@ -1123,9 +992,7 @@ async def get_team_pool(team_pool_id: int, db: Session = Depends(get_db)):
         message="Équipe-poule récupérée avec succès"
     )
 
-"""
-Matches
-"""
+# --- Matches & Sets ---
 from app.models.match import Match
 from app.schemas.match import MatchResponse
 from app.models.matchset import MatchSet
@@ -1133,23 +1000,23 @@ from app.schemas.matchset import MatchSetResponse
 
 @app.get("/matches", response_model=dict, tags=["Matches"])
 async def get_matches(
-    sport_id: int = None,
-    phase_id: int = None,
-    status: str = None,
-    date: str = None,
+    sport_id: Optional[int] = Query(None),
+    phase_id: Optional[int] = Query(None),
+    status: Optional[str] = Query(None),
+    date: Optional[str] = Query(None),
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db)
 ):
     """Liste tous les matchs (avec filtres : sport, phase, statut, date)"""
     query = db.query(Match)
-    if sport_id:
+    if sport_id is not None:
         query = query.filter(Match.sport_id == sport_id)
-    if phase_id:
+    if phase_id is not None:
         query = query.filter(Match.phase_id == phase_id)
-    if status:
+    if status is not None:
         query = query.filter(Match.status == status)
-    if date:
+    if date is not None:
         query = query.filter(Match.date == date)
     matches = query.offset(skip).limit(limit).all()
     return create_success_response(
@@ -1180,9 +1047,7 @@ async def get_match_sets(match_id: int, db: Session = Depends(get_db)):
         message="Sets du match récupérés avec succès"
     )
 
-"""
-Planification de matchs
-"""
+# --- Planification de matchs ---
 from app.models.matchschedule import MatchSchedule
 from app.schemas.matchschedule import MatchScheduleResponse
 
@@ -1206,12 +1071,7 @@ async def get_court_schedule(court_id: int, db: Session = Depends(get_db)):
         message="Planification du terrain récupérée avec succès"
     )
 
-"""
-Sets de match
-"""
-from app.models.matchset import MatchSet
-from app.schemas.matchset import MatchSetResponse
-
+# --- Sets de match ---
 @app.get("/match-sets/{set_id}", response_model=dict, tags=["MatchSet"])
 async def get_match_set(set_id: int, db: Session = Depends(get_db)):
     """Récupère un set par ID"""
@@ -1223,8 +1083,7 @@ async def get_match_set(set_id: int, db: Session = Depends(get_db)):
         message="Set du match récupéré avec succès"
     )
 
-
-# Enregistrement des routers (seront ajoutés progressivement)
+# NB: Routers à activer plus tard si besoin
 # app.include_router(auth.router, prefix=f"{settings.API_V1_PREFIX}/auth", tags=["Authentication"])
 # app.include_router(tournaments.router, prefix=f"{settings.API_V1_PREFIX}/tournaments", tags=["Tournaments"])
 # app.include_router(matches.router, prefix=f"{settings.API_V1_PREFIX}/matches", tags=["Matches"])
@@ -1237,4 +1096,3 @@ if __name__ == "__main__":
         port=8000,
         reload=settings.DEBUG,
     )
-
