@@ -5,6 +5,7 @@ from sqlalchemy import Column, Integer, String
 from sqlalchemy.orm import relationship
 from app.db import Base
 
+
 class Sport(Base):
     """
     Classe Modèle Sport
@@ -20,12 +21,7 @@ class Sport(Base):
     # Note: Les backrefs sont définis dans Tournament.sport et TeamSport.sport
     tournaments = relationship("Tournament", cascade="all, delete-orphan")
     team_sports = relationship("TeamSport", cascade="all, delete-orphan")
-    courts = relationship(
-        "Court",
-        secondary="court_sport_association",
-        back_populates="sports"
-    )
-
+    courts = relationship("Court", back_populates="sport")
 
     # Représentation de l'objet
     def __repr__(self):

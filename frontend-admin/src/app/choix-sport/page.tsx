@@ -26,7 +26,7 @@ const formatScoreType = (scoreType: ApiScoreType): string => {
   }
 };
 
-export default function TournamentsPage() {
+export default function ChoixSport() {
   const [sports, setSports] = useState<Sport[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -118,7 +118,7 @@ export default function TournamentsPage() {
             {sports.map((sport) => (
               <Link
                 key={sport.id}
-                href={`/configuration-coupe/tournaments/${sport.id}`}
+                href={`/tournoi/${sport.id}`}
                 className="group"
               >
                 <div className="bg-white rounded-xl shadow-lg p-6 hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1 cursor-pointer border-2 border-transparent hover:border-blue-200">

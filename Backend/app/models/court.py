@@ -15,28 +15,26 @@ class Court(Base):
 
     id = Column(Integer, primary_key=True, index=True)  # Primary Key
     name = Column(String(100), nullable=False, index=True)  # Nom du terrain
+    sport_id = Column(Integer, ForeignKey("Sport.id"), nullable=True)  # Sport principal du terrain (optionnel)
     is_active = Column(Boolean, default=True)
 
     # Relations
-    sports = relationship(
-        "Sport",
-        secondary="court_sport_association",
-        back_populates="courts"
-    )
+    sport = relationship("Sport", back_populates="courts")
+    match_schedules = relationship("MatchSchedule", back_populates="court")
 
+    # Propriété pour calculer si le terrain est vraiment utilisé
+    @property
+    def has_active_matches(self):
+        """Vérifie si le terrain a des matchs programmés/en cours"""
+        from datetime import datetime
+        return any(
+            schedule.match.status in ["scheduled", "ongoing"] 
+            for schedule in self.match_schedules 
+            if schedule.scheduled_start_time > datetime.now()
+        )
 
     # Représentation de l'objet
     def __repr__(self):
         return (
-            f"<Court(id={self.id}, name='{self.name}', is_active={self.is_active})>"
+            f"<Court(id={self.id}, name='{self.name}', sport_id={self.sport_id}, is_active={self.is_active})>"
         )
-
-# Table d'association Many-to-Many : Court <-> Sport
-from sqlalchemy import Table
-
-court_sport_association = Table(
-    "court_sport_association",
-    Base.metadata,
-    Column("court_id", Integer, ForeignKey("Court.id"), primary_key=True),
-    Column("sport_id", Integer, ForeignKey("Sport.id"), primary_key=True)
-)

@@ -4,7 +4,7 @@ const links = [
   {
     href: "/configuration-coupe",
     title: "Configuration de la Coupe",
-    description: "Accéder à la configuration de la Coupe Universitaire UCL 2026",
+    description: "Accéder à la configuration",
     color: "bg-white hover:bg-blue-50",
     icon: (
       <svg
@@ -31,7 +31,7 @@ const links = [
     ),
   },
   {
-    href: "/staff/choix-sport",
+    href: "/choix-sport",
     title: "Choix du sport",
     description: "Accéder aux tournois et tableaux",
     color: "bg-white hover:bg-blue-50",
@@ -52,7 +52,7 @@ const links = [
     ),
   },
   {
-    href: "/staff/tableau-scores",
+    href: "/tableau-scores",
     title: "Tableau des scores finaux",
     description: "Filtrer par sport",
     color: "bg-white hover:bg-green-50",
@@ -73,7 +73,7 @@ const links = [
     ),
   },
   {
-    href: "/staff/scores-direct",
+    href: "/scores-direct",
     title: "Scores en direct",
     description: "Pour la technique",
     color: "bg-gradient-to-tr from-red-100 via-orange-100 to-yellow-100 hover:from-red-200 hover:via-orange-200 hover:to-yellow-200",
@@ -107,7 +107,7 @@ export default function StaffHome() {
         />
         <h1 className="text-4xl font-bold text-gray-800 mb-2">Interface STAFF</h1>
         <p className="text-gray-600 text-lg">
-          Accédez aux tableaux, scores et pages en direct
+          Accédez à la configuration des tournois, aux matchs en direct et au classements.
         </p>
       </header>
 
@@ -119,7 +119,7 @@ export default function StaffHome() {
           gap-8
           grid-cols-1
           sm:grid-cols-2
-          md:grid-cols-3
+          md:grid-cols-4
           p-2
           "
       >
@@ -154,6 +154,11 @@ export default function StaffHome() {
           </Link>
         ))}
       </section>
+
+      {/* Footer Copyright */}
+      <footer className="mt-16 text-center text-gray-600 text-sm">
+        <p>&copy; {new Date().getFullYear()} Coupe de l'Université. Tous droits réservés.</p>
+      </footer>
     </main>
   );
 }

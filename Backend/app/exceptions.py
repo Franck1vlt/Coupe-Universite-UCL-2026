@@ -55,6 +55,12 @@ class ConflictError(AppException):
         super().__init__(message, "CONFLICT", status.HTTP_409_CONFLICT)
 
 
+class BadRequestError(AppException):
+    """Mauvaise requête"""
+    def __init__(self, message: str = "Bad Request"):
+        super().__init__(message, "BAD_REQUEST", status.HTTP_400_BAD_REQUEST)
+
+
 def create_success_response(data=None, message: str = "Operation successful", status_code: int = 200):
     """
     Crée une réponse de succès standardisée

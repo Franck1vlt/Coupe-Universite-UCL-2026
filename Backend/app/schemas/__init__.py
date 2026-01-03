@@ -93,7 +93,6 @@ from app.schemas.court import (
     CourtCreate,
     CourtUpdate,
     CourtResponse,
-    CourtWithSports,
 )
 from app.schemas.player import (
     PlayerBase,
@@ -182,7 +181,6 @@ __all__ = [
     "CourtCreate",
     "CourtUpdate",
     "CourtResponse",
-    "CourtWithSports",
     # Player
     "PlayerBase",
     "PlayerCreate",

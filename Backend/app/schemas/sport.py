@@ -4,7 +4,6 @@ Schémas Pydantic pour Sport
 from typing import Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
-
 class SportBase(BaseModel):
     """Schéma de base pour Sport"""
     name: str = Field(..., max_length=100, description="Nom du sport")

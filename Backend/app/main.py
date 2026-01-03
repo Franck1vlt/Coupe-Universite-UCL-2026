@@ -5,6 +5,8 @@ Coupe de l'Université - Backend API
 
 import os
 import shutil
+import signal
+import asyncio
 from pathlib import Path
 
 from fastapi import (
@@ -29,6 +31,7 @@ from app.exceptions import (
     create_success_response,
     NotFoundError,
     ConflictError,
+    BadRequestError,
 )
 from app.middleware import (
     SecurityHeadersMiddleware,
@@ -47,11 +50,26 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
-    description="API REST pour la gestion de la Coupe Universitaire UCL 2026",
+    description="API REST pour la gestion de la Coupe de l'Université",
     docs_url="/docs" if settings.DEBUG else None,
     redoc_url="/redoc" if settings.DEBUG else None,
     openapi_url="/openapi.json" if settings.DEBUG else None,
 )
+
+# Variables globales pour gérer l'arrêt propre
+shutdown_event = None
+
+def signal_handler(signum, frame):
+    """Gestionnaire de signaux pour un arrêt propre"""
+    logger.info(f"Received signal {signum}")
+    if shutdown_event:
+        shutdown_event.set()
+
+# Installer les gestionnaires de signaux
+if hasattr(signal, 'SIGINT'):
+    signal.signal(signal.SIGINT, signal_handler)
+if hasattr(signal, 'SIGTERM'):
+    signal.signal(signal.SIGTERM, signal_handler)
 
 # CORS setup
 setup_cors(app, settings)
@@ -66,10 +84,6 @@ app.add_exception_handler(AppException, app_exception_handler)
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
 app.add_exception_handler(SQLAlchemyError, sqlalchemy_exception_handler)
 app.add_exception_handler(Exception, general_exception_handler)
-
-# Créer le dossier img s'il n'existe pas
-UPLOAD_DIR = Path("public/img")
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 @app.on_event("startup")
 async def startup_event():
@@ -88,7 +102,14 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     """Actions à effectuer à l'arrêt de l'application"""
-    logger.info("Shutting down application")
+    logger.info("Shutting down application gracefully...")
+    try:
+        # Ajouter ici toute logique de nettoyage nécessaire
+        # Par exemple: fermer les connexions, sauvegarder des données, etc.
+        await asyncio.sleep(0.1)  # Petit délai pour finir les tâches en cours
+        logger.info("Application shutdown complete")
+    except Exception as e:
+        logger.error(f"Error during shutdown: {e}")
 
 @app.get("/", tags=["General"])
 async def root():
@@ -100,7 +121,7 @@ async def root():
             "status": "running",
             "docs": "/docs" if settings.DEBUG else "disabled",
         },
-        message="Welcome to Coupe Universitaire UCL 2026 API"
+        message="Welcome to Coupe de l'Université API"
     )
 
 @app.get("/health", tags=["General"])
@@ -147,23 +168,49 @@ async def get_sports(
     """
     Liste tous les sports (avec pagination, filtres)
     """
-    query = db.query(Sport)
-    if name:
-        query = query.filter(Sport.name.ilike(f"%{name}%"))
-    if score_type:
-        query = query.filter(Sport.score_type == score_type)
-    total = query.count()
-    sports = query.offset(skip).limit(limit).all()
-    items = [SportResponse.model_validate(s).model_dump() for s in sports]
-    return create_success_response(
-        data={
-            "items": items,
-            "total": total,
-            "skip": skip,
-            "limit": limit,
-        },
-        message="Liste des sports récupérée avec succès"
-    )
+    try:
+        query = db.query(Sport)
+        if name:
+            query = query.filter(Sport.name.ilike(f"%{name}%"))
+        if score_type:
+            query = query.filter(Sport.score_type == score_type)
+        total = query.count()
+        sports = query.offset(skip).limit(limit).all()
+        
+        # Sérialisation manuelle pour éviter les erreurs de colonnes manquantes
+        items = []
+        for sport in sports:
+            sport_data = {
+                "id": sport.id,
+                "name": sport.name,
+                "score_type": sport.score_type
+            }
+            # Ajouter created_at seulement si la colonne existe
+            if hasattr(sport, 'created_at') and sport.created_at is not None:
+                sport_data["created_at"] = sport.created_at
+            items.append(sport_data)
+            
+        return create_success_response(
+            data={
+                "items": items,
+                "total": total,
+                "skip": skip,
+                "limit": limit,
+            },
+            message="Liste des sports récupérée avec succès"
+        )
+    except Exception as e:
+        logger.error(f"Error getting sports: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": {
+                    "code": "DATABASE_ERROR",
+                    "message": str(e) if settings.DEBUG else "Database error occurred"
+                }
+            }
+        )
 
 @app.get("/sports/{sport_id}", tags=["Sports"])
 async def get_sport_by_id(
@@ -171,13 +218,38 @@ async def get_sport_by_id(
     db: Session = Depends(get_db),
 ):
     """Récupère un sport par ID"""
-    sport = db.query(Sport).filter(Sport.id == sport_id).first()
-    if not sport:
-        raise NotFoundError(f"Sport with id {sport_id} not found")
-    return create_success_response(
-        data=SportResponse.model_validate(sport).model_dump(),
-        message="Sport récupéré avec succès"
-    )
+    try:
+        sport = db.query(Sport).filter(Sport.id == sport_id).first()
+        if not sport:
+            raise NotFoundError(f"Sport with id {sport_id} not found")
+        
+        # Sérialisation manuelle
+        sport_data = {
+            "id": sport.id,
+            "name": sport.name,
+            "score_type": sport.score_type
+        }
+        if hasattr(sport, 'created_at') and sport.created_at is not None:
+            sport_data["created_at"] = sport.created_at
+            
+        return create_success_response(
+            data=sport_data,
+            message="Sport récupéré avec succès"
+        )
+    except NotFoundError:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting sport {sport_id}: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": {
+                    "code": "DATABASE_ERROR",
+                    "message": str(e) if settings.DEBUG else "Database error occurred"
+                }
+            }
+        )
 
 @app.post(
     "/sports",
@@ -194,17 +266,42 @@ async def create_sport(
     """
     Crée un nouveau sport.
     """
-    existing = db.query(Sport).filter(Sport.name == name).first()
-    if existing:
-        raise HTTPException(status_code=400, detail=f"Un sport nommé '{name}' existe déjà.")
-    sport = Sport(name=name, score_type=score_type)
-    db.add(sport)
-    db.commit()
-    db.refresh(sport)
-    return create_success_response(
-        data=SportResponse.model_validate(sport).model_dump(),
-        message="Sport créé avec succès"
-    )
+    try:
+        existing = db.query(Sport).filter(Sport.name == name).first()
+        if existing:
+            raise HTTPException(status_code=400, detail=f"Un sport nommé '{name}' existe déjà.")
+        sport = Sport(name=name, score_type=score_type)
+        db.add(sport)
+        db.commit()
+        db.refresh(sport)
+        
+        # Sérialisation manuelle
+        sport_data = {
+            "id": sport.id,
+            "name": sport.name,
+            "score_type": sport.score_type
+        }
+        if hasattr(sport, 'created_at') and sport.created_at is not None:
+            sport_data["created_at"] = sport.created_at
+            
+        return create_success_response(
+            data=sport_data,
+            message="Sport créé avec succès"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating sport: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": {
+                    "code": "DATABASE_ERROR",
+                    "message": str(e) if settings.DEBUG else "Database error occurred"
+                }
+            }
+        )
 
 @app.put(
     "/sports/{sport_id}",
@@ -221,32 +318,48 @@ async def update_sport(
     """
     Modifie un sport existant.
     """
-    sport = db.query(Sport).filter(Sport.id == sport_id).first()
-    if not sport:
-        raise NotFoundError(f"Sport with id {sport_id} not found")
-    # Si le nom est modifié, vérifier unicité
-    if name is not None and name != sport.name:
-        existing = db.query(Sport).filter(Sport.name == name).first()
-        if existing:
-            raise BadRequestError(f"Un sport nommé '{name}' existe déjà.")
-        sport.name = name
-    if score_type is not None:
-        sport.score_type = score_type
-    db.commit()
-    db.refresh(sport)
     try:
+        sport = db.query(Sport).filter(Sport.id == sport_id).first()
+        if not sport:
+            raise NotFoundError(f"Sport with id {sport_id} not found")
+        # Si le nom est modifié, vérifier unicité
+        if name is not None and name != sport.name:
+            existing = db.query(Sport).filter(Sport.name == name).first()
+            if existing:
+                raise BadRequestError(f"Un sport nommé '{name}' existe déjà.")
+            sport.name = name
+        if score_type is not None:
+            sport.score_type = score_type
+        db.commit()
+        db.refresh(sport)
+        
+        # Sérialisation manuelle
+        sport_data = {
+            "id": sport.id,
+            "name": sport.name,
+            "score_type": sport.score_type
+        }
+        if hasattr(sport, 'created_at') and sport.created_at is not None:
+            sport_data["created_at"] = sport.created_at
+            
         return create_success_response(
-            data=SportResponse.model_validate(sport).model_dump(),
+            data=sport_data,
             message="Sport modifié avec succès"
         )
-    except Exception:
-        return {
-            "success": False,
-            "error": {
-                "code": "INTERNAL_SERVER_ERROR",
-                "message": "Object of type SportResponse is not JSON serializable"
+    except (NotFoundError, BadRequestError):
+        raise
+    except Exception as e:
+        logger.error(f"Error updating sport {sport_id}: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": {
+                    "code": "DATABASE_ERROR",
+                    "message": str(e) if settings.DEBUG else "Database error occurred"
+                }
             }
-        }
+        )
 
 @app.delete(
     "/sports/{sport_id}",
@@ -418,43 +531,6 @@ async def delete_team(
         data={"deleted_id": team_id},
         message="Équipe supprimée avec succès"
     )
-
-@app.post("/upload-logo", tags=["Teams"])
-async def upload_logo(file: UploadFile = File(...)):
-    """
-    Endpoint pour uploader un logo d'équipe
-    Retourne l'URL relative du fichier sauvegardé
-    """
-    try:
-        # Vérifier le type de fichier
-        if file.content_type not in ["image/png", "image/jpeg", "image/jpg"]:
-            raise HTTPException(
-                status_code=400,
-                detail="Format de fichier non autorisé. Utilisez PNG, JPG ou JPEG."
-            )
-        # Nettoyer le nom du fichier
-        filename = file.filename.replace(" ", "_")
-        file_path = UPLOAD_DIR / filename
-        # Vérifier si le fichier existe déjà
-        counter = 1
-        original_filename = filename
-        while file_path.exists():
-            name, ext = os.path.splitext(original_filename)
-            filename = f"{name}_{counter}{ext}"
-            file_path = UPLOAD_DIR / filename
-            counter += 1
-        # Sauvegarder le fichier
-        with file_path.open("wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-        # Retourner l'URL relative
-        logo_url = f"/img/{filename}"
-        return {
-            "success": True,
-            "logo_url": logo_url,
-            "message": "Logo uploadé avec succès"
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erreur lors de l'upload : {str(e)}")
 
 # --- Inscriptions d'équipe à un ou plusieurs sports ---
 from app.models.teamsport import TeamSport
@@ -702,14 +778,36 @@ from app.models.sport import Sport
 
 @app.get("/courts", status_code=status.HTTP_200_OK, tags=["Courts"])
 async def get_courts(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    """Liste tous les terrains"""
-    courts = db.query(Court).offset(skip).limit(limit).all()
-    total = db.query(Court).count()
-    return create_success_response(
-        data={"items": [CourtResponse.model_validate(c).model_dump() for c in courts],
-              "total": total, "skip": skip, "limit": limit},
-        message="Liste des terrains récupérée avec succès"
-    )
+    """Liste tous les terrains avec pagination"""
+    try:
+        courts = db.query(Court).offset(skip).limit(limit).all()
+        total = db.query(Court).count()
+        
+        return create_success_response(
+            data={
+                "items": [CourtResponse.model_validate(c).model_dump() for c in courts],
+                "total": total, 
+                "skip": skip, 
+                "limit": limit
+            },
+            message="Liste des terrains récupérée avec succès"
+        )
+    except Exception as e:
+        logger.error(f"Error fetching courts: {str(e)}")
+        raise
+
+@app.get("/courts/sports", status_code=status.HTTP_200_OK, tags=["Courts"])
+async def get_available_sports_for_courts(db: Session = Depends(get_db)):
+    """Liste tous les sports disponibles pour les terrains"""
+    try:
+        sports = db.query(Sport).all()
+        return create_success_response(
+            data=[{"id": s.id, "name": s.name, "score_type": s.score_type} for s in sports],
+            message="Liste des sports disponibles récupérée avec succès"
+        )
+    except Exception as e:
+        logger.error(f"Error fetching sports: {str(e)}")
+        raise
 
 @app.get("/courts/{court_id}", status_code=status.HTTP_200_OK, tags=["Courts"])
 async def get_court_by_id(court_id: int, db: Session = Depends(get_db)):
@@ -725,92 +823,156 @@ async def get_court_by_id(court_id: int, db: Session = Depends(get_db)):
 @app.post("/courts", status_code=status.HTTP_201_CREATED, tags=["Courts"])
 async def create_court(
     name: str = Query(..., description="Nom du terrain"),
-    is_active: bool = Query(..., description="Le terrain est-il utilisé ?"),
-    sports: Optional[List[int]] = Body(default=None, description="Liste des ids des sports associés (peut être vide)"),
+    sport_id: Optional[int] = Query(None, description="ID du sport principal associé (optionnel)"),
+    is_active: bool = Query(True, description="Le terrain est-il actif ?"),
     db: Session = Depends(get_db),
 ):
-    court = Court(name=name, is_active=is_active)
-    if sports:
-        found_sports = db.query(Sport).filter(Sport.id.in_(sports)).all()
-        existing_ids = {s.id for s in found_sports}
-        missing = set(sports) - existing_ids
-        if missing:
-            raise NotFoundError(f"Sport(s) introuvable(s) : {missing}")
-        court.sports = found_sports
-    db.add(court)
-    db.commit()
-    db.refresh(court)
-    return create_success_response(
-        data=CourtResponse.model_validate(court).model_dump(),
-        message="Terrain créé avec succès"
-    )
+    """Crée un nouveau terrain"""
+    try:
+        # Vérifier que le sport existe si fourni
+        if sport_id:
+            sport = db.query(Sport).filter(Sport.id == sport_id).first()
+            if not sport:
+                raise NotFoundError(f"Sport avec l'ID {sport_id} introuvable")
+        
+        # Vérifier l'unicité du nom
+        existing = db.query(Court).filter(Court.name == name).first()
+        if existing:
+            raise ConflictError(f"Un terrain avec le nom '{name}' existe déjà")
+        
+        court = Court(name=name, sport_id=sport_id, is_active=is_active)
+        db.add(court)
+        db.commit()
+        db.refresh(court)
+        
+        return create_success_response(
+            data=CourtResponse.model_validate(court).model_dump(),
+            message="Terrain créé avec succès"
+        )
+    except Exception as e:
+        logger.error(f"Error creating court: {str(e)}")
+        raise
 
 @app.put("/courts/{court_id}", status_code=status.HTTP_200_OK, tags=["Courts"])
 async def update_court(
     court_id: int,
     name: Optional[str] = Query(None, description="Nom du terrain"),
-    is_active: Optional[bool] = Query(None, description="Le terrain est-il utilisé ?"),
-    sports: Optional[List[int]] = Body(default=None, description="Liste des ids des sports associés (peut être vide)"),
+    sport_id: Optional[int] = Query(None, description="ID du sport principal associé (optionnel, -1 pour supprimer)"),
+    is_active: Optional[bool] = Query(None, description="Le terrain est-il actif ?"),
     db: Session = Depends(get_db),
 ):
-    court = db.query(Court).filter(Court.id == court_id).first()
-    if not court:
-        raise NotFoundError(f"Court {court_id} introuvable")
-    if name is not None:
-        court.name = name
-    if is_active is not None:
-        court.is_active = is_active
-    if sports is not None:
-        found_sports = db.query(Sport).filter(Sport.id.in_(sports)).all()
-        existing_ids = {s.id for s in found_sports}
-        missing = set(sports) - existing_ids
-        if missing:
-            raise NotFoundError(f"Sport(s) introuvable(s) : {missing}")
-        court.sports = found_sports
-    db.commit()
-    db.refresh(court)
-    return create_success_response(
-        data=CourtResponse.model_validate(court).model_dump(),
-        message="Terrain modifié avec succès"
-    )
+    """Met à jour un terrain existant"""
+    try:
+        court = db.query(Court).filter(Court.id == court_id).first()
+        if not court:
+            raise NotFoundError(f"Terrain avec l'ID {court_id} introuvable")
+        
+        if name is not None:
+            # Vérifier l'unicité du nom (sauf pour le terrain actuel)
+            existing = db.query(Court).filter(
+                Court.name == name, Court.id != court_id
+            ).first()
+            if existing:
+                raise ConflictError(f"Un autre terrain avec le nom '{name}' existe déjà")
+            court.name = name
+            
+        if sport_id is not None:
+            if sport_id == -1:
+                # -1 signifie supprimer l'association
+                court.sport_id = None
+            else:
+                # Vérifier que le sport existe
+                sport = db.query(Sport).filter(Sport.id == sport_id).first()
+                if not sport:
+                    raise NotFoundError(f"Sport avec l'ID {sport_id} introuvable")
+                court.sport_id = sport_id
+                
+        if is_active is not None:
+            court.is_active = is_active
+        
+        db.commit()
+        db.refresh(court)
+        
+        return create_success_response(
+            data=CourtResponse.model_validate(court).model_dump(),
+            message="Terrain modifié avec succès"
+        )
+    except Exception as e:
+        logger.error(f"Error updating court: {str(e)}")
+        raise
 
 @app.patch("/courts/{court_id}", status_code=status.HTTP_200_OK, tags=["Courts"])
 async def partial_update_court(court_id: int, payload: CourtUpdate, db: Session = Depends(get_db)):
     """
-    Modifie partiellement un terrain (ex : actif). 
+    Modifie partiellement un terrain
     """
-    court = db.query(Court).filter(Court.id == court_id).first()
-    if not court:
-        raise NotFoundError(f"Court {court_id} introuvable")
-    if payload.name is not None:
-        court.name = payload.name
-    if payload.is_active is not None:
-        court.is_active = payload.is_active
-    if payload.sports is not None:
-        sports = db.query(Sport).filter(Sport.id.in_(payload.sports)).all()
-        existing_ids = {s.id for s in sports}
-        missing = set(payload.sports) - existing_ids
-        if missing:
-            raise NotFoundError(f"Sport(s) introuvable(s) : {missing}")
-        court.sports = sports
-    db.commit()
-    db.refresh(court)
-    return create_success_response(
-        data=CourtResponse.model_validate(court).model_dump(),
-        message="Terrain partiellement modifié avec succès"
-    )
+    try:
+        court = db.query(Court).filter(Court.id == court_id).first()
+        if not court:
+            raise NotFoundError(f"Terrain avec l'ID {court_id} introuvable")
+        
+        if payload.name is not None:
+            # Vérifier l'unicité du nom
+            existing = db.query(Court).filter(
+                Court.name == payload.name, Court.id != court_id
+            ).first()
+            if existing:
+                raise ConflictError(f"Un autre terrain avec le nom '{payload.name}' existe déjà")
+            court.name = payload.name
+            
+        if payload.sport_id is not None:
+            # Vérifier que le sport existe
+            sport = db.query(Sport).filter(Sport.id == payload.sport_id).first()
+            if not sport:
+                raise NotFoundError(f"Sport avec l'ID {payload.sport_id} introuvable")
+            court.sport_id = payload.sport_id
+            
+        if payload.is_active is not None:
+            court.is_active = payload.is_active
+        
+        db.commit()
+        db.refresh(court)
+        
+        return create_success_response(
+            data=CourtResponse.model_validate(court).model_dump(),
+            message="Terrain partiellement modifié avec succès"
+        )
+    except Exception as e:
+        logger.error(f"Error updating court: {str(e)}")
+        raise
 
 @app.delete("/courts/{court_id}", status_code=status.HTTP_200_OK, tags=["Courts"])
 async def delete_court(court_id: int, db: Session = Depends(get_db)):
     """
-    Supprime un terrain.
+    Supprime un terrain
     """
-    court = db.query(Court).filter(Court.id == court_id).first()
-    if not court:
-        raise NotFoundError(f"Court {court_id} introuvable")
-    db.delete(court)
-    db.commit()
-    return create_success_response(message="Terrain supprimé avec succès")
+    try:
+        court = db.query(Court).filter(Court.id == court_id).first()
+        if not court:
+            raise NotFoundError(f"Terrain avec l'ID {court_id} introuvable")
+        
+        # Vérifier s'il y a des matchs programmés sur ce terrain
+        if hasattr(court, 'match_schedules') and court.match_schedules:
+            from datetime import datetime
+            future_matches = [
+                schedule for schedule in court.match_schedules 
+                if schedule.scheduled_start_time > datetime.now()
+            ]
+            if future_matches:
+                raise ConflictError(
+                    f"Impossible de supprimer le terrain : {len(future_matches)} match(s) programmé(s)"
+                )
+        
+        db.delete(court)
+        db.commit()
+        
+        return create_success_response(
+            data={"deleted_id": court_id},
+            message="Terrain supprimé avec succès"
+        )
+    except Exception as e:
+        logger.error(f"Error deleting court: {str(e)}")
+        raise
 
 # --- Tournois ---
 from app.models.tournament import Tournament
@@ -1090,9 +1252,24 @@ async def get_match_set(set_id: int, db: Session = Depends(get_db)):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(
-        "app.main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=settings.DEBUG,
-    )
+    import sys
+    from pathlib import Path
+    
+    # Ajouter le répertoire parent (Backend) au PYTHONPATH
+    backend_dir = Path(__file__).parent.parent
+    if str(backend_dir) not in sys.path:
+        sys.path.insert(0, str(backend_dir))
+    
+    try:
+        uvicorn.run(
+            "app.main:app",
+            host="127.0.0.1",
+            port=8000,
+            reload=settings.DEBUG,
+            log_level="info",
+        )
+    except KeyboardInterrupt:
+        logger.info("Application interrupted by user")
+    except Exception as e:
+        logger.error(f"Application failed to start: {e}")
+        raise

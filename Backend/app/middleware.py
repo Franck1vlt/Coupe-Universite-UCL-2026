@@ -59,11 +59,20 @@ class LoggingMiddleware(BaseHTTPMiddleware):
             return response
         except Exception as e:
             process_time = time.time() - start_time
-            logger.error(
-                f"Error: {request.method} {request.url.path} - "
-                f"Exception: {str(e)} - "
-                f"Time: {process_time:.3f}s"
-            )
+            
+            # Gestion spéciale pour les interruptions asyncio
+            if isinstance(e, (KeyboardInterrupt, SystemExit)):
+                logger.info(f"Application shutdown requested during {request.method} {request.url.path}")
+                raise
+            elif "CancelledError" in str(type(e).__name__):
+                logger.debug(f"Request cancelled: {request.method} {request.url.path}")
+                raise
+            else:
+                logger.error(
+                    f"Error: {request.method} {request.url.path} - "
+                    f"Exception: {str(e)} - "
+                    f"Time: {process_time:.3f}s"
+                )
             raise
 
 

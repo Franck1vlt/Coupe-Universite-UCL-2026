@@ -9,6 +9,7 @@ type Sport = {
   id: number;
   name: string;
   score_type: ApiScoreType;
+  created_at: string; // Format ISO string de la date
 };
 
 const TYPES_SCORE: { ui: TypeScore; api: ApiScoreType }[] = [
@@ -41,6 +42,26 @@ function apiToUiScoreType(api: ApiScoreType): TypeScore {
       return "Points";
   }
 }
+
+// Fonction pour formater la date en français
+const formatDate = (dateString: string): string => {
+  try {
+    if (!dateString) {
+      return new Date().toLocaleDateString('fr-FR'); // Date du jour par défaut
+    }
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) {
+      return new Date().toLocaleDateString('fr-FR'); // Date du jour par défaut
+    }
+    return date.toLocaleDateString('fr-FR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric'
+    });
+  } catch {
+    return new Date().toLocaleDateString('fr-FR'); // Date du jour par défaut
+  }
+};
 
 export default function GestionSports() {
   const [sports, setSports] = useState<Sport[]>([]);
@@ -278,21 +299,24 @@ export default function GestionSports() {
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                 Type de scores
               </th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                Créé le
+              </th>
               <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">
-                {/* Suppression */}
+                {/* Actions */}
               </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {loading ? (
               <tr>
-                <td colSpan={4} className="px-6 py-4 text-gray-500 italic text-center">
+                <td colSpan={5} className="px-6 py-4 text-gray-500 italic text-center">
                   Chargement...
                 </td>
               </tr>
             ) : sports.length === 0 ? (
               <tr>
-                <td className="px-6 py-4 text-gray-500 italic text-center" colSpan={4}>
+                <td className="px-6 py-4 text-gray-500 italic text-center" colSpan={5}>
                   Aucun sport pour le moment.
                 </td>
               </tr>
@@ -331,6 +355,9 @@ export default function GestionSports() {
                     ) : (
                       apiToUiScoreType(sport.score_type)
                     )}
+                  </td>
+                  <td className="px-4 py-4 whitespace-nowrap text-gray-600 text-sm">
+                    {formatDate(sport.created_at)}
                   </td>
                   <td className="px-4 py-4 whitespace-nowrap text-center relative">
                     {editMode === sport.id ? (
