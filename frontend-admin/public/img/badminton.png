@@ -1,0 +1,8 @@
+// Il faut copier/télécharger une image de volant de badminton et la placer dans ce répertoire
+// Si le dossier img n'existe pas, créez-le dans le dossier public
+// Vous pouvez télécharger une image simple de volant de badminton et la nommer badminton.png
+// OU copier l'image depuis un autre sport si elle existe déjà
+
+// Cette image devrait être identique à celle du dossier badminton
+// Copiez simplement le fichier badminton.png du dossier badminton vers ce dossier
+// Ou téléchargez-en une nouvelle depuis https://www.flaticon.com/free-icon/shuttlecock_2151193

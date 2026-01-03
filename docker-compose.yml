@@ -1,0 +1,48 @@
+version: "3.9"
+
+services:
+  backend:
+    container_name: coupe-backend
+    build: ./backend
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data
+    environment:
+      - DATABASE_PATH=/app/data/database.db
+    ports:
+      - "8000:8000"
+
+  frontend-public:
+    container_name: coupe-frontend-public
+    build: ./frontend-public
+    restart: unless-stopped
+    ports:
+      - "5150:5150"
+
+  frontend-admin:
+    container_name: coupe-frontend-admin
+    build: ./frontend-admin
+    restart: unless-stopped
+    expose:
+      - "5050:5050"
+
+  nginx:
+    container_name: coupe-nginx
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "5150:5150"
+      - "5050:5050"
+      - "8000:8000"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/certs:/etc/nginx/certs
+    depends_on:
+      - backend
+      - frontend-public
+      - frontend-admin
+
+volumes:
+  data:
