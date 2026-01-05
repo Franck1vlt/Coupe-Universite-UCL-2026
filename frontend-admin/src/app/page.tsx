@@ -32,7 +32,7 @@ const links = [
   },
   {
     href: "/choix-sport",
-    title: "Choix du sport",
+    title: "Tournois et tableaux",
     description: "Accéder aux tournois et tableaux",
     color: "bg-white hover:bg-blue-50",
     icon: (

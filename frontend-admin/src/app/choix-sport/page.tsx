@@ -116,44 +116,48 @@ export default function ChoixSport() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             {sports.map((sport) => (
-              <Link
+              <div
                 key={sport.id}
-                href={`/tournoi/${sport.id}`}
-                className="group"
+                className="group bg-white rounded-xl shadow-lg p-6 hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1 border-2 border-transparent hover:border-blue-200 flex flex-col items-center text-center"
               >
-                <div className="bg-white rounded-xl shadow-lg p-6 hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1 cursor-pointer border-2 border-transparent hover:border-blue-200">
-                  <div className="flex flex-col items-center text-center">
-                    {/* Icône du sport */}
-                    <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mb-4 group-hover:bg-blue-200 transition-colors">
-                      <svg 
-                        className="w-8 h-8 text-blue-600" 
-                        fill="none" 
-                        viewBox="0 0 24 24" 
-                        stroke="currentColor"
-                      >
-                        <path 
-                          strokeLinecap="round" 
-                          strokeLinejoin="round" 
-                          strokeWidth={2} 
-                          d="M13 10V3L4 14h7v7l9-11h-7z" 
-                        />
-                      </svg>
-                    </div>
-                    
-                    <h3 className="text-xl font-bold text-gray-800 mb-2 group-hover:text-blue-600 transition-colors">
-                      {sport.name}
-                    </h3>
-                    
-                    <p className="text-gray-600 text-sm mb-3">
-                      Type de score : {formatScoreType(sport.score_type)}
-                    </p>
-                    
-                    <div className="flex items-center gap-2 text-xs text-gray-500">
-                      <span>Sport #{sport.id}</span>
-                    </div>
-                  </div>
+                {/* Icône du sport */}
+                <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mb-4 group-hover:bg-blue-200 transition-colors">
+                  <svg 
+                    className="w-8 h-8 text-blue-600" 
+                    fill="none" 
+                    viewBox="0 0 24 24" 
+                    stroke="currentColor"
+                  >
+                    <path 
+                      strokeLinecap="round" 
+                      strokeLinejoin="round" 
+                      strokeWidth={2} 
+                      d="M13 10V3L4 14h7v7l9-11h-7z" 
+                    />
+                  </svg>
                 </div>
-              </Link>
+
+                <h3 className="text-xl font-bold text-gray-800 mb-2 group-hover:text-blue-600 transition-colors">
+                  {sport.name}
+                </h3>
+
+                <p className="text-gray-600 text-sm mb-3">
+                  Type de score : {formatScoreType(sport.score_type)}
+                </p>
+
+                <div className="flex items-center gap-2 text-xs text-gray-500 mb-4">
+                  <span>Sport #{sport.id}</span>
+                </div>
+
+                <div className="mt-auto flex flex-col gap-2 w-full">
+                  <Link
+                    href={`/choix-sport/tournaments/${sport.id}`}
+                    className="w-full inline-flex items-center justify-center px-3 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors"
+                  >
+                    Vue du tournoi
+                  </Link>
+                </div>
+              </div>
             ))}
           </div>
         )}
