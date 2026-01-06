@@ -165,4 +165,118 @@ class MatchService(BaseService[Match]):
         self.db.refresh(match)
         
         return match
+    
+    def update_pool_rankings(self, pool_id: int) -> None:
+        """
+        Met à jour le classement (rankings) d'une poule en fonction des résultats des matchs
+        
+        Args:
+            pool_id: L'ID de la poule
+        """
+        from app.models.pool import Pool
+        from app.models.teampool import TeamPool
+        
+        # Récupérer la poule et ses équipes
+        pool = self.db.query(Pool).filter(Pool.id == pool_id).first()
+        if not pool:
+            raise NotFoundError("Pool", str(pool_id))
+        
+        team_pools = self.db.query(TeamPool).filter(TeamPool.pool_id == pool_id).all()
+        
+        # Récupérer tous les matchs complétés de la poule
+        completed_matches = self.db.query(Match).filter(
+            Match.pool_id == pool_id,
+            Match.status == "completed",
+            Match.score_a.isnot(None),
+            Match.score_b.isnot(None)
+        ).all()
+        
+        # Réinitialiser les stats de toutes les équipes de la poule
+        for team_pool in team_pools:
+            team_pool.points = 0
+            team_pool.wins = 0
+            team_pool.losses = 0
+            team_pool.draws = 0
+            team_pool.goals_for = 0
+            team_pool.goals_against = 0
+            team_pool.goal_difference = 0
+        
+        # Traiter chaque match complété
+        for match in completed_matches:
+            if match.team_sport_a_id is None or match.team_sport_b_id is None:
+                continue
+            
+            # Récupérer les TeamPool pour les deux équipes
+            from app.models.teamsport import TeamSport
+            team_sport_a = self.db.query(TeamSport).filter(
+                TeamSport.id == match.team_sport_a_id
+            ).first()
+            team_sport_b = self.db.query(TeamSport).filter(
+                TeamSport.id == match.team_sport_b_id
+            ).first()
+            
+            if not team_sport_a or not team_sport_b:
+                continue
+            
+            team_pool_a = self.db.query(TeamPool).filter(
+                TeamPool.pool_id == pool_id,
+                TeamPool.team_id == team_sport_a.team_id
+            ).first()
+            team_pool_b = self.db.query(TeamPool).filter(
+                TeamPool.pool_id == pool_id,
+                TeamPool.team_id == team_sport_b.team_id
+            ).first()
+            
+            if not team_pool_a or not team_pool_b:
+                continue
+            
+            score_a = match.score_a
+            score_b = match.score_b
+            
+            # Mettre à jour les buts
+            team_pool_a.goals_for += score_a
+            team_pool_a.goals_against += score_b
+            team_pool_b.goals_for += score_b
+            team_pool_b.goals_against += score_a
+            
+            # Déterminer le résultat et mettre à jour les points et stats
+            if score_a > score_b:
+                # Équipe A gagne
+                team_pool_a.wins += 1
+                team_pool_a.points += 3
+                team_pool_b.losses += 1
+            elif score_b > score_a:
+                # Équipe B gagne
+                team_pool_b.wins += 1
+                team_pool_b.points += 3
+                team_pool_a.losses += 1
+            else:
+                # Match nul
+                team_pool_a.draws += 1
+                team_pool_a.points += 1
+                team_pool_b.draws += 1
+                team_pool_b.points += 1
+        
+        # Calculer la différence de buts et le classement
+        team_pools_list = []
+        for team_pool in team_pools:
+            team_pool.goal_difference = team_pool.goals_for - team_pool.goals_against
+            team_pools_list.append(team_pool)
+        
+        # Trier les équipes selon les critères de classement
+        # Critères: points (desc), différence de buts (desc), buts marqués (desc), nom d'équipe (asc)
+        team_pools_list.sort(
+            key=lambda x: (
+                -x.points,
+                -x.goal_difference,
+                -x.goals_for,
+                x.team.name.lower() if x.team else ""
+            )
+        )
+        
+        # Assigner les positions
+        for position, team_pool in enumerate(team_pools_list, start=1):
+            team_pool.position = position
+        
+        self.db.commit()
 

@@ -94,10 +94,54 @@ type Court = {
   name: string;
 };
 
+// Fonction helper pour obtenir les équipes utilisées par phase
+const getUsedTeamsByPhase = (
+  matches: Match[], 
+  pools: Pool[], 
+  brackets: Bracket[], 
+  loserBrackets: LoserBracket[],
+  currentPhaseType: 'qualification' | 'pool' | 'bracket' | 'loser-bracket',
+  currentPhaseId?: string
+) => {
+  const usedTeams = {
+    qualifications: new Set<string>(),
+    pools: new Set<string>(),
+    brackets: new Set<string>(),
+    loserBrackets: new Set<string>()
+  };
+
+  // Équipes dans les matchs de qualification
+  matches.filter(m => m.type === "qualifications").forEach(match => {
+    if (match.teamA) usedTeams.qualifications.add(match.teamA);
+    if (match.teamB) usedTeams.qualifications.add(match.teamB);
+  });
+
+  // Équipes dans les poules (sauf la poule actuelle si on la modifie)
+  pools.forEach(pool => {
+    if (currentPhaseType === 'pool' && pool.id === currentPhaseId) return;
+    pool.teams.forEach(team => usedTeams.pools.add(team));
+  });
+
+  // Équipes dans les brackets (sauf le bracket actuel si on le modifie)
+  brackets.forEach(bracket => {
+    if (currentPhaseType === 'bracket' && bracket.id === currentPhaseId) return;
+    bracket.teams.forEach(team => usedTeams.brackets.add(team));
+  });
+
+  // Équipes dans les loser brackets (sauf le loser bracket actuel si on le modifie)
+  loserBrackets.forEach(lb => {
+    if (currentPhaseType === 'loser-bracket' && lb.id === currentPhaseId) return;
+    lb.teams.forEach(team => usedTeams.loserBrackets.add(team));
+  });
+
+  return usedTeams;
+};
+
 export default function TournamentsPage() {
   const router = useRouter();
   const params = useParams();
   const [sport, setSport] = useState<Sport | null>(null);
+  const [tournamentId, setTournamentId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingTeams, setLoadingTeams] = useState(true);
   const [loadingCourts, setLoadingCourts] = useState(true);
@@ -117,6 +161,7 @@ export default function TournamentsPage() {
   const [showAddMatch, setShowAddMatch] = useState(false);
   const [draggedMatch, setDraggedMatch] = useState<string | null>(null);
   const [isDraggingFromPalette, setIsDraggingFromPalette] = useState(false);
+  const [nextMatchId, setNextMatchId] = useState(1); // Compteur pour les IDs de matchs
 
   const qualificationMatchesCount = matches.filter(m => m.type === "qualifications").length;
 
@@ -171,28 +216,171 @@ export default function TournamentsPage() {
     fetchTeams();
     fetchCourts();
 
-    if (typeof window !== "undefined" && params.id && typeof params.id === "string") {
-      try {
-        const raw = window.localStorage.getItem(`tournament-layout-${params.id}`);
-        if (raw) {
-          const parsed = JSON.parse(raw) as { matches?: Match[]; pools?: Pool[]; brackets?: Bracket[]; loserBrackets?: LoserBracket[] };
-          if (Array.isArray(parsed.matches)) {
-            setMatches(parsed.matches);
+    if (params.id && typeof params.id === "string") {
+      // Essayer de charger depuis l'API d'abord
+      const loadFromAPI = async () => {
+        try {
+          // Charger tous les tournois et trouver celui qui correspond au sport
+          const response = await fetch(`http://localhost:8000/tournaments`);
+          if (response.ok) {
+            const data = await response.json();
+            console.log("📥 Données API tournois:", data);
+            if (data.success && data.data && Array.isArray(data.data.items)) {
+              // Chercher le tournoi pour ce sport
+              const tournament = data.data.items.find((t: any) => t.sport_id === parseInt(params.id as string));
+              
+              if (tournament) {
+                console.log("📥 Tournoi trouvé:", tournament);
+                setTournamentId(tournament.id);
+                
+                // Charger la structure du tournoi
+                const structureResponse = await fetch(`http://localhost:8000/tournaments/${tournament.id}/structure`);
+                if (structureResponse.ok) {
+                  const structureData = await structureResponse.json();
+                  if (structureData.success && structureData.data) {
+                    console.log("📥 Chargement depuis l'API:", structureData.data);
+              
+              // Convertir les matchs de qualification
+              const apiQualificationMatches: Match[] = (structureData.data.qualification_matches || []).map((m: any) => ({
+                id: m.id.toString(),
+                teamA: m.team_a_source || "",
+                teamB: m.team_b_source || "",
+                date: "",
+                time: "",
+                court: "",
+                status: m.status === "upcoming" ? "planifié" : 
+                        m.status === "in_progress" ? "en-cours" :
+                        m.status === "completed" ? "terminé" : "planifié",
+                duration: 30,
+                type: "qualifications" as MatchType,
+                scoreA: m.score_a,
+                scoreB: m.score_b,
+                winnerCode: m.label,
+                position: { x: 100, y: 100 + (m.match_order || 0) * 100 },
+              }));
+
+              // Convertir les poules
+              const apiPools: Pool[] = (structureData.data.pools || []).map((p: any) => ({
+                id: p.id.toString(),
+                name: p.name,
+                teams: [], // Les équipes seront récupérées séparément si nécessaire
+                matches: (p.matches || []).map((m: any) => ({
+                  id: m.id.toString(),
+                  teamA: m.team_a_source || "",
+                  teamB: m.team_b_source || "",
+                  date: "",
+                  time: "",
+                  court: "",
+                  status: m.status === "upcoming" ? "planifié" : 
+                          m.status === "in_progress" ? "en-cours" :
+                          m.status === "completed" ? "terminé" : "planifié",
+                  duration: 30,
+                  type: "poule" as MatchType,
+                  scoreA: m.score_a,
+                  scoreB: m.score_b,
+                  position: { x: 0, y: 0 },
+                })),
+                position: { x: 100, y: 100 },
+                qualifiedToFinals: p.qualified_to_finals || 2,
+                qualifiedToLoserBracket: p.qualified_to_loser_bracket || 0,
+              }));
+
+              // Convertir les brackets
+              const apiBrackets: Bracket[] = [];
+              if (structureData.data.bracket_matches && structureData.data.bracket_matches.length > 0) {
+                const bracketMatches = structureData.data.bracket_matches.map((m: any) => ({
+                  id: m.id.toString(),
+                  teamA: m.team_a_source || "",
+                  teamB: m.team_b_source || "",
+                  date: "",
+                  time: "",
+                  court: "",
+                  status: m.status === "upcoming" ? "planifié" : 
+                          m.status === "in_progress" ? "en-cours" :
+                          m.status === "completed" ? "terminé" : "planifié",
+                  duration: 30,
+                  type: "phase-finale" as MatchType,
+                  scoreA: m.score_a,
+                  scoreB: m.score_b,
+                  bracketMatchType: m.bracket_type as BracketMatchType,
+                  winnerCode: m.label,
+                  position: { x: 0, y: 0 },
+                }));
+                
+                apiBrackets.push({
+                  id: "bracket-1",
+                  name: "Phase Finale",
+                  enabledRounds: [],
+                  teams: [],
+                  matches: bracketMatches,
+                  position: { x: 500, y: 100 },
+                  loserToLoserBracket: false,
+                });
+              }
+
+              // Convertir les loser brackets
+              const apiLoserBrackets: LoserBracket[] = [];
+              if (data.data.loser_bracket_matches && data.data.loser_bracket_matches.length > 0) {
+                const loserMatches = data.data.loser_bracket_matches.map((m: any) => ({
+                  id: m.id.toString(),
+                  teamA: m.team_a_source || "",
+                  teamB: m.team_b_source || "",
+                  date: "",
+                  time: "",
+                  court: "",
+                  status: m.status === "upcoming" ? "planifié" : 
+                          m.status === "in_progress" ? "en-cours" :
+                          m.status === "completed" ? "terminé" : "planifié",
+                  duration: 30,
+                  type: "loser-bracket" as MatchType,
+                  scoreA: m.score_a,
+                  scoreB: m.score_b,
+                  loserBracketMatchType: m.bracket_type as LoserBracketMatchType,
+                  position: { x: 0, y: 0 },
+                }));
+                
+                apiLoserBrackets.push({
+                  id: "loser-bracket-1",
+                  name: "Loser Bracket",
+                  enabledRounds: [],
+                  teams: [],
+                  matches: loserMatches,
+                  position: { x: 300, y: 100 },
+                });
+              }
+
+              setMatches(apiQualificationMatches);
+              setPools(apiPools);
+              setBrackets(apiBrackets);
+              setLoserBrackets(apiLoserBrackets);
+              
+              // Calculer le prochain ID
+              const allIds = [
+                ...apiQualificationMatches.map(m => parseInt(m.id)),
+                ...apiPools.flatMap(p => p.matches.map(m => parseInt(m.id))),
+                ...apiBrackets.flatMap(b => b.matches.map(m => parseInt(m.id))),
+                ...apiLoserBrackets.flatMap(lb => lb.matches.map(m => parseInt(m.id))),
+              ].filter(id => !isNaN(id));
+              
+              setNextMatchId(allIds.length > 0 ? Math.max(...allIds) + 1 : 1);
+              console.log("✅ Données chargées depuis l'API");
+              return;
+                  }
+                }
+              } else {
+                console.log("⚠️ Aucun tournoi trouvé pour ce sport");
+              }
+            }
           }
-          if (Array.isArray(parsed.pools)) {
-            setPools(parsed.pools);
-          }
-          if (Array.isArray(parsed.brackets)) {
-            setBrackets(parsed.brackets);
-          }
-          if (Array.isArray(parsed.loserBrackets)) {
-            setLoserBrackets(parsed.loserBrackets);
-          }
-          return;
+        } catch (err) {
+          console.log("⚠️ Impossible de charger depuis l'API:", err);
         }
-      } catch (err) {
-        console.error("Erreur lors du chargement du layout du tournoi depuis le stockage local:", err);
-      }
+        
+        // Ne plus utiliser localStorage pour éviter les conflits
+        // Tous les tournois doivent être créés et chargés depuis l'API
+      };
+      
+      loadFromAPI();
     }
   }, [params.id]);
 
@@ -224,7 +412,7 @@ export default function TournamentsPage() {
     if (type === "poule") {
       // Créer une nouvelle poule
       const newPool: Pool = {
-        id: Date.now().toString(),
+        id: `pool-${nextMatchId}`,
         name: `Poule ${pools.length + 1}`,
         teams: [],
         matches: [],
@@ -236,10 +424,11 @@ export default function TournamentsPage() {
       setSelectedPool(newPool);
       setSelectedMatch(null);
       setSelectedBracket(null);
+      setNextMatchId(nextMatchId + 1);
     } else if (type === "phase-finale") {
       // Créer un nouveau bracket (phase finale)
       const newBracket: Bracket = {
-        id: Date.now().toString(),
+        id: `bracket-${nextMatchId}`,
         name: `Phase Finale ${brackets.length + 1}`,
         enabledRounds: ["demi", "finale"], // Par défaut: demi-finale et finale
         teams: [],
@@ -253,10 +442,11 @@ export default function TournamentsPage() {
       setSelectedBracket(newBracket);
       setSelectedMatch(null);
       setSelectedPool(null);
+      setNextMatchId(nextMatchId + 1);
     } else if (type === "loser-bracket") {
       // Créer un nouveau loser bracket
       const newLoserBracket: LoserBracket = {
-        id: Date.now().toString(),
+        id: `loser-${nextMatchId}`,
         name: `Loser Bracket ${loserBrackets.length + 1}`,
         enabledRounds: ["loser-round-1", "loser-finale"], // Par défaut: round 1 et finale
         teams: [],
@@ -270,6 +460,7 @@ export default function TournamentsPage() {
       setSelectedMatch(null);
       setSelectedPool(null);
       setSelectedBracket(null);
+      setNextMatchId(nextMatchId + 1);
     } else {
       const isQualification = type === "qualifications";
       const existingQualifsCount = matches.filter(m => m.type === "qualifications").length;
@@ -277,7 +468,7 @@ export default function TournamentsPage() {
 
       // Créer un match normal (ou de qualifications)
       const newMatch: Match = {
-        id: Date.now().toString(),
+        id: `match-${nextMatchId}`,
         teamA: "",
         teamB: "",
         date: "",
@@ -295,6 +486,7 @@ export default function TournamentsPage() {
       setSelectedMatch(newMatch);
       setSelectedPool(null);
       setSelectedBracket(null);
+      setNextMatchId(nextMatchId + 1);
     }
   };
 
@@ -314,10 +506,11 @@ export default function TournamentsPage() {
     const baseY = anchorMatch ? anchorMatch.position.y : 100;
 
     const newMatches: Match[] = [];
+    let currentId = nextMatchId;
     for (let i = currentQualifs.length; i < targetCount; i++) {
       const index = i + 1; // WQ1, WQ2, ...
       newMatches.push({
-        id: `${Date.now().toString()}-${index}`,
+        id: `match-${currentId}`,
         teamA: "",
         teamB: "",
         date: "",
@@ -331,9 +524,11 @@ export default function TournamentsPage() {
         loserPoints: 0,
         winnerCode: `WQ${index}`
       });
+      currentId++;
     }
 
     setMatches([...matches, ...newMatches]);
+    setNextMatchId(currentId);
   };
 
   const handlePaletteDragStart = (e: React.DragEvent, matchType: MatchType) => {
@@ -913,54 +1108,201 @@ export default function TournamentsPage() {
     }
   };
 
-  const handleSaveLayout = () => {
-    if (!params.id || typeof params.id !== "string") {
-      console.error("❌ ID de tournoi invalide:", params.id);
+  const handleResetMatches = async () => {
+    if (!window.confirm("Êtes-vous sûr de vouloir supprimer toutes les tuiles ? Cette action est irréversible.")) {
       return;
     }
 
-    if (typeof window === "undefined") {
-      console.error("❌ Window est undefined");
-      return;
+    try {
+      // Réinitialiser tous les états
+      setMatches([]);
+      setPools([]);
+      setBrackets([]);
+      setLoserBrackets([]);
+      
+      // Réinitialiser les sélections
+      setSelectedMatch(null);
+      setSelectedPool(null);
+      setSelectedPoolMatch(null);
+      setSelectedBracket(null);
+      setSelectedBracketMatch(null);
+      setSelectedLoserBracket(null);
+      setSelectedLoserBracketMatch(null);
+      
+      // Réinitialiser le compteur d'ID
+      setNextMatchId(1);
+      
+      console.log("✅ Toutes les tuiles ont été supprimées");
+      alert("Toutes les tuiles ont été supprimées avec succès !");
+    } catch (err: any) {
+      console.error("❌ Erreur lors de la réinitialisation:", err);
+      alert(`Impossible de réinitialiser les tuiles: ${err.message}`);
     }
+  };
 
-    const payload = {
-      matches,
-      pools,
-      brackets,
-      loserBrackets,
-      updatedAt: new Date().toISOString(),
-    };
-
-    const storageKey = `tournament-layout-${params.id}`;
+  // Fonction pour mapper les bracket_type du frontend vers le backend
+  const mapBracketTypeToSQL = (frontendType: BracketMatchType | LoserBracketMatchType | null | undefined): string | null => {
+    if (!frontendType) return null;
     
-    console.log("💾 Enregistrement du tournoi:");
-    console.log("  - Clé:", storageKey);
+    const mapping: Record<string, string> = {
+      'quarts': 'quarterfinal',
+      'demi': 'semifinal',
+      'finale': 'final',
+      'petite-finale': 'third_place',
+      'loser-round-1': 'loser_round_1',
+      'loser-round-2': 'loser_round_2',
+      'loser-round-3': 'loser_round_3',
+      'loser-finale': 'loser_final'
+    };
+    
+    return mapping[frontendType] || null;
+  };
+
+  const handleSaveLayout = async () => {
+    if (!params.id || typeof params.id !== "string") {
+      console.error("❌ ID de sport invalide:", params.id);
+      return;
+    }
+
+    console.log("💾 Enregistrement du tournoi via API:");
+    console.log("  - ID sport:", params.id);
+    console.log("  - ID tournoi:", tournamentId);
     console.log("  - Nombre de matchs:", matches.length);
     console.log("  - Nombre de poules:", pools.length);
     console.log("  - Nombre de brackets:", brackets.length);
     console.log("  - Nombre de loser brackets:", loserBrackets.length);
-    console.log("  - Payload complet:", payload);
 
     try {
-      const jsonString = JSON.stringify(payload);
-      console.log("  - Taille JSON:", jsonString.length, "caractères");
-      
-      window.localStorage.setItem(storageKey, jsonString);
-      
-      // Vérification immédiate
-      const verification = window.localStorage.getItem(storageKey);
-      if (verification) {
-        console.log("✅ Sauvegarde réussie - vérification OK");
-        console.log("  - Données récupérées:", JSON.parse(verification));
+      // Construire la structure pour l'API
+      const structure = {
+        qualification_matches: matches
+          .filter(m => m.type === "qualifications")
+          .map((m, idx) => ({
+            match_type: "qualification",
+            bracket_type: null,
+            team_sport_a_id: null,
+            team_sport_b_id: null,
+            team_a_source: m.teamA || null,
+            team_b_source: m.teamB || null,
+            label: m.winnerCode || `Qualification ${idx + 1}`,
+            match_order: idx + 1,
+            status: m.status === "planifié" ? "upcoming" : 
+                    m.status === "en-cours" ? "in_progress" :
+                    m.status === "terminé" ? "completed" : "upcoming",
+          })),
+        pools: pools.map((pool, poolIdx) => ({
+          name: pool.name,
+          display_order: poolIdx + 1,
+          qualified_to_finals: pool.qualifiedToFinals || 2,
+          qualified_to_loser_bracket: pool.qualifiedToLoserBracket || 0,
+          teams: [], // Les équipes seront ajoutées via TeamPool séparément
+          matches: pool.matches.map((m, matchIdx) => ({
+            match_type: "pool",
+            team_sport_a_id: null,
+            team_sport_b_id: null,
+            team_a_source: m.teamA || null,
+            team_b_source: m.teamB || null,
+            label: `${pool.name} - Match ${matchIdx + 1}`,
+            match_order: matchIdx + 1,
+            status: m.status === "planifié" ? "upcoming" : 
+                    m.status === "en-cours" ? "in_progress" :
+                    m.status === "terminé" ? "completed" : "upcoming",
+          })),
+        })),
+        brackets: brackets.map(bracket => ({
+          name: bracket.name || "Phase Finale",
+          enabled_rounds: bracket.enabledRounds || [],
+          teams: [],
+          matches: bracket.matches.map((m, idx) => ({
+            match_type: "bracket",
+            bracket_type: mapBracketTypeToSQL(m.bracketMatchType),
+            team_sport_a_id: null,
+            team_sport_b_id: null,
+            team_a_source: m.teamA || null,
+            team_b_source: m.teamB || null,
+            label: m.winnerCode || `Bracket ${idx + 1}`,
+            match_order: idx + 1,
+            status: m.status === "planifié" ? "upcoming" : 
+                    m.status === "en-cours" ? "in_progress" :
+                    m.status === "terminé" ? "completed" : "upcoming",
+          })),
+        })),
+        loser_brackets: loserBrackets.map(lb => ({
+          name: lb.name || "Loser Bracket",
+          enabled_rounds: lb.enabledRounds || [],
+          teams: [],
+          matches: lb.matches.map((m, idx) => ({
+            match_type: "loser_bracket",
+            bracket_type: mapBracketTypeToSQL(m.loserBracketMatchType),
+            team_sport_a_id: null,
+            team_sport_b_id: null,
+            team_a_source: m.teamA || null,
+            team_b_source: m.teamB || null,
+            label: m.winnerCode || `Loser Bracket ${idx + 1}`,
+            match_order: idx + 1,
+            status: m.status === "planifié" ? "upcoming" : 
+                    m.status === "en-cours" ? "in_progress" :
+                    m.status === "terminé" ? "completed" : "upcoming",
+          })),
+        })),
+      };
+
+      console.log("  - Structure API:", structure);
+
+      let response;
+      if (tournamentId) {
+        // Mise à jour d'un tournoi existant
+        response = await fetch(`http://localhost:8000/tournaments/${tournamentId}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+          },
+          body: JSON.stringify(structure),
+        });
       } else {
-        console.error("⚠️ Sauvegarde échouée - vérification KO");
+        // Création d'un nouveau tournoi
+        const createData = {
+          sport_id: parseInt(params.id),
+          name: sport?.name || `Tournoi ${params.id}`,
+          created_by_user_id: 1, // ID utilisateur par défaut (à adapter si nécessaire)
+          ...structure
+        };
+        response = await fetch(`http://localhost:8000/tournaments`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+          },
+          body: JSON.stringify(createData),
+        });
+      }
+
+      if (!response.ok) {
+        console.error("❌ Status code:", response.status);
+        const errorText = await response.text();
+        console.error("❌ Réponse brute:", errorText);
+        let errorData;
+        try {
+          errorData = JSON.parse(errorText);
+          throw new Error(errorData.error?.message || errorData.detail || "Erreur lors de la sauvegarde");
+        } catch (e) {
+          throw new Error(errorText || `HTTP ${response.status}`);
+        }
+      }
+
+      const result = await response.json();
+      console.log("✅ Sauvegarde réussie:", result);
+      
+      // Si c'était une création, sauvegarder l'ID du tournoi
+      if (!tournamentId && result.data && result.data.id) {
+        setTournamentId(result.data.id);
       }
       
-      alert("Configuration du tournoi enregistrée.");
-    } catch (err) {
-      console.error("❌ Erreur lors de l'enregistrement du layout du tournoi:", err);
-      alert("Impossible d'enregistrer la configuration du tournoi.");
+      alert("Configuration du tournoi enregistrée avec succès !");
+    } catch (err: any) {
+      console.error("❌ Erreur lors de l'enregistrement:", err);
+      alert(`Impossible d'enregistrer la configuration: ${err.message}`);
     }
   };
 
@@ -1003,6 +1345,17 @@ export default function TournamentsPage() {
             <div className="text-sm text-gray-500">
               Glissez une tuile depuis la palette pour créer un match
             </div>
+
+            <button
+              onClick={handleResetMatches}
+              className="flex items-center gap-2 bg-red-600 text-white px-4 py-2 rounded-full shadow hover:bg-red-700 transition text-sm"
+              title="Réinitialiser tous les matchs"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              <span>Réinitialiser</span>
+            </button>
 
             <button
               onClick={handleSaveLayout}
@@ -1053,11 +1406,31 @@ export default function TournamentsPage() {
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
                   <span className={`px-2 py-1 text-xs font-medium rounded-full ${getTypeColor(match.type)}`}>
-                    {match.type.charAt(0).toUpperCase() + match.type.slice(1)}
+                    {match.type === "qualifications" ? "Qualifs" : 
+                     match.type === "poule" ? "Poule" :
+                     match.type === "phase-finale" ? "Phase Finale" :
+                     match.type === "loser-bracket" ? "Loser Bracket" :
+                     "Match"}
                   </span>
                   {match.type === "qualifications" && match.winnerCode && (
                     <span className="px-2 py-0.5 text-[10px] font-medium rounded-full bg-indigo-50 text-indigo-700">
                       {match.winnerCode}
+                    </span>
+                  )}
+                  {match.type === "loser-bracket" && match.loserBracketMatchType && (
+                    <span className="px-2 py-0.5 text-[10px] font-medium rounded-full bg-amber-50 text-amber-700">
+                      {match.loserBracketMatchType === "loser-round-1" ? "Repêchage" :
+                       match.loserBracketMatchType === "loser-round-2" ? "Demi LB" :
+                       match.loserBracketMatchType === "loser-round-3" ? "7e place" :
+                       match.loserBracketMatchType === "loser-finale" ? "5e place" : ""}
+                    </span>
+                  )}
+                  {match.type === "phase-finale" && match.bracketMatchType && (
+                    <span className="px-2 py-0.5 text-[10px] font-medium rounded-full bg-orange-50 text-orange-700">
+                      {match.bracketMatchType === "quarts" ? "QF" :
+                       match.bracketMatchType === "demi" ? "SF" :
+                       match.bracketMatchType === "petite-finale" ? "3e place" :
+                       match.bracketMatchType === "finale" ? "Finale" : ""}
                     </span>
                   )}
                 </div>
@@ -1376,10 +1749,10 @@ export default function TournamentsPage() {
                   <div className="flex flex-wrap gap-1">
                     {loserBracket.enabledRounds.map((round, index) => {
                       const roundLabels: Record<LoserBracketMatchType, string> = {
-                        "loser-round-1": "Round 1",
-                        "loser-round-2": "Round 2",
-                        "loser-round-3": "Round 3",
-                        "loser-finale": "Finale LB"
+                        "loser-round-1": "Repêchage",
+                        "loser-round-2": "Demi LB",
+                        "loser-round-3": "7e place",
+                        "loser-finale": "5e place"
                       };
                       return (
                         <span 
@@ -1437,10 +1810,10 @@ export default function TournamentsPage() {
                   <div className="space-y-1">
                     {loserBracket.matches.slice(0, 3).map((match, index) => {
                       const matchTypeLabels: Record<LoserBracketMatchType, string> = {
-                        "loser-round-1": "LR1",
-                        "loser-round-2": "LR2",
-                        "loser-round-3": "LR3",
-                        "loser-finale": "LF"
+                        "loser-round-1": "Repêchage",
+                        "loser-round-2": "Demi LB",
+                        "loser-round-3": "7e place",
+                        "loser-finale": "5e place"
                       };
                       const matchLabel = match.loserBracketMatchType ? matchTypeLabels[match.loserBracketMatchType] : "";
                       return (
@@ -1511,16 +1884,29 @@ export default function TournamentsPage() {
                 {loadingTeams ? (
                   <div className="text-sm text-gray-500 p-2">Chargement des équipes...</div>
                 ) : (
-                  <select
-                    value={selectedMatch.teamA}
-                    onChange={(e) => updateMatch({...selectedMatch, teamA: e.target.value})}
-                    className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-black"
-                  >
-                    <option value="">Sélectionner une équipe</option>
-                    {teams.map(team => (
-                      <option key={team.id} value={team.name}>{team.name}</option>
-                    ))}
-                  </select>
+                  (() => {
+                    const usedTeams = getUsedTeamsByPhase(matches, pools, brackets, loserBrackets, 'qualification', selectedMatch.id);
+                    return (
+                      <select
+                        value={selectedMatch.teamA}
+                        onChange={(e) => updateMatch({...selectedMatch, teamA: e.target.value})}
+                        className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-black"
+                      >
+                        <option value="">Sélectionner une équipe</option>
+                        {teams.map(team => {
+                          const isUsed = usedTeams.pools.has(team.name) || 
+                                        usedTeams.brackets.has(team.name) || 
+                                        usedTeams.loserBrackets.has(team.name) ||
+                                        (selectedMatch.teamB === team.name);
+                          return (
+                            <option key={team.id} value={team.name} disabled={isUsed}>
+                              {team.name}{isUsed ? ' (déjà utilisé)' : ''}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    );
+                  })()
                 )}
               </div>
 
@@ -1529,16 +1915,29 @@ export default function TournamentsPage() {
                 {loadingTeams ? (
                   <div className="text-sm text-gray-500 p-2">Chargement des équipes...</div>
                 ) : (
-                  <select
-                    value={selectedMatch.teamB}
-                    onChange={(e) => updateMatch({...selectedMatch, teamB: e.target.value})}
-                    className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-black"
-                  >
-                    <option value="">Sélectionner une équipe</option>
-                    {teams.map(team => (
-                      <option key={team.id} value={team.name}>{team.name}</option>
-                    ))}
-                  </select>
+                  (() => {
+                    const usedTeams = getUsedTeamsByPhase(matches, pools, brackets, loserBrackets, 'qualification', selectedMatch.id);
+                    return (
+                      <select
+                        value={selectedMatch.teamB}
+                        onChange={(e) => updateMatch({...selectedMatch, teamB: e.target.value})}
+                        className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-black"
+                      >
+                        <option value="">Sélectionner une équipe</option>
+                        {teams.map(team => {
+                          const isUsed = usedTeams.pools.has(team.name) || 
+                                        usedTeams.brackets.has(team.name) || 
+                                        usedTeams.loserBrackets.has(team.name) ||
+                                        (selectedMatch.teamA === team.name);
+                          return (
+                            <option key={team.id} value={team.name} disabled={isUsed}>
+                              {team.name}{isUsed ? ' (déjà utilisé)' : ''}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    );
+                  })()
                 )}
               </div>
 
@@ -1797,76 +2196,96 @@ export default function TournamentsPage() {
                   <div className="text-sm text-gray-500 p-2">Chargement des équipes...</div>
                 ) : (
                   <div className="space-y-2">
-                    {/* Vainqueurs des qualifications */}
                     {(() => {
-                      const qualifWinners = matches
-                        .filter(m => m.type === "qualifications" && m.winnerCode)
-                        .map(m => m.winnerCode as string)
-                        .filter((code, index, self) => self.indexOf(code) === index)
-                        .sort();
-                      
-                      if (qualifWinners.length === 0) return null;
+                      const usedTeams = getUsedTeamsByPhase(matches, pools, brackets, loserBrackets, 'pool', selectedPool.id);
                       
                       return (
                         <>
-                          <div className="text-sm font-semibold text-black mt-2 mb-1">
-                            Vainqueurs des qualifications
-                          </div>
-                          {qualifWinners.map(code => {
-                            const isSelected = selectedPool.teams.includes(code);
+                          {/* Vainqueurs des qualifications */}
+                          {(() => {
+                            const qualifWinners = matches
+                              .filter(m => m.type === "qualifications" && m.winnerCode)
+                              .map(m => m.winnerCode as string)
+                              .filter((code, index, self) => self.indexOf(code) === index)
+                              .sort();
+                            
+                            if (qualifWinners.length === 0) return null;
+                            
                             return (
-                              <div key={code} className="flex items-center">
+                              <>
+                                <div className="text-sm font-semibold text-black mt-2 mb-1">
+                                  Vainqueurs des qualifications
+                                </div>
+                                {qualifWinners.map(code => {
+                                  const isSelected = selectedPool.teams.includes(code);
+                                  const isUsedElsewhere = usedTeams.brackets.has(code) || usedTeams.loserBrackets.has(code);
+                                  return (
+                                    <div key={code} className="flex items-center">
+                                      <input
+                                        type="checkbox"
+                                        id={`winner-${code}`}
+                                        checked={isSelected}
+                                        disabled={isUsedElsewhere}
+                                        onChange={(e) => {
+                                          if (e.target.checked) {
+                                            addTeamToPool(selectedPool.id, code);
+                                          } else {
+                                            removeTeamFromPool(selectedPool.id, code);
+                                          }
+                                        }}
+                                        className="mr-2"
+                                      />
+                                      <label 
+                                        htmlFor={`winner-${code}`} 
+                                        className={`text-sm font-medium ${isUsedElsewhere ? 'text-gray-400 line-through' : 'text-indigo-600'}`}
+                                      >
+                                        {code} {isUsedElsewhere && '(déjà utilisé)'}
+                                      </label>
+                                    </div>
+                                  );
+                                })}
+                                <div className="border-t border-gray-200 my-2"></div>
+                              </>
+                            );
+                          })()}
+                          
+                          {/* Équipes de la base de données */}
+                          <div className="text-xs font-semibold text-gray-700 mb-1">
+                            Équipes
+                          </div>
+                          {teams.map(team => {
+                            const isSelected = selectedPool.teams.includes(team.name);
+                            const isUsedElsewhere = usedTeams.qualifications.has(team.name) || 
+                                                    usedTeams.brackets.has(team.name) || 
+                                                    usedTeams.loserBrackets.has(team.name);
+                            return (
+                              <div key={team.id} className="flex items-center text-black">
                                 <input
                                   type="checkbox"
-                                  id={`winner-${code}`}
+                                  id={`team-${team.id}`}
                                   checked={isSelected}
+                                  disabled={isUsedElsewhere}
                                   onChange={(e) => {
                                     if (e.target.checked) {
-                                      addTeamToPool(selectedPool.id, code);
+                                      addTeamToPool(selectedPool.id, team.name);
                                     } else {
-                                      removeTeamFromPool(selectedPool.id, code);
+                                      removeTeamFromPool(selectedPool.id, team.name);
                                     }
                                   }}
                                   className="mr-2"
                                 />
-                                <label htmlFor={`winner-${code}`} className="text-sm font-medium text-indigo-600">
-                                  {code}
+                                <label 
+                                  htmlFor={`team-${team.id}`} 
+                                  className={`text-sm ${isUsedElsewhere ? 'text-gray-400 line-through' : ''}`}
+                                >
+                                  {team.name} {isUsedElsewhere && '(déjà utilisé)'}
                                 </label>
                               </div>
                             );
                           })}
-                          <div className="border-t border-gray-200 my-2"></div>
                         </>
                       );
                     })()}
-                    
-                    {/* Équipes de la base de données */}
-                    <div className="text-xs font-semibold text-gray-700 mb-1">
-                      Équipes
-                    </div>
-                    {teams.map(team => {
-                      const isSelected = selectedPool.teams.includes(team.name);
-                      return (
-                        <div key={team.id} className="flex items-center text-black">
-                          <input
-                            type="checkbox"
-                            id={`team-${team.id}`}
-                            checked={isSelected}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                addTeamToPool(selectedPool.id, team.name);
-                              } else {
-                                removeTeamFromPool(selectedPool.id, team.name);
-                              }
-                            }}
-                            className="mr-2"
-                          />
-                          <label htmlFor={`team-${team.id}`} className="text-sm">
-                            {team.name}
-                          </label>
-                        </div>
-                      );
-                    })}
                   </div>
                 )}
               </div>
@@ -2046,120 +2465,145 @@ export default function TournamentsPage() {
                   <div className="text-sm text-gray-500 p-2">Chargement des équipes...</div>
                 ) : (
                   <div className="space-y-2 max-h-48 overflow-y-auto">
-                    {/* Vainqueurs des qualifications */}
                     {(() => {
-                      const qualifWinners = matches
-                        .filter(m => m.type === "qualifications" && m.winnerCode)
-                        .map(m => m.winnerCode as string)
-                        .filter((code, index, self) => self.indexOf(code) === index)
-                        .sort();
-                      
-                      if (qualifWinners.length === 0) return null;
+                      const usedTeams = getUsedTeamsByPhase(matches, pools, brackets, loserBrackets, 'bracket', selectedBracket.id);
                       
                       return (
                         <>
-                          <div className="text-xs font-semibold text-black mt-2 mb-1">
-                            Vainqueurs des qualifications
-                          </div>
-                          {qualifWinners.map(code => {
-                            const isSelected = selectedBracket.teams.includes(code);
+                          {/* Vainqueurs des qualifications */}
+                          {(() => {
+                            const qualifWinners = matches
+                              .filter(m => m.type === "qualifications" && m.winnerCode)
+                              .map(m => m.winnerCode as string)
+                              .filter((code, index, self) => self.indexOf(code) === index)
+                              .sort();
+                            
+                            if (qualifWinners.length === 0) return null;
+                            
                             return (
-                              <div key={code} className="flex items-center">
-                                <input
-                                  type="checkbox"
-                                  id={`bracket-winner-${code}`}
-                                  checked={isSelected}
-                                  onChange={(e) => {
-                                    if (e.target.checked) {
-                                      addTeamToBracket(selectedBracket.id, code);
-                                    } else {
-                                      removeTeamFromBracket(selectedBracket.id, code);
-                                    }
-                                  }}
-                                  className="mr-2"
-                                />
-                                <label htmlFor={`bracket-winner-${code}`} className="text-sm font-medium text-indigo-600">
-                                  {code}
-                                </label>
-                              </div>
+                              <>
+                                <div className="text-xs font-semibold text-black mt-2 mb-1">
+                                  Vainqueurs des qualifications
+                                </div>
+                                {qualifWinners.map(code => {
+                                  const isSelected = selectedBracket.teams.includes(code);
+                                  const isUsedElsewhere = usedTeams.pools.has(code) || usedTeams.loserBrackets.has(code);
+                                  return (
+                                    <div key={code} className="flex items-center">
+                                      <input
+                                        type="checkbox"
+                                        id={`bracket-winner-${code}`}
+                                        checked={isSelected}
+                                        disabled={isUsedElsewhere}
+                                        onChange={(e) => {
+                                          if (e.target.checked) {
+                                            addTeamToBracket(selectedBracket.id, code);
+                                          } else {
+                                            removeTeamFromBracket(selectedBracket.id, code);
+                                          }
+                                        }}
+                                        className="mr-2"
+                                      />
+                                      <label 
+                                        htmlFor={`bracket-winner-${code}`} 
+                                        className={`text-sm font-medium ${isUsedElsewhere ? 'text-gray-400 line-through' : 'text-indigo-600'}`}
+                                      >
+                                        {code} {isUsedElsewhere && '(déjà utilisé)'}
+                                      </label>
+                                    </div>
+                                  );
+                                })}
+                                <div className="border-t border-gray-200 my-2"></div>
+                              </>
                             );
-                          })}
-                          <div className="border-t border-gray-200 my-2"></div>
-                        </>
-                      );
-                    })()}
+                          })()}
 
-                    {/* Qualifiés des poules */}
-                    {(() => {
-                      const poolQualifiers: string[] = [];
-                      pools.forEach(pool => {
-                        for (let i = 1; i <= (pool.qualifiedToFinals || 0); i++) {
-                          poolQualifiers.push(`${pool.name}-${i}`);
-                        }
-                      });
-                      
-                      if (poolQualifiers.length === 0) return null;
-                      
-                      return (
-                        <>
-                          <div className="text-xs font-semibold text-black mt-2 mb-1">
-                            Qualifiés des poules
-                          </div>
-                          {poolQualifiers.map(code => {
-                            const isSelected = selectedBracket.teams.includes(code);
+                          {/* Qualifiés des poules */}
+                          {(() => {
+                            const poolQualifiers: string[] = [];
+                            pools.forEach(pool => {
+                              for (let i = 1; i <= (pool.qualifiedToFinals || 0); i++) {
+                                poolQualifiers.push(`${pool.name}-${i}`);
+                              }
+                            });
+                            
+                            if (poolQualifiers.length === 0) return null;
+                            
                             return (
-                              <div key={code} className="flex items-center">
+                              <>
+                                <div className="text-xs font-semibold text-black mt-2 mb-1">
+                                  Qualifiés des poules
+                                </div>
+                                {poolQualifiers.map(code => {
+                                  const isSelected = selectedBracket.teams.includes(code);
+                                  const isUsedElsewhere = usedTeams.loserBrackets.has(code);
+                                  return (
+                                    <div key={code} className="flex items-center">
+                                      <input
+                                        type="checkbox"
+                                        id={`bracket-pool-${code}`}
+                                        checked={isSelected}
+                                        disabled={isUsedElsewhere}
+                                        onChange={(e) => {
+                                          if (e.target.checked) {
+                                            addTeamToBracket(selectedBracket.id, code);
+                                          } else {
+                                            removeTeamFromBracket(selectedBracket.id, code);
+                                          }
+                                        }}
+                                        className="mr-2"
+                                      />
+                                      <label 
+                                        htmlFor={`bracket-pool-${code}`} 
+                                        className={`text-sm font-medium ${isUsedElsewhere ? 'text-gray-400 line-through' : 'text-purple-600'}`}
+                                      >
+                                        {code} {isUsedElsewhere && '(déjà utilisé)'}
+                                      </label>
+                                    </div>
+                                  );
+                                })}
+                                <div className="border-t border-gray-200 my-2"></div>
+                              </>
+                            );
+                          })()}
+                          
+                          {/* Équipes de la base de données */}
+                          <div className="text-xs font-semibold text-gray-700 mb-1">
+                            Autres équipes
+                          </div>
+                          {teams.map(team => {
+                            const isSelected = selectedBracket.teams.includes(team.name);
+                            const isUsedElsewhere = usedTeams.qualifications.has(team.name) || 
+                                                    usedTeams.pools.has(team.name) || 
+                                                    usedTeams.loserBrackets.has(team.name);
+                            return (
+                              <div key={team.id} className="flex items-center text-black">
                                 <input
                                   type="checkbox"
-                                  id={`bracket-pool-${code}`}
+                                  id={`bracket-team-${team.id}`}
                                   checked={isSelected}
+                                  disabled={isUsedElsewhere}
                                   onChange={(e) => {
                                     if (e.target.checked) {
-                                      addTeamToBracket(selectedBracket.id, code);
+                                      addTeamToBracket(selectedBracket.id, team.name);
                                     } else {
-                                      removeTeamFromBracket(selectedBracket.id, code);
+                                      removeTeamFromBracket(selectedBracket.id, team.name);
                                     }
                                   }}
                                   className="mr-2"
                                 />
-                                <label htmlFor={`bracket-pool-${code}`} className="text-sm font-medium text-purple-600">
-                                  {code}
+                                <label 
+                                  htmlFor={`bracket-team-${team.id}`} 
+                                  className={`text-sm ${isUsedElsewhere ? 'text-gray-400 line-through' : ''}`}
+                                >
+                                  {team.name} {isUsedElsewhere && '(déjà utilisé)'}
                                 </label>
                               </div>
                             );
                           })}
-                          <div className="border-t border-gray-200 my-2"></div>
                         </>
                       );
                     })()}
-                    
-                    {/* Équipes de la base de données */}
-                    <div className="text-xs font-semibold text-gray-700 mb-1">
-                      Autres équipes
-                    </div>
-                    {teams.map(team => {
-                      const isSelected = selectedBracket.teams.includes(team.name);
-                      return (
-                        <div key={team.id} className="flex items-center text-black">
-                          <input
-                            type="checkbox"
-                            id={`bracket-team-${team.id}`}
-                            checked={isSelected}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                addTeamToBracket(selectedBracket.id, team.name);
-                              } else {
-                                removeTeamFromBracket(selectedBracket.id, team.name);
-                              }
-                            }}
-                            className="mr-2"
-                          />
-                          <label htmlFor={`bracket-team-${team.id}`} className="text-sm">
-                            {team.name}
-                          </label>
-                        </div>
-                      );
-                    })}
                   </div>
                 )}
               </div>
@@ -2260,10 +2704,10 @@ export default function TournamentsPage() {
                 </label>
                 <div className="space-y-2">
                   {[
-                    { value: "loser-round-1" as LoserBracketMatchType, label: "Round 1" },
-                    { value: "loser-round-2" as LoserBracketMatchType, label: "Round 2" },
-                    { value: "loser-round-3" as LoserBracketMatchType, label: "Round 3" },
-                    { value: "loser-finale" as LoserBracketMatchType, label: "Finale Loser Bracket" }
+                    { value: "loser-round-1" as LoserBracketMatchType, label: "Repêchage" },
+                    { value: "loser-round-2" as LoserBracketMatchType, label: "Demi-finales LB" },
+                    { value: "loser-round-3" as LoserBracketMatchType, label: "Match de la 7e place" },
+                    { value: "loser-finale" as LoserBracketMatchType, label: "Match de la 5e place" }
                   ].map(({ value, label }) => {
                     const isChecked = selectedLoserBracket.enabledRounds.includes(value);
                     return (
@@ -2310,123 +2754,151 @@ export default function TournamentsPage() {
                   <div className="text-sm text-gray-500 p-2">Chargement des équipes...</div>
                 ) : (
                   <div className="space-y-2 max-h-48 overflow-y-auto">
-                    {/* Perdants des phases finales */}
                     {(() => {
-                      const bracketLosers: string[] = [];
-                      brackets.forEach(bracket => {
-                        bracket.matches.forEach(match => {
-                          if (match.loserCode) {
-                            bracketLosers.push(match.loserCode);
-                          }
-                        });
-                      });
-                      
-                      if (bracketLosers.length === 0) return null;
+                      const usedTeams = getUsedTeamsByPhase(matches, pools, brackets, loserBrackets, 'loser-bracket', selectedLoserBracket.id);
                       
                       return (
                         <>
-                          <div className="text-xs font-semibold text-black mt-2 mb-1">
-                            Perdants de la phase finale
-                          </div>
-                          {bracketLosers.map(code => {
-                            const isSelected = selectedLoserBracket.teams.includes(code);
+                          {/* Perdants des phases finales */}
+                          {(() => {
+                            const bracketLosers: string[] = [];
+                            brackets.forEach(bracket => {
+                              bracket.matches.forEach(match => {
+                                if (match.loserCode) {
+                                  bracketLosers.push(match.loserCode);
+                                }
+                              });
+                            });
+                            
+                            if (bracketLosers.length === 0) return null;
+                            
                             return (
-                              <div key={code} className="flex items-center">
-                                <input
-                                  type="checkbox"
-                                  id={`lb-bracket-loser-${code}`}
-                                  checked={isSelected}
-                                  onChange={(e) => {
-                                    if (e.target.checked) {
-                                      addTeamToLoserBracket(selectedLoserBracket.id, code);
-                                    } else {
-                                      removeTeamFromLoserBracket(selectedLoserBracket.id, code);
-                                    }
-                                  }}
-                                  className="mr-2"
-                                />
-                                <label htmlFor={`lb-bracket-loser-${code}`} className="text-sm font-medium text-black">
-                                  {code}
-                                </label>
-                              </div>
+                              <>
+                                <div className="text-xs font-semibold text-black mt-2 mb-1">
+                                  Perdants de la phase finale
+                                </div>
+                                {bracketLosers.map(code => {
+                                  const isSelected = selectedLoserBracket.teams.includes(code);
+                                  const isUsedElsewhere = usedTeams.qualifications.has(code) || 
+                                                          usedTeams.pools.has(code) || 
+                                                          usedTeams.brackets.has(code);
+                                  return (
+                                    <div key={code} className="flex items-center">
+                                      <input
+                                        type="checkbox"
+                                        id={`lb-bracket-loser-${code}`}
+                                        checked={isSelected}
+                                        disabled={isUsedElsewhere}
+                                        onChange={(e) => {
+                                          if (e.target.checked) {
+                                            addTeamToLoserBracket(selectedLoserBracket.id, code);
+                                          } else {
+                                            removeTeamFromLoserBracket(selectedLoserBracket.id, code);
+                                          }
+                                        }}
+                                        className="mr-2"
+                                      />
+                                      <label 
+                                        htmlFor={`lb-bracket-loser-${code}`} 
+                                        className={`text-sm font-medium ${isUsedElsewhere ? 'text-gray-400 line-through' : 'text-black'}`}
+                                      >
+                                        {code} {isUsedElsewhere && '(déjà utilisé)'}
+                                      </label>
+                                    </div>
+                                  );
+                                })}
+                                <div className="border-t border-gray-200 my-2"></div>
+                              </>
                             );
-                          })}
-                          <div className="border-t border-gray-200 my-2"></div>
-                        </>
-                      );
-                    })()}
+                          })()}
 
-                    {/* Perdants des poules */}
-                    {(() => {
-                      const poolLosers: string[] = [];
-                      pools.forEach(pool => {
-                        for (let i = (pool.qualifiedToFinals || 0) + (pool.qualifiedToLoserBracket || 0) + 1; i <= pool.teams.length; i++) {
-                          poolLosers.push(`${pool.name}-${i}`);
-                        }
-                      });
-                      
-                      if (poolLosers.length === 0) return null;
-                      
-                      return (
-                        <>
-                          <div className="text-xs font-semibold text-black mt-2 mb-1">
-                            Autres équipes des poules
-                          </div>
-                          {poolLosers.map(code => {
-                            const isSelected = selectedLoserBracket.teams.includes(code);
+                          {/* Perdants des poules */}
+                          {(() => {
+                            const poolLosers: string[] = [];
+                            pools.forEach(pool => {
+                              for (let i = (pool.qualifiedToFinals || 0) + (pool.qualifiedToLoserBracket || 0) + 1; i <= pool.teams.length; i++) {
+                                poolLosers.push(`${pool.name}-${i}`);
+                              }
+                            });
+                            
+                            if (poolLosers.length === 0) return null;
+                            
                             return (
-                              <div key={code} className="flex items-center">
+                              <>
+                                <div className="text-xs font-semibold text-black mt-2 mb-1">
+                                  Autres équipes des poules
+                                </div>
+                                {poolLosers.map(code => {
+                                  const isSelected = selectedLoserBracket.teams.includes(code);
+                                  const isUsedElsewhere = usedTeams.qualifications.has(code) || 
+                                                          usedTeams.brackets.has(code);
+                                  return (
+                                    <div key={code} className="flex items-center">
+                                      <input
+                                        type="checkbox"
+                                        id={`lb-pool-loser-${code}`}
+                                        checked={isSelected}
+                                        disabled={isUsedElsewhere}
+                                        onChange={(e) => {
+                                          if (e.target.checked) {
+                                            addTeamToLoserBracket(selectedLoserBracket.id, code);
+                                          } else {
+                                            removeTeamFromLoserBracket(selectedLoserBracket.id, code);
+                                          }
+                                        }}
+                                        className="mr-2"
+                                      />
+                                      <label 
+                                        htmlFor={`lb-pool-loser-${code}`} 
+                                        className={`text-sm font-medium ${isUsedElsewhere ? 'text-gray-400 line-through' : 'text-purple-600'}`}
+                                      >
+                                        {code} {isUsedElsewhere && '(déjà utilisé)'}
+                                      </label>
+                                    </div>
+                                  );
+                                })}
+                                <div className="border-t border-gray-200 my-2"></div>
+                              </>
+                            );
+                          })()}
+                          
+                          {/* Équipes de la base de données */}
+                          <div className="text-xs font-semibold text-gray-700 mb-1">
+                            Autres équipes
+                          </div>
+                          {teams.map(team => {
+                            const isSelected = selectedLoserBracket.teams.includes(team.name);
+                            const isUsedElsewhere = usedTeams.qualifications.has(team.name) || 
+                                                    usedTeams.pools.has(team.name) || 
+                                                    usedTeams.brackets.has(team.name);
+                            return (
+                              <div key={team.id} className="flex items-center text-black">
                                 <input
                                   type="checkbox"
-                                  id={`lb-pool-loser-${code}`}
+                                  id={`lb-team-${team.id}`}
                                   checked={isSelected}
+                                  disabled={isUsedElsewhere}
                                   onChange={(e) => {
                                     if (e.target.checked) {
-                                      addTeamToLoserBracket(selectedLoserBracket.id, code);
+                                      addTeamToLoserBracket(selectedLoserBracket.id, team.name);
                                     } else {
-                                      removeTeamFromLoserBracket(selectedLoserBracket.id, code);
+                                      removeTeamFromLoserBracket(selectedLoserBracket.id, team.name);
                                     }
                                   }}
                                   className="mr-2"
                                 />
-                                <label htmlFor={`lb-pool-loser-${code}`} className="text-sm font-medium text-purple-600">
-                                  {code}
+                                <label 
+                                  htmlFor={`lb-team-${team.id}`} 
+                                  className={`text-sm ${isUsedElsewhere ? 'text-gray-400 line-through' : ''}`}
+                                >
+                                  {team.name} {isUsedElsewhere && '(déjà utilisé)'}
                                 </label>
                               </div>
                             );
                           })}
-                          <div className="border-t border-gray-200 my-2"></div>
                         </>
                       );
                     })()}
-                    
-                    {/* Équipes de la base de données */}
-                    <div className="text-xs font-semibold text-gray-700 mb-1">
-                      Autres équipes
-                    </div>
-                    {teams.map(team => {
-                      const isSelected = selectedLoserBracket.teams.includes(team.name);
-                      return (
-                        <div key={team.id} className="flex items-center text-black">
-                          <input
-                            type="checkbox"
-                            id={`lb-team-${team.id}`}
-                            checked={isSelected}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                addTeamToLoserBracket(selectedLoserBracket.id, team.name);
-                              } else {
-                                removeTeamFromLoserBracket(selectedLoserBracket.id, team.name);
-                              }
-                            }}
-                            className="mr-2"
-                          />
-                          <label htmlFor={`lb-team-${team.id}`} className="text-sm">
-                            {team.name}
-                          </label>
-                        </div>
-                      );
-                    })}
                   </div>
                 )}
               </div>
@@ -2440,10 +2912,10 @@ export default function TournamentsPage() {
                   <div className="max-h-40 overflow-y-auto space-y-1">
                     {selectedLoserBracket.matches.map((match, index) => {
                       const matchTypeLabels: Record<LoserBracketMatchType, string> = {
-                        "loser-round-1": "LR1",
-                        "loser-round-2": "LR2",
-                        "loser-round-3": "LR3",
-                        "loser-finale": "LF"
+                        "loser-round-1": "Repêchage",
+                        "loser-round-2": "Demi LB",
+                        "loser-round-3": "7e place",
+                        "loser-finale": "5e place"
                       };
                       const matchLabel = match.loserBracketMatchType ? matchTypeLabels[match.loserBracketMatchType] : "";
                       return (

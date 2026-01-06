@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { 
   resolveTeamName, 
@@ -115,10 +115,19 @@ const formatTeamName = (
   tournamentMatches: TournamentLogicMatch[], 
   tournamentPools: TournamentLogicPool[], 
   tournamentBrackets: TournamentLogicBracket[], 
-  tournamentLoserBrackets: TournamentLogicLoserBracket[]
+  tournamentLoserBrackets: TournamentLogicLoserBracket[],
+  teamSportIdToName?: Record<number, string>
 ): string => {
   if (!teamName || teamName === "Équipe A" || teamName === "Équipe B") {
     return "En attente";
+  }
+  
+  // Essayer d'abord de résoudre via l'API mapping si disponible
+  if (teamSportIdToName) {
+    const numTeamName = parseInt(teamName);
+    if (!isNaN(numTeamName) && teamSportIdToName[numTeamName]) {
+      return teamSportIdToName[numTeamName];
+    }
   }
   
   // Utiliser la fonction de résolution pour obtenir le vrai nom
@@ -162,12 +171,53 @@ export default function TournamentViewPage() {
   const [matches, setMatches] = useState<TournamentMatch[]>([]);
   const [pools, setPools] = useState<Pool[]>([]);
   const [rankingFilter, setRankingFilter] = useState<RankingFilter>("poules");
+  const [showMenu, setShowMenu] = useState(false);
+  const [showMatchSelect, setShowMatchSelect] = useState(false);
   
-  // États pour les données du tournoi (pour la résolution)
+  // État pour stocker le mapping team_sport_id → team_name
+  const [teamSportIdToName, setTeamSportIdToName] = useState<Record<number, string>>({});
+  
+  // États pour stocker les données du tournoi
   const [tournamentMatches, setTournamentMatches] = useState<TournamentLogicMatch[]>([]);
   const [tournamentPools, setTournamentPools] = useState<TournamentLogicPool[]>([]);
   const [tournamentBrackets, setTournamentBrackets] = useState<TournamentLogicBracket[]>([]);
   const [tournamentLoserBrackets, setTournamentLoserBrackets] = useState<TournamentLogicLoserBracket[]>([]);
+
+  // Charger le mapping des équipes au chargement
+  useEffect(() => {
+    const loadTeamNames = async () => {
+      try {
+        // Charger toutes les équipes
+        const teamsRes = await fetch(`http://localhost:8000/teams`);
+        if (teamsRes.ok) {
+          const teamsData = await teamsRes.json();
+          const teams = teamsData.data?.items || teamsData.data || [];
+          
+          // Créer un mapping team_sport_id → team_name
+          const mapping: Record<number, string> = {};
+          
+          for (const team of teams) {
+            const sportsRes = await fetch(`http://localhost:8000/teams/${team.id}/sports`);
+            if (sportsRes.ok) {
+              const sportsData = await sportsRes.json();
+              const teamSports = sportsData.data || [];
+              
+              for (const ts of teamSports) {
+                mapping[ts.id] = team.name;
+              }
+            }
+          }
+          
+          setTeamSportIdToName(mapping);
+          console.log("✅ Mapping team_sport_id → team_name chargé:", mapping);
+        }
+      } catch (err) {
+        console.warn("⚠️ Erreur lors du chargement du mapping d'équipes:", err);
+      }
+    };
+    
+    loadTeamNames();
+  }, []);
 
   useEffect(() => {
     const fetchSport = async (sportId: string) => {
@@ -191,171 +241,394 @@ export default function TournamentViewPage() {
     const id = params?.id;
     if (typeof id === "string") {
       fetchSport(id);
-
-       if (typeof window !== "undefined") {
-         try {
-           const storageKey = `tournament-layout-${id}`;
-           console.log("🔍 Recherche de la clé:", storageKey);
-           
-           const raw = window.localStorage.getItem(storageKey);
-           console.log("📦 Données brutes trouvées:", raw ? "OUI" : "NON");
-           
-           if (raw) {
-             const parsed = JSON.parse(raw) as {
-               matches?: any[];
-               pools?: any[];
-               brackets?: any[];
-               loserBrackets?: any[];
-             };
-             
-             console.log("📊 Données parsées:", {
-               nbMatches: parsed.matches?.length || 0,
-               nbPools: parsed.pools?.length || 0,
-               nbBrackets: parsed.brackets?.length || 0,
-               nbLoserBrackets: parsed.loserBrackets?.length || 0,
-               parsed
-             });
-
-             // Stocker les données complètes pour la résolution
-             setTournamentMatches(parsed.matches || []);
-             setTournamentPools(parsed.pools || []);
-             setTournamentBrackets(parsed.brackets || []);
-             setTournamentLoserBrackets(parsed.loserBrackets || []);
-
-             const collected: TournamentMatch[] = [];
-             const poolsData: Pool[] = [];
-
-             (parsed.matches || []).forEach((m: any, index: number) => {
-               collected.push({
-                 id: m.id?.toString() || `m-${index}`,
-                 label: m.winnerCode || "",
-                 teamA: m.teamA || "Équipe A",
-                 teamB: m.teamB || "Équipe B",
-                 type: (m.type as TournamentMatchType) || "qualifications",
-                 status: (m.status as TournamentMatchStatus) || "planifié",
-                 date: m.date,
-                 time: m.time,
-                 scoreA: m.scoreA,
-                 scoreB: m.scoreB,
-               });
-             });
-
-             (parsed.pools || []).forEach((p: any) => {
-               poolsData.push({
-                 id: p.id?.toString() || "",
-                 name: p.name || "Poule",
-                 teams: Array.isArray(p.teams) ? p.teams : [],
-                 qualifiedToFinals: p.qualifiedToFinals ?? 2,
-                 qualifiedToLoserBracket: p.qualifiedToLoserBracket ?? 0,
-               });
-
-               (p.matches || []).forEach((m: any, idx: number) => {
-                 collected.push({
-                   id: m.id?.toString() || `pm-${idx}`,
-                   label:
-                     typeof p.name === "string"
-                       ? `${p.name} - M${idx + 1}`
-                       : "",
-                   teamA: m.teamA || "Équipe A",
-                   teamB: m.teamB || "Équipe B",
-                   type: (m.type as TournamentMatchType) || "poule",
-                   status: (m.status as TournamentMatchStatus) || "planifié",
-                   date: m.date,
-                   time: m.time,
-                   scoreA: m.scoreA,
-                   scoreB: m.scoreB,
-                 });
-               });
-             });
-
-             // Récupération des matchs des brackets (phase finale)
-             (parsed.brackets || []).forEach((bracket: any) => {
-               (bracket.matches || []).forEach((m: any, idx: number) => {
-                 const typeMap: Record<string, TournamentMatchType> = {
-                   "quarts": "quarts",
-                   "demi": "demi-finale",
-                   "finale": "finale",
-                   "petite-finale": "petite-finale",
-                 };
-                 
-                 collected.push({
-                   id: m.id?.toString() || `bracket-${idx}`,
-                   label: m.winnerCode || m.loserCode || "",
-                   teamA: m.teamA || "Équipe A",
-                   teamB: m.teamB || "Équipe B",
-                   type: typeMap[m.bracketMatchType] || "finale",
-                   status: (m.status as TournamentMatchStatus) || "planifié",
-                   date: m.date,
-                   time: m.time,
-                   scoreA: m.scoreA,
-                   scoreB: m.scoreB,
-                 });
-               });
-             });
-
-             // Récupération des matchs des loser brackets
-             (parsed.loserBrackets || []).forEach((loserBracket: any) => {
-               (loserBracket.matches || []).forEach((m: any, idx: number) => {
-                 collected.push({
-                   id: m.id?.toString() || `loser-${idx}`,
-                   label: m.winnerCode || m.loserCode || "Loser Bracket",
-                   teamA: m.teamA || "Équipe A",
-                   teamB: m.teamB || "Équipe B",
-                   type: "qualifications",
-                   status: (m.status as TournamentMatchStatus) || "planifié",
-                   date: m.date,
-                   time: m.time,
-                   scoreA: m.scoreA,
-                   scoreB: m.scoreB,
-                 });
-               });
-             });
-
-             console.log("✅ Nombre total de matchs récupérés:", collected.length);
-             console.log("✅ Nombre total de poules récupérées:", poolsData.length);
-             setMatches(collected);
-             setPools(poolsData);
-             return;
-           } else {
-             console.log("⚠️ Aucune donnée trouvée dans localStorage pour cette clé");
-           }
-         } catch (err) {
-           console.error(
-             "❌ Erreur lors du chargement du layout du tournoi dans la vue tournoi:",
-             err
-           );
-         }
-       }
-
-       setMatches([]);
     }
   }, [params]);
 
+  // Une fois que le mapping est chargé, charger la structure du tournoi
+  useEffect(() => {
+    if (Object.keys(teamSportIdToName).length === 0) return; // Attendre que le mapping soit chargé
+    
+    const id = params?.id;
+    if (typeof id !== "string") return;
+
+    // Charger depuis l'API
+    const loadTournamentStructure = async () => {
+      try {
+          // D'abord, charger tous les tournois et trouver celui pour ce sport
+          const tournamentsResponse = await fetch(`http://localhost:8000/tournaments`);
+          if (!tournamentsResponse.ok) {
+            throw new Error("Impossible de charger les tournois");
+          }
+          
+          const tournamentsData = await tournamentsResponse.json();
+          console.log("📥 Réponse API tournois:", tournamentsData);
+          
+          if (!tournamentsData.success || !tournamentsData.data) {
+            throw new Error("Pas de tournois trouvés");
+          }
+          
+          // L'API peut retourner data.items ou directement data comme array
+          const tournaments = Array.isArray(tournamentsData.data.items) 
+            ? tournamentsData.data.items 
+            : Array.isArray(tournamentsData.data) 
+            ? tournamentsData.data 
+            : [];
+          
+          console.log("📋 Tournois disponibles:", tournaments);
+          
+          // Chercher le tournoi pour ce sport
+          const tournament = tournaments.find((t: any) => t.sport_id === parseInt(id));
+          if (!tournament) {
+            throw new Error("Aucun tournoi trouvé pour ce sport. Veuillez le configurer d'abord.");
+          }
+          
+          console.log("✅ Tournoi trouvé pour sport", id, ":", tournament);
+          
+          // Charger la structure du tournoi
+          const response = await fetch(`http://localhost:8000/tournaments/${tournament.id}/structure`);
+          if (response.ok) {
+            const data = await response.json();
+            if (data.success && data.data) {
+              console.log("📥 Chargement de la structure depuis l'API:", data.data);
+              
+              // Propager automatiquement les résultats avant de charger les données
+              try {
+                await fetch(`http://localhost:8000/tournaments/${tournament.id}/propagate-results`, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                  },
+                });
+                console.log("✅ Résultats propagés automatiquement");
+                
+                // Recharger la structure après propagation
+                const updatedResponse = await fetch(`http://localhost:8000/tournaments/${tournament.id}/structure`);
+                if (updatedResponse.ok) {
+                  const updatedData = await updatedResponse.json();
+                  if (updatedData.success && updatedData.data) {
+                    console.log("📥 Structure mise à jour après propagation:", updatedData.data);
+                    // Utiliser les données mises à jour
+                    Object.assign(data, updatedData);
+                  }
+                }
+              } catch (propagateErr) {
+                console.warn("⚠️ Impossible de propager les résultats:", propagateErr);
+              }
+              
+              const collected: TournamentMatch[] = [];
+              const poolsData: Pool[] = [];
+              
+              // Fonction pour obtenir le nom d'une équipe à partir de team_sport_id ou source
+              const getTeamName = (teamSportId: number | null | undefined, teamSource: string | null | undefined): string => {
+                if (teamSportId && teamSportIdToName[teamSportId]) {
+                  return teamSportIdToName[teamSportId];
+                }
+                return teamSource || "Équipe A";
+              };
+              
+              // Convertir les matchs de qualification
+              (data.data.qualification_matches || []).forEach((m: any) => {
+                collected.push({
+                  id: m.id.toString(),
+                  label: m.label || "",
+                  teamA: getTeamName(m.team_sport_a_id, m.team_a_source),
+                  teamB: getTeamName(m.team_sport_b_id, m.team_b_source),
+                  type: "qualifications",
+                  status: m.status === "upcoming" ? "planifié" : 
+                          m.status === "in_progress" ? "en-cours" :
+                          m.status === "completed" ? "terminé" : "planifié",
+                  scoreA: m.score_a,
+                  scoreB: m.score_b,
+                });
+              });
+              
+              // Convertir les poules
+              (data.data.pools || []).forEach((p: any) => {
+                const poolMatches: TournamentMatch[] = [];
+                (p.matches || []).forEach((m: any) => {
+                  const match: TournamentMatch = {
+                    id: m.id.toString(),
+                    label: m.label || "",
+                    teamA: getTeamName(m.team_sport_a_id, m.team_a_source),
+                    teamB: getTeamName(m.team_sport_b_id, m.team_b_source),
+                    type: "poule",
+                    status: m.status === "upcoming" ? "planifié" : 
+                            m.status === "in_progress" ? "en-cours" :
+                            m.status === "completed" ? "terminé" : "planifié",
+                    scoreA: m.score_a,
+                    scoreB: m.score_b,
+                  };
+                  poolMatches.push(match);
+                  collected.push(match);
+                });
+                
+                poolsData.push({
+                  id: p.id.toString(),
+                  name: p.name,
+                  teams: [], // Les équipes seront récupérées si nécessaire
+                  qualifiedToFinals: p.qualified_to_finals || 2,
+                  qualifiedToLoserBracket: p.qualified_to_loser_bracket || 0,
+                });
+              });
+              
+              // Convertir les matchs de bracket (depuis bracket_matches ou brackets)
+              const bracketMatches = data.data.bracket_matches || [];
+              const bracketsFromStructure = data.data.brackets || [];
+              
+              // Si les matchs ne sont pas directement dans bracket_matches, les récupérer depuis brackets
+              if (bracketMatches.length === 0 && bracketsFromStructure.length > 0) {
+                bracketsFromStructure.forEach((bracket: any) => {
+                  (bracket.matches || []).forEach((m: any) => {
+                    const typeMap: Record<string, TournamentMatchType> = {
+                      "quarts": "quarts",
+                      "demi": "demi-finale",
+                      "finale": "finale",
+                      "petite-finale": "petite-finale",
+                    };
+                    
+                    collected.push({
+                      id: m.id?.toString() || "",
+                      label: m.label || m.winnerCode || "",
+                      teamA: getTeamName(m.team_sport_a_id, m.team_a_source || m.teamA),
+                      teamB: getTeamName(m.team_sport_b_id, m.team_b_source || m.teamB),
+                      type: typeMap[m.bracketMatchType || m.bracket_type] || "finale",
+                      status: m.status === "upcoming" ? "planifié" : 
+                              m.status === "in_progress" ? "en-cours" :
+                              m.status === "completed" ? "terminé" : "planifié",
+                      scoreA: m.score_a || m.scoreA,
+                      scoreB: m.score_b || m.scoreB,
+                      date: m.date,
+                      time: m.time,
+                    });
+                  });
+                });
+              } else {
+                bracketMatches.forEach((m: any) => {
+                  const typeMap: Record<string, TournamentMatchType> = {
+                    "quarterfinal": "quarts",
+                    "semifinal": "demi-finale",
+                    "final": "finale",
+                    "third_place": "petite-finale",
+                  };
+                  
+                  collected.push({
+                    id: m.id.toString(),
+                    label: m.label || "",
+                    teamA: getTeamName(m.team_sport_a_id, m.team_a_source),
+                    teamB: getTeamName(m.team_sport_b_id, m.team_b_source),
+                    type: typeMap[m.bracket_type] || "finale",
+                    status: m.status === "upcoming" ? "planifié" : 
+                            m.status === "in_progress" ? "en-cours" :
+                            m.status === "completed" ? "terminé" : "planifié",
+                    scoreA: m.score_a,
+                    scoreB: m.score_b,
+                  });
+                });
+              }
+              
+              // Convertir les matchs de loser bracket (depuis loser_bracket_matches ou loser_brackets)
+              const loserBracketMatches = data.data.loser_bracket_matches || [];
+              const loserBracketsFromStructure = data.data.loser_brackets || [];
+              
+              if (loserBracketMatches.length === 0 && loserBracketsFromStructure.length > 0) {
+                loserBracketsFromStructure.forEach((loserBracket: any) => {
+                  (loserBracket.matches || []).forEach((m: any) => {
+                    collected.push({
+                      id: m.id?.toString() || "",
+                      label: m.label || m.winnerCode || "",
+                      teamA: getTeamName(m.team_sport_a_id, m.team_a_source || m.teamA),
+                      teamB: getTeamName(m.team_sport_b_id, m.team_b_source || m.teamB),
+                      type: "loser-bracket",
+                      status: m.status === "upcoming" ? "planifié" : 
+                              m.status === "in_progress" ? "en-cours" :
+                              m.status === "completed" ? "terminé" : "planifié",
+                      scoreA: m.score_a || m.scoreA,
+                      scoreB: m.score_b || m.scoreB,
+                      date: m.date,
+                      time: m.time,
+                    });
+                  });
+                });
+              } else {
+                loserBracketMatches.forEach((m: any) => {
+                  collected.push({
+                    id: m.id.toString(),
+                    label: m.label || "Loser Bracket",
+                    teamA: getTeamName(m.team_sport_a_id, m.team_a_source),
+                    teamB: getTeamName(m.team_sport_b_id, m.team_b_source),
+                    type: "loser-bracket",
+                    status: m.status === "upcoming" ? "planifié" : 
+                            m.status === "in_progress" ? "en-cours" :
+                            m.status === "completed" ? "terminé" : "planifié",
+                    scoreA: m.score_a,
+                    scoreB: m.score_b,
+                  });
+                });
+              }
+
+              console.log("✅ Structure chargée - Matchs:", collected.length, "Poules:", poolsData.length);
+              
+              // Stocker aussi pour la résolution des noms
+              setTournamentMatches(data.data.qualification_matches || []);
+              setTournamentPools(data.data.pools || []);
+              
+              // Convertir les brackets pour la résolution des noms
+              const bracketsForResolution = (data.data.brackets || []).map((b: any, idx: number) => ({
+                id: (idx + 1).toString(),
+                name: b.name || "Phase Finale",
+                matches: (b.matches || []).map((m: any) => ({
+                  id: m.id,
+                  teamA: m.team_a_source || m.teamA,
+                  teamB: m.team_b_source || m.teamB,
+                  scoreA: m.score_a || m.scoreA,
+                  scoreB: m.score_b || m.scoreB,
+                  status: m.status,
+                  winnerCode: m.winnerCode || m.label,
+                })),
+                enabledRounds: b.enabled_rounds || [],
+                teams: b.teams || [],
+                position: { x: 0, y: 0 },
+                loserToLoserBracket: false
+              }));
+              
+              // Convertir les loser brackets pour la résolution des noms
+              const loserBracketsForResolution = (data.data.loser_brackets || []).map((lb: any, idx: number) => ({
+                id: (idx + 1).toString(),
+                name: lb.name || "Loser Bracket",
+                matches: (lb.matches || []).map((m: any) => ({
+                  id: m.id,
+                  teamA: m.team_a_source || m.teamA,
+                  teamB: m.team_b_source || m.teamB,
+                  scoreA: m.score_a || m.scoreA,
+                  scoreB: m.score_b || m.scoreB,
+                  status: m.status,
+                  winnerCode: m.winnerCode || m.label,
+                })),
+                enabledRounds: lb.enabled_rounds || [],
+                teams: lb.teams || [],
+                position: { x: 0, y: 0 }
+              }));
+              
+              setTournamentBrackets(bracketsForResolution.length > 0 ? bracketsForResolution : (data.data.bracket_matches ? [{
+                id: "1",
+                name: "Phase Finale",
+                matches: data.data.bracket_matches,
+                enabledRounds: [],
+                teams: [],
+                position: { x: 0, y: 0 },
+                loserToLoserBracket: false
+              }] : []));
+              
+              setTournamentLoserBrackets(loserBracketsForResolution.length > 0 ? loserBracketsForResolution : (data.data.loser_bracket_matches ? [{
+                id: "1",
+                name: "Loser Bracket",
+                matches: data.data.loser_bracket_matches,
+                enabledRounds: [],
+                teams: [],
+                position: { x: 0, y: 0 }
+              }] : []));
+              
+              setMatches(collected);
+              setPools(poolsData);
+              return;
+            }
+          }
+        } catch (err) {
+          console.error("❌ Impossible de charger la structure du tournoi depuis l'API:", err);
+          setError("Impossible de charger les données du tournoi. Veuillez configurer le tournoi d'abord.");
+        }
+      };
+      
+      loadTournamentStructure();
+  }, [params, teamSportIdToName]);
+
   // Générer le classement des poules avec les vrais résultats
-  const generatePoolRankings = (): Map<string, RankingEntry[]> => {
+  const generatePoolRankings = async (): Promise<Map<string, RankingEntry[]>> => {
     const poolRankings = new Map<string, RankingEntry[]>();
     
-    tournamentPools.forEach((pool) => {
-      const standings = calculatePoolStandings(pool);
-      const ranking: RankingEntry[] = standings.map((standing, index) => ({
-        position: index + 1,
-        team: standing.team,
-        played: standing.played,
-        won: standing.won,
-        drawn: 0, // On pourrait ajouter les nuls si nécessaire
-        lost: standing.lost,
-        points: standing.points,
-        scoreDiff: standing.scoreDiff,
-      }));
-      
-      poolRankings.set(pool.name, ranking);
-    });
+    // Récupérer le classement de chaque poule via l'API
+    for (const pool of pools) {
+      try {
+        const response = await fetch(`http://localhost:8000/pools/${pool.id}/standings`);
+        if (response.ok) {
+          const data = await response.json();
+          const standings = data.data || [];
+          
+          // Convertir les standings de l'API au format RankingEntry
+          const ranking: RankingEntry[] = standings.map((standing: any) => ({
+            position: standing.position || 1,
+            team: standing.team_name || "",
+            played: (standing.wins || 0) + (standing.losses || 0) + (standing.draws || 0),
+            won: standing.wins || 0,
+            drawn: standing.draws || 0,
+            lost: standing.losses || 0,
+            points: standing.points || 0,
+            scoreDiff: standing.goal_difference || 0,
+          }));
+          
+          poolRankings.set(pool.name, ranking);
+        } else {
+          console.warn(`⚠️ Impossible de récupérer le classement de la poule ${pool.id}`);
+          // Fallback: calculer localement
+          const standings = calculatePoolStandings(pools.find(p => p.id === pool.id) as TournamentLogicPool);
+          const ranking: RankingEntry[] = standings.map((standing, index) => ({
+            position: index + 1,
+            team: standing.team,
+            played: standing.played,
+            won: standing.won,
+            drawn: 0,
+            lost: standing.lost,
+            points: standing.points,
+            scoreDiff: standing.scoreDiff,
+          }));
+          poolRankings.set(pool.name, ranking);
+        }
+      } catch (err) {
+        console.warn(`⚠️ Erreur lors du chargement du classement de la poule ${pool.id}:`, err);
+        // Fallback: calculer localement
+        const standings = calculatePoolStandings(pools.find(p => p.id === pool.id) as TournamentLogicPool);
+        const ranking: RankingEntry[] = standings.map((standing, index) => ({
+          position: index + 1,
+          team: standing.team,
+          played: standing.played,
+          won: standing.won,
+          drawn: 0,
+          lost: standing.lost,
+          points: standing.points,
+          scoreDiff: standing.scoreDiff,
+        }));
+        poolRankings.set(pool.name, ranking);
+      }
+    }
     
     return poolRankings;
   };
 
   // Générer le classement final avec les vrais points
-  const generateFinalRanking = (): RankingEntry[] => {
+  // NOTE: Cette fonction est maintenant appelée dans un useEffect
+
+  // États pour stocker les rankings
+  const [poolRankings, setPoolRankings] = useState<Map<string, RankingEntry[]>>(new Map());
+  const [finalRanking, setFinalRanking] = useState<RankingEntry[]>([]);
+
+  // Charger les classements des poules via l'API
+  useEffect(() => {
+    if (pools.length === 0) {
+      setPoolRankings(new Map());
+      return;
+    }
+
+    const loadPoolRankings = async () => {
+      const rankings = await generatePoolRankings();
+      setPoolRankings(rankings);
+    };
+
+    loadPoolRankings();
+  }, [pools]);
+
+  // Charger le classement final
+  useEffect(() => {
     const finalRankings = calculateFinalRankings(
       tournamentMatches,
       tournamentPools,
@@ -363,7 +636,7 @@ export default function TournamentViewPage() {
       tournamentLoserBrackets
     );
     
-    return Array.from(finalRankings.entries())
+    const ranking = Array.from(finalRankings.entries())
       .sort((a, b) => b[1] - a[1])
       .map(([team, points], index) => ({
         position: index + 1,
@@ -374,52 +647,282 @@ export default function TournamentViewPage() {
         lost: 0,
         points: points,
       }));
+    
+    setFinalRanking(ranking);
+  }, [tournamentMatches, tournamentPools, tournamentBrackets, tournamentLoserBrackets]);
+
+  const handleResetAllMatches = () => {
+    if (!params.id || typeof params.id !== 'string') return;
+    
+    if (window.confirm('Êtes-vous sûr de vouloir réinitialiser tous les matchs ? Cette action est irréversible.')) {
+      // D'abord, trouver l'ID du tournoi pour ce sport
+      fetch(`http://localhost:8000/tournaments`)
+        .then(res => res.json())
+        .then(data => {
+          const tournaments = Array.isArray(data.data.items) 
+            ? data.data.items 
+            : Array.isArray(data.data) 
+            ? data.data 
+            : [];
+          const tournament = tournaments.find((t: any) => t.sport_id === parseInt(params.id as string));
+          
+          if (!tournament) {
+            throw new Error("Tournoi introuvable");
+          }
+          
+          // Appeler l'API pour réinitialiser les matchs
+          return fetch(`http://localhost:8000/tournaments/${tournament.id}/reset-matches`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Accept": "application/json",
+            },
+          });
+        })
+        .then(res => {
+          if (!res.ok) throw new Error("Erreur lors de la réinitialisation");
+          return res.json();
+        })
+        .then(data => {
+          console.log("✅ Réinitialisation réussie:", data);
+          alert("Tous les matchs ont été réinitialisés !");
+          // Recharger la page pour afficher les changements
+          window.location.reload();
+        })
+        .catch(err => {
+          console.error("❌ Erreur:", err);
+          alert("Erreur lors de la réinitialisation: " + err.message);
+        });
+    }
+    setShowMenu(false);
   };
 
-  const poolRankings = generatePoolRankings();
-  const finalRanking = generateFinalRanking();
+  const handlePropagateResults = () => {
+    if (!params.id || typeof params.id !== 'string') return;
+    
+    // Trouver l'ID du tournoi pour ce sport
+    fetch(`http://localhost:8000/tournaments`)
+      .then(res => res.json())
+      .then(data => {
+        const tournaments = Array.isArray(data.data.items) 
+          ? data.data.items 
+          : Array.isArray(data.data) 
+          ? data.data 
+          : [];
+        const tournament = tournaments.find((t: any) => t.sport_id === parseInt(params.id as string));
+        
+        if (!tournament) {
+          throw new Error("Tournoi introuvable");
+        }
+        
+        // Appeler l'API pour propager les résultats
+        return fetch(`http://localhost:8000/tournaments/${tournament.id}/propagate-results`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+          },
+        });
+      })
+      .then(res => {
+        if (!res.ok) throw new Error("Erreur lors de la propagation");
+        return res.json();
+      })
+      .then(data => {
+        console.log("✅ Propagation réussie:", data);
+        alert(`${data.data.propagated_matches} match(s) propagé(s) avec succès !`);
+        // Recharger la page pour afficher les changements
+        window.location.reload();
+      })
+      .catch(err => {
+        console.error("❌ Erreur:", err);
+        alert("Erreur lors de la propagation: " + err.message);
+      });
+    
+    setShowMenu(false);
+  };
 
   return (
-    <main className="min-h-screen bg-gray-100 flex flex-col items-center justify-center px-4 py-8 relative">
-      {/* Bouton retour */}
-      <button
-        onClick={() => router.back()}
-        className="absolute left-4 top-4 flex items-center gap-2 bg-white rounded-full shadow px-4 py-2 hover:bg-blue-50 transition focus:outline-none focus:ring-2 focus:ring-blue-400"
-        aria-label="Retour"
-      >
-        <svg
-          className="w-5 h-5 text-blue-600"
-          fill="none"
-          viewBox="0 0 20 20"
-          stroke="currentColor"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M12 4l-6 6m0 0l6 6m-6-6h14"
-          />
-        </svg>
-        <span className="text-blue-700 font-medium">Retour</span>
-      </button>
+    <main className="min-h-screen bg-gray-100 flex flex-col items-center px-4 py-8">
+      {/* Header avec bouton retour, titre et menu 3 points */}
+      <header className="w-full max-w-6xl mb-8">
+        <div className="flex items-center justify-between">
+          {/* Bouton retour */}
+          <button
+            onClick={() => router.back()}
+            className="flex items-center gap-2 bg-white rounded-full shadow px-4 py-2 hover:bg-blue-50 transition focus:outline-none focus:ring-2 focus:ring-blue-400"
+            aria-label="Retour"
+          >
+            <svg
+              className="w-5 h-5 text-blue-600"
+              fill="none"
+              viewBox="0 0 20 20"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 4l-6 6m0 0l6 6m-6-6h14"
+              />
+            </svg>
+            <span className="text-blue-700 font-medium">Retour</span>
+          </button>
 
-    <header className="mb-20 text-center">
-      <h1 className="text-3xl font-bold text-black mb-2">
-        {loading
-        ? "Chargement du tournoi..."
-        : sport
-        ? `Tournoi ${sport.name}`
-        : "Tournoi"}
-      </h1>
-      {sport && (
-        <p className="text-black text-sm">
-        Type de score : {formatScoreType(sport.score_type)}
-        </p>
+          {/* Titre au centre */}
+          <div className="text-center flex-1 mx-4">
+            <h1 className="text-3xl font-bold text-black mb-2">
+              {loading
+                ? "Chargement du tournoi..."
+                : sport
+                ? `Tournoi ${sport.name}`
+                : "Tournoi"}
+            </h1>
+            {sport && (
+              <p className="text-black text-sm">
+                Type de score : {formatScoreType(sport.score_type)}
+              </p>
+            )}
+            {!loading && error && (
+              <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+                <p className="text-sm text-red-600 mb-2">{error}</p>
+                <button
+                  onClick={() => router.push(`/configuration-coupe/tournaments/${params.id}`)}
+                  className="text-sm text-red-700 hover:text-red-800 font-medium underline"
+                >
+                  Aller à la configuration du tournoi →
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Menu 3 points */}
+          <div className="relative">
+            <button
+              onClick={() => setShowMenu(!showMenu)}
+              className="bg-white rounded-full shadow-lg p-3 hover:bg-gray-50 transition focus:outline-none focus:ring-2 focus:ring-blue-400"
+              aria-label="Options"
+            >
+              <svg className="w-6 h-6 text-gray-700" fill="currentColor" viewBox="0 0 24 24">
+                <circle cx="12" cy="5" r="2"/>
+                <circle cx="12" cy="12" r="2"/>
+                <circle cx="12" cy="19" r="2"/>
+              </svg>
+            </button>
+
+            {showMenu && (
+              <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-xl border border-gray-200 py-2 z-50">
+                <button
+                  onClick={() => {
+                    setShowMatchSelect(true);
+                    setShowMenu(false);
+                  }}
+                  className="w-full text-left px-4 py-3 hover:bg-gray-50 transition flex items-center gap-3"
+                >
+                  <svg className="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                  </svg>
+                  <div>
+                    <div className="font-medium text-gray-900">Modifier un match</div>
+                    <div className="text-xs text-gray-500">Choisir un match à éditer</div>
+                  </div>
+                </button>
+                <button
+                  onClick={handlePropagateResults}
+                  className="w-full text-left px-4 py-3 hover:bg-green-50 transition flex items-center gap-3 border-t border-gray-100"
+                >
+                  <svg className="w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                  </svg>
+                  <div>
+                    <div className="font-medium text-green-900">Propager les résultats</div>
+                    <div className="text-xs text-green-600">Mettre à jour les matchs suivants</div>
+                  </div>
+                </button>
+                <button
+                  onClick={handleResetAllMatches}
+                  className="w-full text-left px-4 py-3 hover:bg-red-50 transition flex items-center gap-3 border-t border-gray-100"
+                >
+                  <svg className="w-5 h-5 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  <div>
+                    <div className="font-medium text-red-900">Réinitialiser tous les matchs</div>
+                    <div className="text-xs text-red-500">Remettre à zéro tous les scores</div>
+                  </div>
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </header>
+
+      {/* Modal de sélection de match */}
+      {showMatchSelect && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[80vh] overflow-hidden">
+            <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-4 flex items-center justify-between">
+              <h3 className="text-xl font-bold text-white">Sélectionner un match à modifier</h3>
+              <button
+                onClick={() => setShowMatchSelect(false)}
+                className="text-white hover:bg-white hover:bg-opacity-20 rounded-full p-2 transition"
+              >
+                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="overflow-y-auto max-h-[calc(80vh-80px)] p-6">
+              {matches.length === 0 ? (
+                <p className="text-center text-gray-500 py-8">Aucun match disponible</p>
+              ) : (
+                <div className="grid gap-3">
+                  {matches.map((match) => (
+                    <button
+                      key={match.id}
+                      onClick={() => {
+                        router.push(`/choix-sport/tournaments/table-marquage/${params.id}?matchId=${match.id}`);
+                        setShowMatchSelect(false);
+                      }}
+                      className="text-left bg-gray-50 hover:bg-blue-50 border border-gray-200 hover:border-blue-300 rounded-lg p-4 transition-all"
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <span className={`px-2 py-1 text-xs font-medium rounded-full ${getMatchTypeBadge(match.type)}`}>
+                            {match.type === "qualifications" ? "Qualifs" : match.type}
+                          </span>
+                          {match.label && (
+                            <span className="text-xs font-semibold text-gray-700">{match.label}</span>
+                          )}
+                        </div>
+                        <span className={`px-2 py-1 text-xs font-medium rounded-full ${getMatchStatusBadge(match.status)}`}>
+                          {match.status}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="font-medium text-gray-900">
+                          {formatTeamName(match.teamA, tournamentMatches, tournamentPools, tournamentBrackets, tournamentLoserBrackets)}
+                        </span>
+                        <span className="text-gray-500 mx-2">vs</span>
+                        <span className="font-medium text-gray-900">
+                          {formatTeamName(match.teamB, tournamentMatches, tournamentPools, tournamentBrackets, tournamentLoserBrackets)}
+                        </span>
+                      </div>
+                      {match.status === "terminé" && match.scoreA !== undefined && match.scoreB !== undefined && (
+                        <div className="mt-2 text-center text-sm font-bold text-blue-600">
+                          {match.scoreA} - {match.scoreB}
+                        </div>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
-      {!loading && error && (
-        <p className="mt-2 text-sm text-red-600">{error}</p>
-      )}
-    </header>
+
+    {/* Sections du contenu */}
     <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-8">
         <section className="w-full max-w-4xl">
             <div className="bg-white rounded-2xl shadow-lg p-8 border border-gray-200">
@@ -506,7 +1009,7 @@ export default function TournamentViewPage() {
                         )}
                     </div>
 
-                    <div className="mt-1 text-[11px] text-black flex items-center gap-1">
+                    <div className="mt-1 text-[11px] text-gray-500 flex items-center gap-1">
                         <span>Cliquer pour ouvrir la table de marquage</span>
                     </div>
                     </button>

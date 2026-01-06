@@ -18,7 +18,6 @@ class MatchSet(Base):
     set_number = Column(Integer, nullable=False)  # Numéro du set (1, 2, 3...)
     score_team_a = Column(Integer, nullable=True)
     score_team_b = Column(Integer, nullable=True)
-    set_order = Column(Integer, nullable=True)
 
     # Contraintes
     __table_args__ = (
@@ -38,5 +37,5 @@ class MatchSet(Base):
     def __repr__(self):
         return (
             f"<MatchSet(id={self.id}, match_id={self.match_id}, set_number={self.set_number}, "
-            f"score_team_a={self.score_team_a}, score_team_b={self.score_team_b}, set_order={self.set_order})>"
+            f"score_team_a={self.score_team_a}, score_team_b={self.score_team_b})>"
         )

@@ -16,7 +16,11 @@ class Pool(Base):
     id = Column(Integer, primary_key=True, index=True)  # Primary Key
     phase_id = Column(Integer, ForeignKey("TournamentPhase.id"), nullable=False)  # Foreign Key → TournamentPhase.id
     name = Column(String(100), nullable=False, index=True)  # Nom de la poule (ex: Poule A)
-    display_order = Column(Integer, nullable=False)  # Ordre d'affichage
+    order = Column("order", Integer, nullable=False)  # Ordre d'affichage (colonne order dans la BDD)
+    
+    # Configuration de la poule
+    qualified_to_finals = Column(Integer, nullable=False, default=2, server_default="2")  # Nombre d'équipes qualifiées pour les finales
+    qualified_to_loser_bracket = Column(Integer, nullable=False, default=0, server_default="0")  # Nombre d'équipes pour le loser bracket
 
     # Relations
     # Note: Le backref "phase" est défini dans Pool.phase via TournamentPhase.pools, donc il ne faut pas redéfinir la relation ici pour éviter les conflits de backref.

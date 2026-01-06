@@ -2,7 +2,7 @@
 Schémas Pydantic pour Tournament
 """
 from datetime import datetime
-from typing import Literal, Optional
+from typing import Literal, Optional, List, Any
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -26,8 +26,13 @@ class TournamentBase(BaseModel):
 
 
 class TournamentCreate(TournamentBase):
-    """Schéma pour créer un Tournament"""
+    """Schéma pour créer un Tournament avec structure complète"""
     created_by_user_id: int = Field(..., description="ID de l'utilisateur créateur")
+    # Structure optionnelle
+    qualification_matches: Optional[List[Any]] = Field(default=[], description="Matchs de qualification")
+    pools: Optional[List[Any]] = Field(default=[], description="Poules")
+    brackets: Optional[List[Any]] = Field(default=[], description="Brackets (phase finale)")
+    loser_brackets: Optional[List[Any]] = Field(default=[], description="Loser brackets")
 
 
 class TournamentUpdate(BaseModel):
@@ -41,6 +46,11 @@ class TournamentUpdate(BaseModel):
     description: Optional[str] = None
     rules: Optional[str] = None
     image_url: Optional[str] = Field(None, max_length=255)
+    # Structure optionnelle pour les mises à jour
+    qualification_matches: Optional[List[Any]] = None
+    pools: Optional[List[Any]] = None
+    brackets: Optional[List[Any]] = None
+    loser_brackets: Optional[List[Any]] = None
 
 
 class TournamentResponse(TournamentBase):

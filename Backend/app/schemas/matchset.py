@@ -11,7 +11,6 @@ class MatchSetBase(BaseModel):
     set_number: int = Field(..., gt=0, description="Numéro du set (1, 2, 3...)")
     score_team_a: Optional[int] = Field(None, ge=0, description="Score de l'équipe A")
     score_team_b: Optional[int] = Field(None, ge=0, description="Score de l'équipe B")
-    set_order: Optional[int] = Field(None, description="Ordre du set")
 
 
 class MatchSetCreate(MatchSetBase):
@@ -24,7 +23,6 @@ class MatchSetUpdate(BaseModel):
     set_number: Optional[int] = Field(None, gt=0)
     score_team_a: Optional[int] = Field(None, ge=0)
     score_team_b: Optional[int] = Field(None, ge=0)
-    set_order: Optional[int] = None
 
 
 class MatchSetResponse(MatchSetBase):
