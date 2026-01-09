@@ -104,33 +104,70 @@ class MatchService(BaseService[Match]):
         if not user:
             raise NotFoundError("User", str(match_data.created_by_user_id))
         
-        return self.create(**match_data.model_dump())
+        match = self.create(**match_data.model_dump(exclude={"court_id", "scheduled_datetime"}))
+
+        # Création automatique de la planification si court_id fourni
+        if getattr(match_data, "court_id", None):
+            from app.services.matchschedule_service import MatchScheduleService
+            from app.schemas.matchschedule import MatchScheduleCreate
+            schedule_service = MatchScheduleService(self.db)
+            schedule_data = MatchScheduleCreate(
+                match_id=match.id,
+                court_id=match_data.court_id,
+                scheduled_datetime=match_data.scheduled_datetime
+            )
+            try:
+                schedule_service.create_schedule(schedule_data)
+            except Exception as e:
+                # On logue mais on n'empêche pas la création du match
+                print(f"[MatchService] Erreur lors de la création de la planification automatique : {e}")
+
+        return match
     
     def update_match(self, match_id: int, match_data: MatchUpdate) -> Match:
         """
-        Met à jour un match
-        
-        Args:
-            match_id: L'ID du match à mettre à jour
-            match_data: Les données à mettre à jour
-            
-        Returns:
-            Le match mis à jour
-            
-        Raises:
-            ConflictError: Si les deux équipes sont identiques
+        Met à jour un match et synchronise la planification (MatchSchedule) si court_id ou scheduled_datetime changent
         """
         match = self.get_or_404(match_id)
-        
+
         # Vérifier que les deux équipes sont différentes si elles sont mises à jour
         team_a_id = match_data.team_sport_a_id or match.team_sport_a_id
         team_b_id = match_data.team_sport_b_id or match.team_sport_b_id
-        
         if team_a_id == team_b_id:
             raise ConflictError("A team cannot play against itself")
-        
+
         update_data = match_data.model_dump(exclude_unset=True)
-        return self.update(match_id, **update_data)
+        updated_match = self.update(match_id, **update_data)
+
+        # Synchronisation MatchSchedule si court_id ou scheduled_datetime sont présents dans la requête
+        court_id = update_data.get("court_id")
+        scheduled_datetime = update_data.get("scheduled_datetime")
+        if court_id is not None or scheduled_datetime is not None:
+            from app.services.matchschedule_service import MatchScheduleService
+            from app.schemas.matchschedule import MatchScheduleUpdate, MatchScheduleCreate
+            schedule_service = MatchScheduleService(self.db)
+            try:
+                schedule = schedule_service.get_by_match(match_id)
+                if schedule:
+                    # Mise à jour de la planification existante
+                    schedule_update = MatchScheduleUpdate()
+                    if court_id is not None:
+                        schedule_update.court_id = court_id
+                    if scheduled_datetime is not None:
+                        schedule_update.scheduled_datetime = scheduled_datetime
+                    schedule_service.update_schedule(match_id, schedule_update)
+                else:
+                    # Création de la planification si elle n'existe pas
+                    schedule_create = MatchScheduleCreate(
+                        match_id=match_id,
+                        court_id=court_id if court_id is not None else None,
+                        scheduled_datetime=scheduled_datetime if scheduled_datetime is not None else None
+                    )
+                    schedule_service.create_schedule(schedule_create)
+            except Exception as e:
+                print(f"[MatchService] Erreur lors de la synchronisation de la planification : {e}")
+
+        return updated_match
     
     def update_score(
         self,

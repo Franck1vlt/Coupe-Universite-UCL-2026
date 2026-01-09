@@ -34,11 +34,17 @@ class MatchBase(BaseModel):
     )
     referee_user_id: Optional[int] = Field(None, description="ID de l'arbitre")
     comment: Optional[str] = Field(None, description="Commentaire")
+    court: Optional[str] = None
+    date: Optional[str] = None
+    time: Optional[str] = None
+
 
 
 class MatchCreate(MatchBase):
     """Schéma pour créer un Match"""
     created_by_user_id: int = Field(..., description="ID de l'utilisateur créateur")
+    court_id: Optional[int] = Field(None, description="ID du terrain pour la planification automatique")
+    scheduled_datetime: Optional[str] = Field(None, description="Date/heure prévue pour la planification automatique (ISO format)")
 
 
 class MatchUpdate(BaseModel):
@@ -61,6 +67,9 @@ class MatchUpdate(BaseModel):
     referee_user_id: Optional[int] = None
     updated_by_user_id: Optional[int] = Field(None, description="ID de l'utilisateur qui met à jour")
     comment: Optional[str] = None
+    court: Optional[str] = None
+    date: Optional[str] = None
+    time: Optional[str] = None
 
 
 class MatchResponse(MatchBase):

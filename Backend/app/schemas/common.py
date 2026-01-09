@@ -1,3 +1,12 @@
+from typing import Generic, TypeVar, List
+from pydantic import BaseModel
+from pydantic.generics import GenericModel
+
+T = TypeVar("T")
+
+class ListResponse(GenericModel, Generic[T]):
+    success: bool
+    data: dict[str, List[T]]
 """
 Schémas communs et utilitaires pour les schémas Pydantic
 """

@@ -1,0 +1,118 @@
+body {
+    margin: 0;
+    padding: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    background: white;
+    color: #000000;
+    font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+    overflow: hidden;
+}
+
+.score-board {
+    text-align: center;
+    width: min(1200px, 92vw);
+    padding: 2.5rem;
+    margin: 2vh auto;
+}
+
+.teams {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 2rem;
+    margin: 0 0 2rem 0;
+}
+
+.team {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.team-logo {
+    width: clamp(80px, 10vw, 140px);
+    height: clamp(80px, 10vw, 140px);
+    object-fit: contain;
+    filter: drop-shadow(0 8px 16px rgba(0,0,0,0.4));
+}
+
+#teamAName, #teamBName {
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    font-size: clamp(20px, 2.6vw, 40px);
+    color: #000000;
+}
+
+.score-container {
+    display: flex;
+    justify-content: center;
+    align-items: baseline;
+    gap: clamp(12px, 2vw, 24px);
+    margin: 1.5rem 0 2rem 0;
+    font-weight: 900;
+    color: #000000;
+}
+
+#teamAScore, #teamBScore {
+    font-size: clamp(64px, 12vw, 180px);
+    line-height: 1;
+    text-shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+
+.score-divider {
+    font-size: clamp(48px, 8vw, 120px);
+    color: #000000;
+}
+
+.match-info {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 1rem;
+    margin: 0 0 1.75rem 0;
+}
+
+.remaining-time {
+    background: linear-gradient(180deg, #0b1023, #0a0f21);
+    border: 1px solid rgba(148, 163, 184, 0.25);
+    padding: 0.6rem 1rem;
+    border-radius: 14px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: #10b981;
+}
+
+.match-type {
+    font-size: clamp(16px, 2vw, 22px);
+    color: #000000;
+    font-weight: 600;
+}
+
+.cards {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-top: 1.25rem;
+}
+
+.team-cards {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: clamp(18px, 2.2vw, 28px);
+}
+
+.team-cards span:first-child { /* icône */
+    transform: translateY(-1px);
+}
+
+/* Animation pour les changements de score */
+.score-change {
+    animation: scoreUpdate 0.5s ease-in-out;
+}

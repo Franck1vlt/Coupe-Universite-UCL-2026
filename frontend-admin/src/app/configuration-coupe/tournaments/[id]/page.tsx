@@ -25,11 +25,13 @@ type LoserBracketMatchType = "loser-round-1" | "loser-round-2" | "loser-round-3"
 
 type Match = {
   id: string;
+  uuid?: string;
   teamA: string;
   teamB: string;
+  label?: string; // étiquette du match (ex: WQ1, LQF1)
   date: string;
   time: string;
-  court: string;
+  court: string; // Nom du terrain (toujours le nom, jamais l'id)
   status: MatchStatus;
   duration: number; // en minutes
   type: MatchType;
@@ -94,6 +96,7 @@ type Court = {
   name: string;
 };
 
+
 // Fonction helper pour obtenir les équipes utilisées par phase
 const getUsedTeamsByPhase = (
   matches: Match[], 
@@ -138,6 +141,42 @@ const getUsedTeamsByPhase = (
 };
 
 export default function TournamentsPage() {
+    // Vérifie si un terrain est disponible pour un créneau donné
+    const isCourtAvailable = (
+      courtName: string,
+      date: string,
+      time: string,
+      duration: number,
+      matchId?: string
+    ) => {
+      if (!courtName || !date || !time || !duration) return true;
+      // Convertir date et heure en timestamp de début et de fin
+      const start = new Date(`${date}T${time}:00`).getTime();
+      const end = start + duration * 60 * 1000;
+      // Chercher tous les matchs (tous types) qui occupent ce terrain à cette date
+      const allMatches = [
+        ...matches,
+        ...pools.flatMap(p => p.matches),
+        ...brackets.flatMap(b => b.matches),
+        ...loserBrackets.flatMap(lb => lb.matches),
+      ];
+      for (const m of allMatches) {
+        if (
+          m.court === courtName &&
+          m.date === date &&
+          m.id !== matchId &&
+          m.time && m.duration
+        ) {
+          const mStart = new Date(`${m.date}T${m.time}:00`).getTime();
+          const mEnd = mStart + m.duration * 60 * 1000;
+          // Si les créneaux se chevauchent
+          if (!(end <= mStart || start >= mEnd)) {
+            return false;
+          }
+        }
+      }
+      return true;
+    };
   const router = useRouter();
   const params = useParams();
   const [sport, setSport] = useState<Sport | null>(null);
@@ -162,7 +201,7 @@ export default function TournamentsPage() {
   const [draggedMatch, setDraggedMatch] = useState<string | null>(null);
   const [isDraggingFromPalette, setIsDraggingFromPalette] = useState(false);
   const [nextMatchId, setNextMatchId] = useState(1); // Compteur pour les IDs de matchs
-
+  
   const qualificationMatchesCount = matches.filter(m => m.type === "qualifications").length;
 
   // Récupérer les équipes depuis l'API
@@ -211,6 +250,100 @@ export default function TournamentsPage() {
     }
   };
 
+  // Fonction pour créer ou mettre à jour un match schedule
+  const postMatchSchedule = async (
+    matchId: string,
+    courtName: string,
+    date: string,
+    time: string,
+    duration: number
+  ) => {
+    try {
+      // Trouver l'ID du terrain depuis son nom
+      const court = courts.find(c => c.name === courtName);
+      if (!court) {
+        console.error(`Terrain non trouvé: ${courtName}`);
+        return;
+      }
+
+      // Construire scheduled_datetime au format ISO (YYYY-MM-DDTHH:MM:SS)
+      const scheduledDatetime = `${date}T${time}:00`;
+
+      // Calculer estimated_duration_minutes
+      const estimatedDurationMinutes = duration;
+
+      const payload = {
+        match_id: parseInt(matchId, 10),
+        court_id: parseInt(court.id, 10),
+        scheduled_datetime: scheduledDatetime,
+        estimated_duration_minutes: estimatedDurationMinutes
+      };
+
+      console.log(`📅 Envoi match schedule pour match ${matchId}:`, payload);
+
+      // Essayer d'abord un PUT (mise à jour)
+      let res = await fetch(`http://localhost:8000/match-schedules/${matchId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      // Si 404, créer avec POST
+      if (res.status === 404) {
+        console.log(`⚠️ Schedule inexistant pour match ${matchId}, création...`);
+        res = await fetch(`http://localhost:8000/match-schedules/`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+      }
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error(`❌ Erreur schedule match ${matchId}:`, errorText);
+        throw new Error(`HTTP ${res.status}: ${errorText}`);
+      }
+
+      const result = await res.json();
+      console.log(`✅ Schedule enregistré pour match ${matchId}:`, result);
+    } catch (error) {
+      console.error(`❌ Erreur lors de l'enregistrement du schedule pour match ${matchId}:`, error);
+    }
+  };
+
+  // Affiche le select des terrains pour n'importe quel match
+  const renderCourtSelect = (match: Match, onChange: (courtName: string) => void) => {
+    return (
+      <select
+        value={match.court || ""}
+        onChange={e => onChange(e.target.value)}
+        className="border rounded px-2 py-1 w-full text-black"
+      >
+        <option value="">Sélectionner un terrain</option>
+        {courts.map(court => {
+          const isOccupied = !isCourtAvailable(
+            court.name,
+            match.date,
+            match.time,
+            match.duration,
+            match.id
+          );
+          // Si le terrain est occupé ET n'est pas celui sélectionné, on le désactive
+          const disabled = isOccupied && match.court !== court.name;
+          return (
+            <option
+              key={court.id}
+              value={court.name}
+              disabled={disabled}
+            >
+              {court.name + (disabled ? " (occupé)" : "")}
+            </option>
+          );
+        })}
+      </select>
+    );
+  };
+
   // Charger les données initiales (équipes, terrains, layout éventuel enregistré)
   useEffect(() => {
     fetchTeams();
@@ -243,15 +376,15 @@ export default function TournamentsPage() {
               // Convertir les matchs de qualification
               const apiQualificationMatches: Match[] = (structureData.data.qualification_matches || []).map((m: any) => ({
                 id: m.id.toString(),
-                teamA: m.team_a_source || "",
-                teamB: m.team_b_source || "",
-                date: "",
-                time: "",
-                court: "",
+                teamA: m.team_a_source ?? "",
+                teamB: m.team_b_source ?? "",
+                date: m.scheduled_datetime ? m.scheduled_datetime.split('T')[0] : (m.date ?? ""),
+                time: m.scheduled_datetime ? (m.scheduled_datetime.split('T')[1]?.slice(0,5) ?? "") : (m.time ?? ""),
+                court: m.court ?? "",
                 status: m.status === "upcoming" ? "planifié" : 
-                        m.status === "in_progress" ? "en-cours" :
-                        m.status === "completed" ? "terminé" : "planifié",
-                duration: 30,
+                  m.status === "in_progress" ? "en-cours" :
+                  m.status === "completed" ? "terminé" : "planifié",
+                duration: m.duration || 90,
                 type: "qualifications" as MatchType,
                 scoreA: m.score_a,
                 scoreB: m.score_b,
@@ -265,20 +398,20 @@ export default function TournamentsPage() {
                 name: p.name,
                 teams: [], // Les équipes seront récupérées séparément si nécessaire
                 matches: (p.matches || []).map((m: any) => ({
-                  id: m.id.toString(),
-                  teamA: m.team_a_source || "",
-                  teamB: m.team_b_source || "",
-                  date: "",
-                  time: "",
-                  court: "",
-                  status: m.status === "upcoming" ? "planifié" : 
-                          m.status === "in_progress" ? "en-cours" :
-                          m.status === "completed" ? "terminé" : "planifié",
-                  duration: 30,
-                  type: "poule" as MatchType,
-                  scoreA: m.score_a,
-                  scoreB: m.score_b,
-                  position: { x: 0, y: 0 },
+                    id: m.id.toString(),
+                    teamA: m.team_a_source ?? "",
+                    teamB: m.team_b_source ?? "",
+                    date: m.scheduled_datetime ? m.scheduled_datetime.split('T')[0] : (m.date ?? ""),
+                    time: m.scheduled_datetime ? (m.scheduled_datetime.split('T')[1]?.slice(0,5) ?? "") : (m.time ?? ""),
+                    court: m.court ?? "",
+                    status: m.status === "upcoming" ? "planifié" : 
+                      m.status === "in_progress" ? "en-cours" :
+                      m.status === "completed" ? "terminé" : "planifié",
+                    duration: m.duration || 90,
+                    type: "poule" as MatchType,
+                    scoreA: m.score_a,
+                    scoreB: m.score_b,
+                    position: { x: 0, y: 0 },
                 })),
                 position: { x: 100, y: 100 },
                 qualifiedToFinals: p.qualified_to_finals || 2,
@@ -289,22 +422,22 @@ export default function TournamentsPage() {
               const apiBrackets: Bracket[] = [];
               if (structureData.data.bracket_matches && structureData.data.bracket_matches.length > 0) {
                 const bracketMatches = structureData.data.bracket_matches.map((m: any) => ({
-                  id: m.id.toString(),
-                  teamA: m.team_a_source || "",
-                  teamB: m.team_b_source || "",
-                  date: "",
-                  time: "",
-                  court: "",
-                  status: m.status === "upcoming" ? "planifié" : 
-                          m.status === "in_progress" ? "en-cours" :
-                          m.status === "completed" ? "terminé" : "planifié",
-                  duration: 30,
-                  type: "phase-finale" as MatchType,
-                  scoreA: m.score_a,
-                  scoreB: m.score_b,
-                  bracketMatchType: m.bracket_type as BracketMatchType,
-                  winnerCode: m.label,
-                  position: { x: 0, y: 0 },
+                    id: m.id.toString(),
+                    teamA: m.team_a_source ?? "",
+                    teamB: m.team_b_source ?? "",
+                    date: m.scheduled_datetime ? m.scheduled_datetime.split('T')[0] : (m.date ?? ""),
+                    time: m.scheduled_datetime ? (m.scheduled_datetime.split('T')[1]?.slice(0,5) ?? "") : (m.time ?? ""),
+                    court: m.court ?? "",
+                    status: m.status === "upcoming" ? "planifié" : 
+                      m.status === "in_progress" ? "en-cours" :
+                      m.status === "completed" ? "terminé" : "planifié",
+                    duration: m.duration || 90,
+                    type: "phase-finale" as MatchType,
+                    scoreA: m.score_a,
+                    scoreB: m.score_b,
+                    bracketMatchType: m.bracket_type as BracketMatchType,
+                    winnerCode: m.label,
+                    position: { x: 0, y: 0 },
                 }));
                 
                 apiBrackets.push({
@@ -320,23 +453,23 @@ export default function TournamentsPage() {
 
               // Convertir les loser brackets
               const apiLoserBrackets: LoserBracket[] = [];
-              if (data.data.loser_bracket_matches && data.data.loser_bracket_matches.length > 0) {
-                const loserMatches = data.data.loser_bracket_matches.map((m: any) => ({
-                  id: m.id.toString(),
-                  teamA: m.team_a_source || "",
-                  teamB: m.team_b_source || "",
-                  date: "",
-                  time: "",
-                  court: "",
-                  status: m.status === "upcoming" ? "planifié" : 
-                          m.status === "in_progress" ? "en-cours" :
-                          m.status === "completed" ? "terminé" : "planifié",
-                  duration: 30,
-                  type: "loser-bracket" as MatchType,
-                  scoreA: m.score_a,
-                  scoreB: m.score_b,
-                  loserBracketMatchType: m.bracket_type as LoserBracketMatchType,
-                  position: { x: 0, y: 0 },
+              if (structureData.data.loser_bracket_matches && structureData.data.loser_bracket_matches.length > 0) {
+                const loserMatches = structureData.data.loser_bracket_matches.map((m: any) => ({
+                    id: m.id.toString(),
+                    teamA: m.team_a_source || "",
+                    teamB: m.team_b_source || "",
+                    date: m.scheduled_datetime ? m.scheduled_datetime.split('T')[0] : (m.date ?? ""),
+                    time: m.scheduled_datetime ? (m.scheduled_datetime.split('T')[1]?.slice(0,5) ?? "") : (m.time ?? ""),
+                    court: m.court ?? "",
+                    status: m.status === "upcoming" ? "planifié" : 
+                      m.status === "in_progress" ? "en-cours" :
+                      m.status === "completed" ? "terminé" : "planifié",
+                    duration: m.duration || 90,
+                    type: "loser-bracket" as MatchType,
+                    scoreA: m.score_a,
+                    scoreB: m.score_b,
+                    loserBracketMatchType: m.bracket_type as LoserBracketMatchType,
+                    position: { x: 0, y: 0 },
                 }));
                 
                 apiLoserBrackets.push({
@@ -519,7 +652,7 @@ export default function TournamentsPage() {
         status: "planifié",
         duration: 90,
         type: "qualifications",
-        position: { x: baseX, y: baseY + (i - currentQualifs.length) * 120 },
+        position: { x: baseX, y: baseY + (i - currentQualifs.length) * 90 },
         winnerPoints: 0,
         loserPoints: 0,
         winnerCode: `WQ${index}`
@@ -546,8 +679,9 @@ export default function TournamentsPage() {
     const oldMatch = matches.find(m => m.id === updatedMatch.id);
     const justCompleted = oldMatch && oldMatch.status !== "terminé" && updatedMatch.status === "terminé";
 
-    setMatches(matches.map(m => m.id === updatedMatch.id ? updatedMatch : m));
-    setSelectedMatch(updatedMatch);
+    // Toujours propager le champ 'court' (nom du terrain)
+    setMatches(matches.map(m => m.id === updatedMatch.id ? { ...updatedMatch, court: updatedMatch.court } : m));
+    setSelectedMatch({ ...updatedMatch, court: updatedMatch.court });
 
     // Si le match vient d'être terminé, propager les résultats
     if (justCompleted && updatedMatch.scoreA !== undefined && updatedMatch.scoreB !== undefined) {
@@ -563,16 +697,16 @@ export default function TournamentsPage() {
   const updatePoolMatch = (updatedMatch: Match) => {
     const pool = pools.find(p => p.matches.some(m => m.id === updatedMatch.id));
     if (pool) {
-      // Vérifier si le match vient d'être terminé
+      // Toujours propager le champ 'court' (nom du terrain)
       const oldMatch = pool.matches.find(m => m.id === updatedMatch.id);
       const justCompleted = oldMatch && oldMatch.status !== "terminé" && updatedMatch.status === "terminé";
 
       const updatedPool = {
         ...pool,
-        matches: pool.matches.map(m => m.id === updatedMatch.id ? updatedMatch : m)
+        matches: pool.matches.map(m => m.id === updatedMatch.id ? { ...updatedMatch, court: updatedMatch.court } : m)
       };
       updatePool(updatedPool);
-      setSelectedPoolMatch(updatedMatch);
+      setSelectedPoolMatch({ ...updatedMatch, court: updatedMatch.court });
 
       // Si le match vient d'être terminé, recalculer le classement de la poule
       if (justCompleted) {
@@ -697,7 +831,7 @@ export default function TournamentsPage() {
           time: "",
           court: "",
           status: "planifié",
-          duration: 120,
+          duration: 90,
           type: "phase-finale",
           bracketMatchType: "quarts",
           winnerCode: `WQF${i}`,
@@ -736,7 +870,7 @@ export default function TournamentsPage() {
           time: "",
           court: "",
           status: "planifié",
-          duration: 120,
+          duration: 90,
           type: "phase-finale",
           bracketMatchType: "demi",
           winnerCode: `WSF${i}`,
@@ -760,7 +894,7 @@ export default function TournamentsPage() {
         time: "",
         court: "",
         status: "planifié",
-        duration: 120,
+        duration: 90,
         type: "phase-finale",
         bracketMatchType: "petite-finale",
         winnerCode: "WPF",
@@ -781,7 +915,7 @@ export default function TournamentsPage() {
         time: "",
         court: "",
         status: "planifié",
-        duration: 120,
+        duration: 90,
         type: "phase-finale",
         bracketMatchType: "finale",
         winnerCode: "WF",
@@ -802,16 +936,16 @@ export default function TournamentsPage() {
   const updateBracketMatch = (updatedMatch: Match) => {
     const bracket = brackets.find(b => b.matches.some(m => m.id === updatedMatch.id));
     if (bracket) {
-      // Vérifier si le match vient d'être terminé
+      // Toujours propager le champ 'court' (nom du terrain)
       const oldMatch = bracket.matches.find(m => m.id === updatedMatch.id);
       const justCompleted = oldMatch && oldMatch.status !== "terminé" && updatedMatch.status === "terminé";
 
       const updatedBracket = {
         ...bracket,
-        matches: bracket.matches.map(m => m.id === updatedMatch.id ? updatedMatch : m)
+        matches: bracket.matches.map(m => m.id === updatedMatch.id ? { ...updatedMatch, court: updatedMatch.court } : m)
       };
       updateBracket(updatedBracket);
-      setSelectedBracketMatch(updatedMatch);
+      setSelectedBracketMatch({ ...updatedMatch, court: updatedMatch.court });
 
       // Si le match vient d'être terminé, propager les résultats
       if (justCompleted && updatedMatch.scoreA !== undefined && updatedMatch.scoreB !== undefined) {
@@ -880,7 +1014,7 @@ export default function TournamentsPage() {
           time: "",
           court: "",
           status: "planifié",
-          duration: 120,
+          duration: 90,
           type: "loser-bracket",
           loserBracketMatchType: "loser-round-1",
           winnerCode: `WLR1-${i}`,
@@ -906,7 +1040,7 @@ export default function TournamentsPage() {
           time: "",
           court: "",
           status: "planifié",
-          duration: 120,
+          duration: 90,
           type: "loser-bracket",
           loserBracketMatchType: "loser-round-2",
           winnerCode: `WLR2-${i}`,
@@ -930,7 +1064,7 @@ export default function TournamentsPage() {
         time: "",
         court: "",
         status: "planifié",
-        duration: 120,
+        duration: 90,
         type: "loser-bracket",
         loserBracketMatchType: "loser-round-3",
         winnerCode: "WLR3",
@@ -970,7 +1104,7 @@ export default function TournamentsPage() {
         time: "",
         court: "",
         status: "planifié",
-        duration: 120,
+        duration: 90,
         type: "loser-bracket",
         loserBracketMatchType: "loser-finale",
         winnerCode: "WLF",
@@ -991,16 +1125,16 @@ export default function TournamentsPage() {
   const updateLoserBracketMatch = (updatedMatch: Match) => {
     const loserBracket = loserBrackets.find(lb => lb.matches.some(m => m.id === updatedMatch.id));
     if (loserBracket) {
-      // Vérifier si le match vient d'être terminé
+      // Toujours propager le champ 'court' (nom du terrain)
       const oldMatch = loserBracket.matches.find(m => m.id === updatedMatch.id);
       const justCompleted = oldMatch && oldMatch.status !== "terminé" && updatedMatch.status === "terminé";
 
       const updatedLoserBracket = {
         ...loserBracket,
-        matches: loserBracket.matches.map(m => m.id === updatedMatch.id ? updatedMatch : m)
+        matches: loserBracket.matches.map(m => m.id === updatedMatch.id ? { ...updatedMatch, court: updatedMatch.court } : m)
       };
       updateLoserBracket(updatedLoserBracket);
-      setSelectedLoserBracketMatch(updatedMatch);
+      setSelectedLoserBracketMatch({ ...updatedMatch, court: updatedMatch.court });
 
       // Si le match vient d'être terminé, propager les résultats
       if (justCompleted && updatedMatch.scoreA !== undefined && updatedMatch.scoreB !== undefined) {
@@ -1114,13 +1248,30 @@ export default function TournamentsPage() {
     }
 
     try {
-      // Réinitialiser tous les états
+      // 1. Récupérer tous les IDs de matchs à supprimer (qualif, poules, brackets, loser brackets)
+      const matchIds = [
+        ...matches.map(m => m.id),
+        ...pools.flatMap(p => p.matches.map(m => m.id)),
+        ...brackets.flatMap(b => b.matches.map(m => m.id)),
+        ...loserBrackets.flatMap(lb => lb.matches.map(m => m.id)),
+      ].filter(Boolean);
+
+      // 2. Supprimer chaque match via l'API
+      for (const id of matchIds) {
+        if (id && /^\d+$/.test(id)) {
+          try {
+            await fetch(`http://localhost:8000/matches/${id}`, { method: 'DELETE' });
+          } catch (e) {
+            console.error(`Erreur suppression match ${id} :`, e);
+          }
+        }
+      }
+
+      // 3. Réinitialiser tous les états (comme avant)
       setMatches([]);
       setPools([]);
       setBrackets([]);
       setLoserBrackets([]);
-      
-      // Réinitialiser les sélections
       setSelectedMatch(null);
       setSelectedPool(null);
       setSelectedPoolMatch(null);
@@ -1128,12 +1279,10 @@ export default function TournamentsPage() {
       setSelectedBracketMatch(null);
       setSelectedLoserBracket(null);
       setSelectedLoserBracketMatch(null);
-      
-      // Réinitialiser le compteur d'ID
       setNextMatchId(1);
-      
-      console.log("✅ Toutes les tuiles ont été supprimées");
-      alert("Toutes les tuiles ont été supprimées avec succès !");
+
+      console.log("✅ Toutes les tuiles et les matchs en base ont été supprimés");
+      alert("Toutes les tuiles et les matchs en base ont été supprimés avec succès !");
     } catch (err: any) {
       console.error("❌ Erreur lors de la réinitialisation:", err);
       alert(`Impossible de réinitialiser les tuiles: ${err.message}`);
@@ -1158,155 +1307,172 @@ export default function TournamentsPage() {
     return mapping[frontendType] || null;
   };
 
+  // 2. Fonction de sauvegarde
   const handleSaveLayout = async () => {
-    if (!params.id || typeof params.id !== "string") {
-      console.error("❌ ID de sport invalide:", params.id);
+    const rawSportId = params.id;
+    const sportIdStr = Array.isArray(rawSportId) ? rawSportId[0] : rawSportId;
+
+    if (!sportIdStr) {
+      alert("ID du sport introuvable");
       return;
     }
 
-    console.log("💾 Enregistrement du tournoi via API:");
-    console.log("  - ID sport:", params.id);
-    console.log("  - ID tournoi:", tournamentId);
-    console.log("  - Nombre de matchs:", matches.length);
-    console.log("  - Nombre de poules:", pools.length);
-    console.log("  - Nombre de brackets:", brackets.length);
-    console.log("  - Nombre de loser brackets:", loserBrackets.length);
+    const mapStatus = (s: string) => {
+      const map: Record<string, string> = {
+        "planifié": "upcoming",
+        "en-cours": "in_progress",
+        "terminé": "completed",
+      };
+      return map[s] || "upcoming";
+    };
 
     try {
-      // Construire la structure pour l'API
+      // 1. Construction de l'objet structure
       const structure = {
         qualification_matches: matches
-          .filter(m => m.type === "qualifications")
+          .filter((m) => m.type === "qualifications")
           .map((m, idx) => ({
+            // ✅ Ne pas envoyer 'id: undefined' - le backend le créera
+            ...(m.id && /^\d+$/.test(m.id) ? { id: parseInt(m.id) } : {}),
             match_type: "qualification",
-            bracket_type: null,
-            team_sport_a_id: null,
-            team_sport_b_id: null,
+            label: m.label ?? null,
+            status: mapStatus(m.status),
+            court: m.court || null,
+            scheduled_datetime: m.date && m.time ? `${m.date}T${m.time}:00` : null,
+            duration: m.duration || 90,
             team_a_source: m.teamA || null,
             team_b_source: m.teamB || null,
-            label: m.winnerCode || `Qualification ${idx + 1}`,
-            match_order: idx + 1,
-            status: m.status === "planifié" ? "upcoming" : 
-                    m.status === "en-cours" ? "in_progress" :
-                    m.status === "terminé" ? "completed" : "upcoming",
+            team_sport_a_id: null, // ✅ Ajouté pour correspondre au backend
+            team_sport_b_id: null, // ✅ Ajouté pour correspondre au backend
           })),
-        pools: pools.map((pool, poolIdx) => ({
+        pools: pools.map((pool, pIdx) => ({
+          // ✅ Correction : 'id' n'existe pas dans le schéma Pool du backend
           name: pool.name,
-          display_order: poolIdx + 1,
-          qualified_to_finals: pool.qualifiedToFinals || 2,
-          qualified_to_loser_bracket: pool.qualifiedToLoserBracket || 0,
-          teams: [], // Les équipes seront ajoutées via TeamPool séparément
-          matches: pool.matches.map((m, matchIdx) => ({
+          display_order: pIdx + 1,
+          teams: [], // ✅ Ajouté (requis par le backend)
+          matches: pool.matches.map((m, mIdx) => ({
+            ...(m.id && /^\d+$/.test(m.id) ? { id: parseInt(m.id) } : {}),
             match_type: "pool",
-            team_sport_a_id: null,
-            team_sport_b_id: null,
+            label: m.label ?? `${pool.name} - M${mIdx + 1}`,
+            status: mapStatus(m.status),
+            court: m.court || null,
+            scheduled_datetime: m.date && m.time ? `${m.date}T${m.time}:00` : null,
+            duration: m.duration || 90,
             team_a_source: m.teamA || null,
             team_b_source: m.teamB || null,
-            label: `${pool.name} - Match ${matchIdx + 1}`,
-            match_order: matchIdx + 1,
-            status: m.status === "planifié" ? "upcoming" : 
-                    m.status === "en-cours" ? "in_progress" :
-                    m.status === "terminé" ? "completed" : "upcoming",
+            team_sport_a_id: null,
+            team_sport_b_id: null,
           })),
         })),
-        brackets: brackets.map(bracket => ({
-          name: bracket.name || "Phase Finale",
-          enabled_rounds: bracket.enabledRounds || [],
-          teams: [],
-          matches: bracket.matches.map((m, idx) => ({
+        brackets: brackets.map((b) => ({
+          name: b.name || "Phase Finale",
+          matches: b.matches.map((m, idx) => ({
+            ...(m.id && /^\d+$/.test(m.id) ? { id: parseInt(m.id) } : {}),
             match_type: "bracket",
             bracket_type: mapBracketTypeToSQL(m.bracketMatchType),
-            team_sport_a_id: null,
-            team_sport_b_id: null,
+            label: m.label ?? (m.winnerCode || `Match ${idx + 1}`),
+            status: mapStatus(m.status),
+            court: m.court || null,
+            scheduled_datetime: m.date && m.time ? `${m.date}T${m.time}:00` : null,
+            duration: m.duration || 90,
             team_a_source: m.teamA || null,
             team_b_source: m.teamB || null,
-            label: m.winnerCode || `Bracket ${idx + 1}`,
-            match_order: idx + 1,
-            status: m.status === "planifié" ? "upcoming" : 
-                    m.status === "en-cours" ? "in_progress" :
-                    m.status === "terminé" ? "completed" : "upcoming",
-          })),
-        })),
-        loser_brackets: loserBrackets.map(lb => ({
-          name: lb.name || "Loser Bracket",
-          enabled_rounds: lb.enabledRounds || [],
-          teams: [],
-          matches: lb.matches.map((m, idx) => ({
-            match_type: "loser_bracket",
-            bracket_type: mapBracketTypeToSQL(m.loserBracketMatchType),
             team_sport_a_id: null,
             team_sport_b_id: null,
-            team_a_source: m.teamA || null,
-            team_b_source: m.teamB || null,
-            label: m.winnerCode || `Loser Bracket ${idx + 1}`,
-            match_order: idx + 1,
-            status: m.status === "planifié" ? "upcoming" : 
-                    m.status === "en-cours" ? "in_progress" :
-                    m.status === "terminé" ? "completed" : "upcoming",
           })),
         })),
       };
 
-      console.log("  - Structure API:", structure);
+      // --- 2. DÉFINITION DU PAYLOAD ---
+      const payload = tournamentId
+        ? structure // Si on a déjà un tournoi, on envoie juste la structure
+        : { 
+            sport_id: parseInt(sportIdStr, 10), 
+            name: `Tournoi ${sportIdStr}`, 
+            ...structure 
+          };
 
-      let response;
-      if (tournamentId) {
-        // Mise à jour d'un tournoi existant
-        response = await fetch(`http://localhost:8000/tournaments/${tournamentId}`, {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-          },
-          body: JSON.stringify(structure),
-        });
-      } else {
-        // Création d'un nouveau tournoi
-        const createData = {
-          sport_id: parseInt(params.id),
-          name: sport?.name || `Tournoi ${params.id}`,
-          created_by_user_id: 1, // ID utilisateur par défaut (à adapter si nécessaire)
-          ...structure
-        };
-        response = await fetch(`http://localhost:8000/tournaments`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-          },
-          body: JSON.stringify(createData),
-        });
-      }
+      // --- 3. ENVOI ---
+      // ✅ CORRECTION : Pas de slash final sur l'URL avec l'ID
+      const url = tournamentId
+      ? `http://localhost:8000/tournament_structure/${tournamentId}/structure`
+      : `http://localhost:8000/tournaments`;
+
+      console.log("🚀 Envoi du payload:", payload);
+
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          "Accept": "application/json"
+        },
+        body: JSON.stringify(payload),
+      });
 
       if (!response.ok) {
-        console.error("❌ Status code:", response.status);
         const errorText = await response.text();
-        console.error("❌ Réponse brute:", errorText);
-        let errorData;
-        try {
-          errorData = JSON.parse(errorText);
-          throw new Error(errorData.error?.message || errorData.detail || "Erreur lors de la sauvegarde");
-        } catch (e) {
-          throw new Error(errorText || `HTTP ${response.status}`);
-        }
+        throw new Error(`Erreur serveur (${response.status}): ${errorText}`);
       }
 
       const result = await response.json();
-      console.log("✅ Sauvegarde réussie:", result);
+
+      // 🔹 Synchronisation UNIQUEMENT si le backend renvoie des matchs
+      if (Array.isArray(result.matches)) {
+        setMatches(prev =>
+          prev.map(m => {
+            // On cherche le match correspondant dans le backend via uuid
+            const backendMatch = result.matches.find(
+              (bm: any) => bm.uuid === m.uuid
+            );
+
+            // Si le backend a trouvé ce match, on met à jour son ID
+            if (backendMatch) {
+              return { ...m, id: backendMatch.id.toString() };
+            }
+
+            // Si aucun match correspondant, c'est un match nouveau ou non sauvegardé
+            // On garde l'objet tel quel (avec son uuid déjà généré côté frontend)
+            return m;
+          })
+        );
+
+        // 🔹 Optionnel : ajouter les nouveaux matchs renvoyés par le backend
+        // Ceux qui existent en base mais pas encore dans le state frontend
+        setMatches(prev => [
+          ...prev,
+          ...result.matches
+            .filter((bm: any) => !prev.some(m => m.uuid === bm.uuid))
+            .map((bm: any) => ({
+              uuid: bm.uuid,
+              id: bm.id.toString(),
+              type: bm.match_type,
+              label: bm.label ?? "",
+              status: bm.status ?? "upcoming",
+              court: bm.court ?? null,
+              date: bm.date ?? null,
+              time: bm.time ?? null,
+              duration: bm.duration ?? 90,
+              teamA: bm.team_a_source ?? null,
+              teamB: bm.team_b_source ?? null,
+            }))
+        ]);
+      }
+
+      console.log("✅ Résultat:", result);
       
-      // Si c'était une création, sauvegarder l'ID du tournoi
-      if (!tournamentId && result.data && result.data.id) {
+      // ✅ Si c'est une création de tournoi, récupérer l'ID
+      if (!tournamentId && result.data?.id) {
         setTournamentId(result.data.id);
+        console.log("🆕 Nouveau tournamentId:", result.data.id);
       }
       
-      alert("Configuration du tournoi enregistrée avec succès !");
+      alert("✅ Configuration sauvegardée !");
+      
     } catch (err: any) {
-      console.error("❌ Erreur lors de l'enregistrement:", err);
-      alert(`Impossible d'enregistrer la configuration: ${err.message}`);
+      console.error("❌ Erreur lors de la sauvegarde:", err);
+      alert(`Erreur: ${err.message}`);
     }
   };
-
-
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -1413,12 +1579,12 @@ export default function TournamentsPage() {
                      "Match"}
                   </span>
                   {match.type === "qualifications" && match.winnerCode && (
-                    <span className="px-2 py-0.5 text-[10px] font-medium rounded-full bg-indigo-50 text-indigo-700">
+                    <span className="px-2 py-0.5 text-[10px] font-medium rounded-full bg-indigo-50 text-black">
                       {match.winnerCode}
                     </span>
                   )}
                   {match.type === "loser-bracket" && match.loserBracketMatchType && (
-                    <span className="px-2 py-0.5 text-[10px] font-medium rounded-full bg-amber-50 text-amber-700">
+                    <span className="px-2 py-0.5 text-[10px] font-medium rounded-full bg-amber-50 text-black">
                       {match.loserBracketMatchType === "loser-round-1" ? "Repêchage" :
                        match.loserBracketMatchType === "loser-round-2" ? "Demi LB" :
                        match.loserBracketMatchType === "loser-round-3" ? "7e place" :
@@ -1426,7 +1592,7 @@ export default function TournamentsPage() {
                     </span>
                   )}
                   {match.type === "phase-finale" && match.bracketMatchType && (
-                    <span className="px-2 py-0.5 text-[10px] font-medium rounded-full bg-orange-50 text-orange-700">
+                    <span className="px-2 py-0.5 text-[10px] font-medium rounded-full bg-orange-50 text-black">
                       {match.bracketMatchType === "quarts" ? "QF" :
                        match.bracketMatchType === "demi" ? "SF" :
                        match.bracketMatchType === "petite-finale" ? "3e place" :
@@ -1947,7 +2113,7 @@ export default function TournamentsPage() {
                   <label className="block text-sm font-medium text-black mb-1">Date</label>
                   <input
                     type="date"
-                    value={selectedMatch.date}
+                    value={selectedMatch.date ?? ""}
                     onChange={(e) => updateMatch({...selectedMatch, date: e.target.value})}
                     className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-black"
                   />
@@ -1956,7 +2122,7 @@ export default function TournamentsPage() {
                   <label className="block text-sm font-medium text-black mb-1">Heure</label>
                   <input
                     type="time"
-                    value={selectedMatch.time}
+                    value={selectedMatch.time ?? ""}
                     onChange={(e) => updateMatch({...selectedMatch, time: e.target.value})}
                     className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-black"
                   />
@@ -1969,16 +2135,7 @@ export default function TournamentsPage() {
                 {loadingCourts ? (
                   <div className="text-sm text-gray-500 p-2">Chargement des terrains...</div>
                 ) : (
-                  <select
-                    value={selectedMatch.court}
-                    onChange={(e) => updateMatch({...selectedMatch, court: e.target.value})}
-                    className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-black"
-                  >
-                    <option value="">Sélectionner un terrain</option>
-                    {courts.map(court => (
-                      <option key={court.id} value={court.name}>{court.name}</option>
-                    ))}
-                  </select>
+                  renderCourtSelect(selectedMatch, (courtName) => updateMatch({ ...selectedMatch, court: courtName }))
                 )}
               </div>
 
@@ -2087,7 +2244,7 @@ export default function TournamentsPage() {
                   min="30"
                   max="300"
                   step="15"
-                  value={selectedMatch.duration}
+                  value={selectedMatch.duration ?? ""}
                   onChange={(e) => updateMatch({...selectedMatch, duration: parseInt(e.target.value)})}
                   className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-black"
                 />
@@ -3012,16 +3169,19 @@ export default function TournamentsPage() {
                 {loadingCourts ? (
                   <div className="text-sm text-gray-500 p-2">Chargement des terrains...</div>
                 ) : (
-                  <select
-                    value={selectedPoolMatch.court}
-                    onChange={(e) => updatePoolMatch({...selectedPoolMatch, court: e.target.value})}
-                    className="w-full p-2 border border-gray-300 rounded-md focus:ring-purple-500 focus:border-purple-500 text-black"
-                  >
-                    <option value="">Sélectionner un terrain</option>
-                    {courts.map(court => (
-                      <option key={court.id} value={court.name}>{court.name}</option>
-                    ))}
-                  </select>
+                  renderCourtSelect(selectedPoolMatch, (courtName) => updatePoolMatch({ ...selectedPoolMatch, court: courtName }))
+                )}
+                {/* Affichage d'un message si aucun terrain n'est disponible */}
+                {!loadingCourts && courts.filter(court =>
+                  isCourtAvailable(
+                    court.name,
+                    selectedPoolMatch.date,
+                    selectedPoolMatch.time,
+                    selectedPoolMatch.duration,
+                    selectedPoolMatch.id
+                  )
+                ).length === 0 && (
+                  <div className="text-xs text-red-600 mt-2">Aucun terrain disponible pour ce créneau</div>
                 )}
               </div>
 
@@ -3231,16 +3391,7 @@ export default function TournamentsPage() {
                 {loadingCourts ? (
                   <div className="text-sm text-gray-500 p-2">Chargement des terrains...</div>
                 ) : (
-                  <select
-                    value={selectedBracketMatch.court}
-                    onChange={(e) => updateBracketMatch({...selectedBracketMatch, court: e.target.value})}
-                    className="w-full p-2 border border-gray-300 rounded-md focus:ring-orange-500 focus:border-orange-500 text-black"
-                  >
-                    <option value="">Sélectionner un terrain</option>
-                    {courts.map(court => (
-                      <option key={court.id} value={court.name}>{court.name}</option>
-                    ))}
-                  </select>
+                  renderCourtSelect(selectedBracketMatch, (courtName) => updateBracketMatch({ ...selectedBracketMatch, court: courtName }))
                 )}
               </div>
 
@@ -3435,16 +3586,7 @@ export default function TournamentsPage() {
                 {loadingCourts ? (
                   <div className="text-sm text-gray-500 p-2">Chargement des terrains...</div>
                 ) : (
-                  <select
-                    value={selectedLoserBracketMatch.court}
-                    onChange={(e) => updateLoserBracketMatch({...selectedLoserBracketMatch, court: e.target.value})}
-                    className="w-full p-2 border border-gray-300 rounded-md focus:ring-amber-500 focus:border-amber-500 text-black"
-                  >
-                    <option value="">Sélectionner un terrain</option>
-                    {courts.map(court => (
-                      <option key={court.id} value={court.name}>{court.name}</option>
-                    ))}
-                  </select>
+                  renderCourtSelect(selectedLoserBracketMatch, (courtName) => updateLoserBracketMatch({ ...selectedLoserBracketMatch, court: courtName }))
                 )}
               </div>
 

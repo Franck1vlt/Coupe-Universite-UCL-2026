@@ -74,6 +74,8 @@ if hasattr(signal, 'SIGTERM'):
 
 # CORS setup
 setup_cors(app, settings)
+logger.info(f"CORS_ORIGINS: {settings.CORS_ORIGINS}")
+logger.info(f"CORS_ORIGINS: {settings.CORS_ORIGINS}")
 
 # Middlewares
 app.add_middleware(SecurityHeadersMiddleware)
@@ -86,9 +88,16 @@ app.add_exception_handler(RequestValidationError, validation_exception_handler)
 app.add_exception_handler(SQLAlchemyError, sqlalchemy_exception_handler)
 app.add_exception_handler(Exception, general_exception_handler)
 
-# Import des routers (commentés car routes intégrées directement)
-# from app.routers import tournament_structure
-# app.include_router(tournament_structure.router, tags=["Tournament Structure"])
+
+# Import du router courts_status
+from app.routers import tournament_structure
+app.include_router(
+    tournament_structure.router, 
+    prefix="/tournament_structure", 
+    tags=["Tournaments"]
+)
+from app.routers import courts_status
+app.include_router(courts_status.router, tags=["Courts"])
 
 @app.on_event("startup")
 async def startup_event():
@@ -103,7 +112,12 @@ async def startup_event():
     except Exception as e:
         logger.error(f"Error initializing database: {e}")
         raise
-
+    print("\n📋 Routes disponibles:")
+    for route in app.routes:
+        if hasattr(route, "methods"):
+            print(f"  {route.methods} {route.path}")
+    print("\n")
+    
 @app.on_event("shutdown")
 async def shutdown_event():
     """Actions à effectuer à l'arrêt de l'application"""
@@ -1088,6 +1102,11 @@ async def create_tournament(
         from app.models.pool import Pool
         from app.models.teampool import TeamPool
         from app.models.match import Match
+        from app.services.tournament_team_assignment import (
+            assign_teams_to_matches, 
+            assign_teams_to_pool_matches,
+            create_match_schedule_if_court
+        )
         
         phase = db.query(TournamentPhase).filter(
             TournamentPhase.tournament_id == new_tournament.id,
@@ -1103,8 +1122,15 @@ async def create_tournament(
             db.add(phase)
             db.flush()
         
+        # Assigner automatiquement les équipes aux matchs de qualification
+        processed_qualif_matches = assign_teams_to_matches(
+            db, 
+            tournament.qualification_matches or [], 
+            new_tournament.sport_id
+        )
+        
         # Créer les matchs de qualification
-        for match_data in (tournament.qualification_matches or []):
+        for match_data in processed_qualif_matches:
             match = Match(
                 phase_id=phase.id,
                 match_type="qualification",
@@ -1121,6 +1147,17 @@ async def create_tournament(
                 updated_at=datetime.utcnow()
             )
             db.add(match)
+            db.flush()
+            
+            # Créer le schedule si un terrain est spécifié
+            create_match_schedule_if_court(
+                db,
+                match.id,
+                match_data.get('court'),
+                new_tournament.sport_id,
+                None,
+                match_data.get('duration', 90)
+            )
         
         # Créer les poules
         for pool_data in (tournament.pools or []):
@@ -1142,8 +1179,15 @@ async def create_tournament(
                 )
                 db.add(team_pool)
             
+            # Assigner automatiquement les équipes aux matchs de poule
+            processed_pool_matches = assign_teams_to_pool_matches(
+                db,
+                pool_data,
+                new_tournament.sport_id
+            )
+            
             # Créer les matchs de la poule
-            for match_data in (pool_data.get('matches') or []):
+            for match_data in processed_pool_matches:
                 match = Match(
                     phase_id=phase.id,
                     pool_id=pool.id,
@@ -1160,10 +1204,27 @@ async def create_tournament(
                     updated_at=datetime.utcnow()
                 )
                 db.add(match)
+                db.flush()
+                
+                # Créer le schedule si un terrain est spécifié
+                create_match_schedule_if_court(
+                    db,
+                    match.id,
+                    match_data.get('court'),
+                    new_tournament.sport_id,
+                    None,  # scheduled_datetime à gérer plus tard
+                    match_data.get('duration', 90)
+                )
         
-        # Créer les matchs de bracket (phase finale)
+        # Assigner automatiquement les équipes aux matchs de bracket
         for bracket in (tournament.brackets or []):
-            for match_data in (bracket.get('matches') or []):
+            processed_bracket_matches = assign_teams_to_matches(
+                db,
+                bracket.get('matches') or [],
+                new_tournament.sport_id
+            )
+            
+            for match_data in processed_bracket_matches:
                 match = Match(
                     phase_id=phase.id,
                     match_type="bracket",
@@ -1180,10 +1241,27 @@ async def create_tournament(
                     updated_at=datetime.utcnow()
                 )
                 db.add(match)
+                db.flush()
+                
+                # Créer le schedule si un terrain est spécifié
+                create_match_schedule_if_court(
+                    db,
+                    match.id,
+                    match_data.get('court'),
+                    new_tournament.sport_id,
+                    None,
+                    match_data.get('duration', 90)
+                )
         
-        # Créer les matchs de loser bracket
+        # Assigner automatiquement les équipes aux matchs de loser bracket
         for loser_bracket in (tournament.loser_brackets or []):
-            for match_data in (loser_bracket.get('matches') or []):
+            processed_loser_matches = assign_teams_to_matches(
+                db,
+                loser_bracket.get('matches') or [],
+                new_tournament.sport_id
+            )
+            
+            for match_data in processed_loser_matches:
                 match = Match(
                     phase_id=phase.id,
                     match_type="loser_bracket",
@@ -1200,6 +1278,17 @@ async def create_tournament(
                     updated_at=datetime.utcnow()
                 )
                 db.add(match)
+                db.flush()
+                
+                # Créer le schedule si un terrain est spécifié
+                create_match_schedule_if_court(
+                    db,
+                    match.id,
+                    match_data.get('court'),
+                    new_tournament.sport_id,
+                    None,
+                    match_data.get('duration', 90)
+                )
         
         db.commit()
     
@@ -1244,6 +1333,12 @@ async def update_tournament(
         from app.models.pool import Pool
         from app.models.teampool import TeamPool
         from app.models.match import Match
+        from app.models.matchschedule import MatchSchedule
+        from app.services.tournament_team_assignment import (
+            assign_teams_to_matches,
+            assign_teams_to_pool_matches,
+            create_match_schedule_if_court
+        )
         
         # Récupérer ou créer la phase
         phase = db.query(TournamentPhase).filter(
@@ -1266,54 +1361,129 @@ async def update_tournament(
         
         # Traiter les matchs de qualification
         if 'qualification_matches' in structure_data:
-            # Supprimer les anciens matchs de qualification
-            db.query(Match).filter(
+            processed_qualif_matches = assign_teams_to_matches(
+                db,
+                structure_data['qualification_matches'],
+                tournament.sport_id
+            )
+            
+            existing_qualif_matches = db.query(Match).filter(
                 Match.phase_id == phase.id,
                 Match.match_type == "qualification"
-            ).delete()
+            ).all()
+            existing_map = {m.id: m for m in existing_qualif_matches}
+            processed_ids = set()
             
-            # Créer les nouveaux
-            for match_data in structure_data['qualification_matches']:
-                match = Match(
-                    phase_id=phase.id,
-                    match_type="qualification",
-                    bracket_type=match_data.get('bracket_type'),
-                    team_sport_a_id=match_data.get('team_sport_a_id'),
-                    team_sport_b_id=match_data.get('team_sport_b_id'),
-                    team_a_source=match_data.get('team_a_source'),
-                    team_b_source=match_data.get('team_b_source'),
-                    label=match_data.get('label'),
-                    match_order=match_data.get('match_order'),
-                    status=match_data.get('status', 'upcoming'),
-                    score_a=match_data.get('score_a'),
-                    score_b=match_data.get('score_b'),
-                    created_by_user_id=1,
-                    created_at=datetime.utcnow(),
-                    updated_at=datetime.utcnow()
+            for match_data in processed_qualif_matches:
+                m_id_raw = match_data.get('id')
+                match_id = int(m_id_raw) if m_id_raw and str(m_id_raw).isdigit() else None
+                
+                if match_id and match_id in existing_map:
+                    # Update
+                    match = existing_map[match_id]
+                    match.bracket_type = match_data.get('bracket_type')
+                    match.team_sport_a_id = match_data.get('team_sport_a_id')
+                    match.team_sport_b_id = match_data.get('team_sport_b_id')
+                    match.team_a_source = match_data.get('team_a_source')
+                    match.team_b_source = match_data.get('team_b_source')
+                    match.label = match_data.get('label')
+                    match.match_order = match_data.get('match_order')
+                    match.status = match_data.get('status', 'upcoming')
+                    match.score_a = match_data.get('score_a')
+                    match.score_b = match_data.get('score_b')
+                    match.court = match_data.get('court')
+                    # scheduled_datetime -> date, time
+                    dt = match_data.get('scheduled_datetime')
+                    if dt:
+                        match.date = dt.split('T')[0]
+                        match.time = dt.split('T')[1][:5] if 'T' in dt else None
+                    else:
+                        match.date = match_data.get('date')
+                        match.time = match_data.get('time')
+                    match.updated_at = datetime.utcnow()
+                    processed_ids.add(match_id)
+                else:
+                    # Create
+                    dt = match_data.get('scheduled_datetime')
+                    date_val, time_val = None, None
+                    if dt:
+                        date_val = dt.split('T')[0]
+                        time_val = dt.split('T')[1][:5] if 'T' in dt else None
+                    else:
+                        date_val = match_data.get('date')
+                        time_val = match_data.get('time')
+                    match = Match(
+                        phase_id=phase.id,
+                        match_type="qualification",
+                        bracket_type=match_data.get('bracket_type'),
+                        team_sport_a_id=match_data.get('team_sport_a_id'),
+                        team_sport_b_id=match_data.get('team_sport_b_id'),
+                        team_a_source=match_data.get('team_a_source'),
+                        team_b_source=match_data.get('team_b_source'),
+                        label=match_data.get('label'),
+                        match_order=match_data.get('match_order'),
+                        status=match_data.get('status', 'upcoming'),
+                        score_a=match_data.get('score_a'),
+                        score_b=match_data.get('score_b'),
+                        court=match_data.get('court'),
+                        date=date_val,
+                        time=time_val,
+                        created_by_user_id=1,
+                        created_at=datetime.utcnow(),
+                        updated_at=datetime.utcnow()
+                    )
+                    db.add(match)
+                    db.flush()
+                
+                # Update/Create Schedule
+                db.query(MatchSchedule).filter(MatchSchedule.match_id == match.id).delete()
+                create_match_schedule_if_court(
+                    db,
+                    match.id,
+                    match_data.get('court'),
+                    tournament.sport_id,
+                    match_data.get('scheduled_datetime'),
+                    match_data.get('duration', 90)
                 )
-                db.add(match)
+
+            # Delete removed matches
+            for m_id, m in existing_map.items():
+                if m_id not in processed_ids:
+                    db.query(MatchSchedule).filter(MatchSchedule.match_id == m_id).delete()
+                    db.delete(m)
         
         # Traiter les poules
         if 'pools' in structure_data:
-            # Supprimer les anciennes poules
-            old_pools = db.query(Pool).filter(Pool.phase_id == phase.id).all()
-            for old_pool in old_pools:
-                db.query(TeamPool).filter(TeamPool.pool_id == old_pool.id).delete()
-                db.delete(old_pool)
+            existing_pools = db.query(Pool).filter(Pool.phase_id == phase.id).all()
+            existing_pools_map = {p.id: p for p in existing_pools}
+            processed_pool_ids = set()
             
-            # Créer les nouvelles
             for pool_data in structure_data['pools']:
-                pool = Pool(
-                    phase_id=phase.id,
-                    name=pool_data.get('name'),
-                    order=pool_data.get('display_order', 1),
-                    qualified_to_finals=pool_data.get('qualified_to_finals', 2),
-                    qualified_to_loser_bracket=pool_data.get('qualified_to_loser_bracket', 0)
-                )
-                db.add(pool)
-                db.flush()
+                p_id_raw = pool_data.get('id')
+                p_id = int(p_id_raw) if p_id_raw and str(p_id_raw).isdigit() else None
                 
-                # Ajouter les équipes
+                if p_id and p_id in existing_pools_map:
+                    # Update Pool
+                    pool = existing_pools_map[p_id]
+                    pool.name = pool_data.get('name')
+                    pool.order = pool_data.get('display_order', 1)
+                    pool.qualified_to_finals = pool_data.get('qualified_to_finals', 2)
+                    pool.qualified_to_loser_bracket = pool_data.get('qualified_to_loser_bracket', 0)
+                    processed_pool_ids.add(p_id)
+                else:
+                    # Create Pool
+                    pool = Pool(
+                        phase_id=phase.id,
+                        name=pool_data.get('name'),
+                        order=pool_data.get('display_order', 1),
+                        qualified_to_finals=pool_data.get('qualified_to_finals', 2),
+                        qualified_to_loser_bracket=pool_data.get('qualified_to_loser_bracket', 0)
+                    )
+                    db.add(pool)
+                    db.flush()
+
+                # Update pool teams
+                db.query(TeamPool).filter(TeamPool.pool_id == pool.id).delete()
                 for team_sport_id in (pool_data.get('teams') or []):
                     team_pool = TeamPool(
                         pool_id=pool.id,
@@ -1321,86 +1491,231 @@ async def update_tournament(
                     )
                     db.add(team_pool)
                 
-                # Créer les matchs
-                for match_data in (pool_data.get('matches') or []):
-                    match = Match(
-                        phase_id=phase.id,
-                        pool_id=pool.id,
-                        match_type="pool",
-                        team_sport_a_id=match_data.get('team_sport_a_id'),
-                        team_sport_b_id=match_data.get('team_sport_b_id'),
-                        team_a_source=match_data.get('team_a_source'),
-                        team_b_source=match_data.get('team_b_source'),
-                        label=match_data.get('label'),
-                        match_order=match_data.get('match_order'),
-                        status=match_data.get('status', 'upcoming'),
-                        score_a=match_data.get('score_a'),
-                        score_b=match_data.get('score_b'),
-                        created_by_user_id=1,
-                        created_at=datetime.utcnow(),
-                        updated_at=datetime.utcnow()
+                # Assigner automatiquement les équipes
+                processed_pool_matches = assign_teams_to_pool_matches(
+                    db,
+                    pool_data,
+                    tournament.sport_id
+                )
+                
+                existing_pool_matches = db.query(Match).filter(Match.pool_id == pool.id).all()
+                existing_pool_matches_map = {m.id: m for m in existing_pool_matches}
+                processed_match_ids = set()
+
+                for match_data in processed_pool_matches:
+                    m_id_raw = match_data.get('id')
+                    m_id = int(m_id_raw) if m_id_raw and str(m_id_raw).isdigit() else None
+                    
+                    if m_id and m_id in existing_pool_matches_map:
+                        match = existing_pool_matches_map[m_id]
+                        match.team_sport_a_id = match_data.get('team_sport_a_id')
+                        match.team_sport_b_id = match_data.get('team_sport_b_id')
+                        match.team_a_source = match_data.get('team_a_source')
+                        match.team_b_source = match_data.get('team_b_source')
+                        match.label = match_data.get('label')
+                        match.match_order = match_data.get('match_order')
+                        match.status = match_data.get('status', 'upcoming')
+                        match.score_a = match_data.get('score_a')
+                        match.score_b = match_data.get('score_b')
+                        match.updated_at = datetime.utcnow()
+                        processed_match_ids.add(m_id)
+                    else:
+                        match = Match(
+                            phase_id=phase.id,
+                            pool_id=pool.id,
+                            match_type="pool",
+                            team_sport_a_id=match_data.get('team_sport_a_id'),
+                            team_sport_b_id=match_data.get('team_sport_b_id'),
+                            team_a_source=match_data.get('team_a_source'),
+                            team_b_source=match_data.get('team_b_source'),
+                            label=match_data.get('label'),
+                            match_order=match_data.get('match_order'),
+                            status=match_data.get('status', 'upcoming'),
+                            score_a=match_data.get('score_a'),
+                            score_b=match_data.get('score_b'),
+                            created_by_user_id=1,
+                            created_at=datetime.utcnow(),
+                            updated_at=datetime.utcnow()
+                        )
+                        db.add(match)
+                        db.flush()
+                    
+                    # Créer le schedule si terrain spécifié
+                    db.query(MatchSchedule).filter(MatchSchedule.match_id == match.id).delete()
+                    create_match_schedule_if_court(
+                        db,
+                        match.id,
+                        match_data.get('court'),
+                        tournament.sport_id,
+                        match_data.get('scheduled_datetime'),
+                        match_data.get('duration', 90)
                     )
-                    db.add(match)
+                
+                # Delete removed matches inside pool
+                for m_id, m in existing_pool_matches_map.items():
+                    if m_id not in processed_match_ids:
+                        db.query(MatchSchedule).filter(MatchSchedule.match_id == m_id).delete()
+                        db.delete(m)
+
+            # Delete removed pools
+            for p_id, p in existing_pools_map.items():
+                if p_id not in processed_pool_ids:
+                    # Delete matches first
+                    pool_matches = db.query(Match).filter(Match.pool_id == p_id).all()
+                    for m in pool_matches:
+                        db.query(MatchSchedule).filter(MatchSchedule.match_id == m.id).delete()
+                    db.query(TeamPool).filter(TeamPool.pool_id == p_id).delete()
+                    db.delete(p)
         
         # Traiter les brackets
         if 'brackets' in structure_data:
-            # Supprimer les anciens brackets
-            db.query(Match).filter(
+            existing_bracket_matches = db.query(Match).filter(
                 Match.phase_id == phase.id,
                 Match.match_type == "bracket"
-            ).delete()
+            ).all()
+            existing_map = {m.id: m for m in existing_bracket_matches}
+            processed_ids = set()
             
-            # Créer les nouveaux
             for bracket in structure_data['brackets']:
-                for match_data in (bracket.get('matches') or []):
-                    match = Match(
-                        phase_id=phase.id,
-                        match_type="bracket",
-                        bracket_type=match_data.get('bracket_type'),
-                        team_sport_a_id=match_data.get('team_sport_a_id'),
-                        team_sport_b_id=match_data.get('team_sport_b_id'),
-                        team_a_source=match_data.get('team_a_source'),
-                        team_b_source=match_data.get('team_b_source'),
-                        label=match_data.get('label'),
-                        match_order=match_data.get('match_order'),
-                        status=match_data.get('status', 'upcoming'),
-                        score_a=match_data.get('score_a'),
-                        score_b=match_data.get('score_b'),
-                        created_by_user_id=1,
-                        created_at=datetime.utcnow(),
-                        updated_at=datetime.utcnow()
+                processed_bracket_matches = assign_teams_to_matches(
+                    db,
+                    bracket.get('matches') or [],
+                    tournament.sport_id
+                )
+                
+                for match_data in processed_bracket_matches:
+                    m_id_raw = match_data.get('id')
+                    try:
+                        match_id = int(str(m_id_raw)) if m_id_raw and str(m_id_raw).replace('.', '', 1).isdigit() else None
+                    except:
+                        match_id = None
+                        
+                    if match_id and match_id in existing_map:
+                        match = existing_map[match_id]
+                        match.bracket_type = match_data.get('bracket_type')
+                        match.team_sport_a_id = match_data.get('team_sport_a_id')
+                        match.team_sport_b_id = match_data.get('team_sport_b_id')
+                        match.team_a_source = match_data.get('team_a_source')
+                        match.team_b_source = match_data.get('team_b_source')
+                        match.label = match_data.get('label')
+                        match.match_order = match_data.get('match_order')
+                        match.status = match_data.get('status', 'upcoming')
+                        match.score_a = match_data.get('score_a')
+                        match.score_b = match_data.get('score_b')
+                        match.updated_at = datetime.utcnow()
+                        processed_ids.add(match_id)
+                    else:
+                        match = Match(
+                            phase_id=phase.id,
+                            match_type="bracket",
+                            bracket_type=match_data.get('bracket_type'),
+                            team_sport_a_id=match_data.get('team_sport_a_id'),
+                            team_sport_b_id=match_data.get('team_sport_b_id'),
+                            team_a_source=match_data.get('team_a_source'),
+                            team_b_source=match_data.get('team_b_source'),
+                            label=match_data.get('label'),
+                            match_order=match_data.get('match_order'),
+                            status=match_data.get('status', 'upcoming'),
+                            score_a=match_data.get('score_a'),
+                            score_b=match_data.get('score_b'),
+                            created_by_user_id=1,
+                            created_at=datetime.utcnow(),
+                            updated_at=datetime.utcnow()
+                        )
+                        db.add(match)
+                        db.flush()
+                    
+                    # Schedule
+                    db.query(MatchSchedule).filter(MatchSchedule.match_id == match.id).delete()
+                    create_match_schedule_if_court(
+                        db,
+                        match.id,
+                        match_data.get('court'),
+                        tournament.sport_id,
+                        match_data.get('scheduled_datetime'),
+                        match_data.get('duration', 90)
                     )
-                    db.add(match)
-        
+
+            # Delete removed matches
+            for m_id, m in existing_map.items():
+                if m_id not in processed_ids:
+                    db.query(MatchSchedule).filter(MatchSchedule.match_id == m_id).delete()
+                    db.delete(m)
+
         # Traiter les loser brackets
         if 'loser_brackets' in structure_data:
-            # Supprimer les anciens loser brackets
-            db.query(Match).filter(
+            existing_loser_matches = db.query(Match).filter(
                 Match.phase_id == phase.id,
                 Match.match_type == "loser_bracket"
-            ).delete()
-            
-            # Créer les nouveaux
+            ).all()
+            existing_map = {m.id: m for m in existing_loser_matches}
+            processed_ids = set()
+
             for loser_bracket in structure_data['loser_brackets']:
-                for match_data in (loser_bracket.get('matches') or []):
-                    match = Match(
-                        phase_id=phase.id,
-                        match_type="loser_bracket",
-                        bracket_type=match_data.get('bracket_type'),
-                        team_sport_a_id=match_data.get('team_sport_a_id'),
-                        team_sport_b_id=match_data.get('team_sport_b_id'),
-                        team_a_source=match_data.get('team_a_source'),
-                        team_b_source=match_data.get('team_b_source'),
-                        label=match_data.get('label'),
-                        match_order=match_data.get('match_order'),
-                        status=match_data.get('status', 'upcoming'),
-                        score_a=match_data.get('score_a'),
-                        score_b=match_data.get('score_b'),
-                        created_by_user_id=1,
-                        created_at=datetime.utcnow(),
-                        updated_at=datetime.utcnow()
+                processed_loser_matches = assign_teams_to_matches(
+                    db,
+                    loser_bracket.get('matches') or [],
+                    tournament.sport_id
+                )
+                
+                for match_data in processed_loser_matches:
+                    m_id_raw = match_data.get('id')
+                    try:
+                        match_id = int(str(m_id_raw)) if m_id_raw and str(m_id_raw).replace('.', '', 1).isdigit() else None
+                    except:
+                        match_id = None
+
+                    if match_id and match_id in existing_map:
+                        match = existing_map[match_id]
+                        match.bracket_type = match_data.get('bracket_type')
+                        match.team_sport_a_id = match_data.get('team_sport_a_id')
+                        match.team_sport_b_id = match_data.get('team_sport_b_id')
+                        match.team_a_source = match_data.get('team_a_source')
+                        match.team_b_source = match_data.get('team_b_source')
+                        match.label = match_data.get('label')
+                        match.match_order = match_data.get('match_order')
+                        match.status = match_data.get('status', 'upcoming')
+                        match.score_a = match_data.get('score_a')
+                        match.score_b = match_data.get('score_b')
+                        match.updated_at = datetime.utcnow()
+                        processed_ids.add(match_id)
+                    else:
+                        match = Match(
+                            phase_id=phase.id,
+                            match_type="loser_bracket",
+                            bracket_type=match_data.get('bracket_type'),
+                            team_sport_a_id=match_data.get('team_sport_a_id'),
+                            team_sport_b_id=match_data.get('team_sport_b_id'),
+                            team_a_source=match_data.get('team_a_source'),
+                            team_b_source=match_data.get('team_b_source'),
+                            label=match_data.get('label'),
+                            match_order=match_data.get('match_order'),
+                            status=match_data.get('status', 'upcoming'),
+                            score_a=match_data.get('score_a'),
+                            score_b=match_data.get('score_b'),
+                            created_by_user_id=1,
+                            created_at=datetime.utcnow(),
+                            updated_at=datetime.utcnow()
+                        )
+                        db.add(match)
+                        db.flush()
+                    
+                    # Schedule
+                    db.query(MatchSchedule).filter(MatchSchedule.match_id == match.id).delete()
+                    create_match_schedule_if_court(
+                        db,
+                        match.id,
+                        match_data.get('court'),
+                        tournament.sport_id,
+                        match_data.get('scheduled_datetime'),
+                        match_data.get('duration', 90)
                     )
-                    db.add(match)
+            
+            # Delete removed matches
+            for m_id, m in existing_map.items():
+                if m_id not in processed_ids:
+                    db.query(MatchSchedule).filter(MatchSchedule.match_id == m_id).delete()
+                    db.delete(m)
     
     db.commit()
     db.refresh(tournament)
@@ -1956,18 +2271,74 @@ async def update_match(
     )
 
 # --- Planification de matchs ---
-from app.models.matchschedule import MatchSchedule
-from app.schemas.matchschedule import MatchScheduleResponse
 
-@app.get("/matches/{match_id}/schedule", response_model=dict, tags=["MatchSchedule"])
-async def get_match_schedule(match_id: int, db: Session = Depends(get_db)):
+from app.models.matchschedule import MatchSchedule
+from app.schemas.matchschedule import MatchScheduleResponse, MatchScheduleCreate, MatchScheduleUpdate
+
+@app.get("/match-schedules", response_model=dict, tags=["MatchSchedule"])
+async def get_matches(
+    match_id: Optional[int] = Query(None),
+    court_id: Optional[int] = Query(None),
+    scheduled_datetime: Optional[str] = Query(None),
+    actual_start_datetime: Optional[str] = Query(None),
+    actual_end_datetime: Optional[str] = Query(None),
+    estimated_duration_minutes: Optional[int] = Query(None),
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db)
+):
     """Planification d'un match"""
-    schedule = db.query(MatchSchedule).filter(MatchSchedule.match_id == match_id).first()
-    if not schedule:
-        raise NotFoundError(f"Schedule for match {match_id} not found")
+    query = db.query(MatchSchedule)
+    if match_id is not None:
+        query = query.filter(MatchSchedule.match_id == match_id)
+    if court_id is not None:
+        query = query.filter(MatchSchedule.court_id == court_id)
+    if scheduled_datetime is not None:
+        query = query.filter(MatchSchedule.scheduled_datetime == scheduled_datetime)
+    if actual_start_datetime is not None:
+        query = query.filter(MatchSchedule.actual_start_datetime == actual_start_datetime)
+    if actual_end_datetime is not None:
+        query = query.filter(MatchSchedule.actual_end_datetime == actual_end_datetime)
+    if estimated_duration_minutes is not None:
+        query = query.filter(MatchSchedule.estimated_duration_minutes == estimated_duration_minutes)
+    schedules = query.offset(skip).limit(limit).all()
+    return create_success_response(
+        data=[MatchScheduleResponse.model_validate(schedule).model_dump(mode="json") for schedule in schedules],
+        message="Planification des matchs récupérées avec succès"
+    )
+
+# === NOUVEAU ENDPOINT POUR CREER/MODIFIER LA PLANIFICATION D'UN MATCH ===
+from app.services.matchschedule_service import MatchScheduleService
+
+@app.post("/matches/{match_id}/schedule", response_model=dict, tags=["MatchSchedule"], status_code=201)
+async def create_match_schedule(
+    match_id: int,
+    payload: MatchScheduleCreate,
+    db: Session = Depends(get_db)
+):
+    """Créer la planification d'un match (court, horaire, durée)"""
+    service = MatchScheduleService(db)
+    # S'assurer que le match_id du path et du body sont cohérents
+    if payload.match_id != match_id:
+        raise BadRequestError("Le match_id du body ne correspond pas à l'URL")
+    schedule = service.create_schedule(payload)
     return create_success_response(
         data=MatchScheduleResponse.model_validate(schedule).model_dump(mode="json"),
-        message="Planification du match récupérée avec succès"
+        message="Planification créée avec succès"
+    )
+
+@app.put("/matches/{match_id}/schedule", response_model=dict, tags=["MatchSchedule"])
+async def update_match_schedule(
+    match_id: int,
+    payload: MatchScheduleUpdate,
+    db: Session = Depends(get_db)
+):
+    """Met à jour la planification d'un match (court, horaire, durée)"""
+    service = MatchScheduleService(db)
+    schedule = service.update_schedule(match_id, payload)
+    return create_success_response(
+        data=MatchScheduleResponse.model_validate(schedule).model_dump(mode="json"),
+        message="Planification mise à jour avec succès"
     )
 
 @app.get("/courts/{court_id}/schedule", response_model=dict, tags=["MatchSchedule"])
@@ -1977,6 +2348,19 @@ async def get_court_schedule(court_id: int, db: Session = Depends(get_db)):
     return create_success_response(
         data=[MatchScheduleResponse.model_validate(s).model_dump(mode="json") for s in schedules],
         message="Planification du terrain récupérée avec succès"
+    )
+
+@app.delete("/matches/{match_id}/schedule", response_model=dict, tags=["MatchSchedule"])
+async def delete_match_schedule(match_id: int, db: Session = Depends(get_db)):
+    """Supprime la planification d'un match"""
+    schedule = db.query(MatchSchedule).filter(MatchSchedule.match_id == match_id).first()
+    if not schedule:
+        raise NotFoundError(f"MatchSchedule for match_id {match_id} not found")
+    db.delete(schedule)
+    db.commit()
+    return create_success_response(
+        data={"match_id": match_id},
+        message="Planification du match supprimée avec succès"
     )
 
 # --- Sets de match ---
@@ -2009,6 +2393,10 @@ async def get_tournament_structure(
     from app.models.pool import Pool
     from app.models.match import Match
     from app.models.teampool import TeamPool
+    from app.models.matchschedule import MatchSchedule
+    from app.models.court import Court
+    from app.models.teamsport import TeamSport
+    from app.models.team import Team
     
     tournament = db.query(Tournament).filter(Tournament.id == tournament_id).first()
     if not tournament:
@@ -2064,7 +2452,12 @@ async def get_tournament_structure(
                     "match_order": m.match_order,
                     "score_a": m.score_a,
                     "score_b": m.score_b,
-                    "status": m.status
+                    "status": m.status,
+                    "court": m.court, 
+                    "date": m.date,      
+                    "time": m.time,       
+                    "scheduled_datetime": m.scheduled_datetime if hasattr(m, "scheduled_datetime") else None,
+                    "duration": get_match_duration(db, m.id)
                 }
                 for m in pool_matches
             ]
@@ -2083,7 +2476,12 @@ async def get_tournament_structure(
             "match_order": m.match_order,
             "score_a": m.score_a,
             "score_b": m.score_b,
-            "status": m.status
+            "status": m.status,
+            "court": m.court, 
+            "date": m.date,      
+            "time": m.time,     
+            "scheduled_datetime": m.scheduled_datetime if hasattr(m, "scheduled_datetime") else None,
+            "duration": get_match_duration(db, m.id)
         }
     
     return create_success_response({
@@ -2093,6 +2491,29 @@ async def get_tournament_structure(
         "bracket_matches": [match_to_dict(m) for m in bracket_matches],
         "loser_bracket_matches": [match_to_dict(m) for m in loser_bracket_matches]
     })
+
+
+def get_match_court_name(db: Session, match_id: int) -> str:
+    """Récupère le nom du terrain pour un match"""
+    from app.models.matchschedule import MatchSchedule
+    from app.models.court import Court
+    
+    schedule = db.query(MatchSchedule).filter(MatchSchedule.match_id == match_id).first()
+    if schedule and schedule.court_id:
+        court = db.query(Court).filter(Court.id == schedule.court_id).first()
+        if court:
+            return court.name
+    return ""
+
+
+def get_match_duration(db: Session, match_id: int) -> int:
+    """Récupère la durée estimée pour un match"""
+    from app.models.matchschedule import MatchSchedule
+    
+    schedule = db.query(MatchSchedule).filter(MatchSchedule.match_id == match_id).first()
+    if schedule and schedule.estimated_duration_minutes:
+        return schedule.estimated_duration_minutes
+    return 90  # Valeur par défaut
 
 
 @app.post("/tournaments/{tournament_id}/reset-matches", tags=["Tournaments"])
@@ -2323,33 +2744,3 @@ async def propagate_tournament_results(
         "tournament_id": tournament_id,
         "propagated_matches": propagated_count
     }, message=f"Successfully propagated {propagated_count} match results")
-
-
-# NB: Routers à activer plus tard si besoin
-# app.include_router(auth.router, prefix=f"{settings.API_V1_PREFIX}/auth", tags=["Authentication"])
-# app.include_router(tournaments.router, prefix=f"{settings.API_V1_PREFIX}/tournaments", tags=["Tournaments"])
-# app.include_router(matches.router, prefix=f"{settings.API_V1_PREFIX}/matches", tags=["Matches"])
-
-if __name__ == "__main__":
-    import uvicorn
-    import sys
-    from pathlib import Path
-    
-    # Ajouter le répertoire parent (Backend) au PYTHONPATH
-    backend_dir = Path(__file__).parent.parent
-    if str(backend_dir) not in sys.path:
-        sys.path.insert(0, str(backend_dir))
-    
-    try:
-        uvicorn.run(
-            "app.main:app",
-            host="127.0.0.1",
-            port=8000,
-            reload=settings.DEBUG,
-            log_level="info",
-        )
-    except KeyboardInterrupt:
-        logger.info("Application interrupted by user")
-    except Exception as e:
-        logger.error(f"Application failed to start: {e}")
-        raise

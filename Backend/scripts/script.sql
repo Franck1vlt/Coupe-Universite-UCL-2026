@@ -1,0 +1,4 @@
+-- SQLite
+SELECT * FROM Match;
+
+ALTER TABLE Match ADD COLUMN duration INTEGER;

@@ -13,6 +13,7 @@ class CourtUpdate(BaseModel):
     name: Optional[str] = None
     sport_id: Optional[int] = None
     is_active: Optional[bool] = None
+    sport_ids: Optional[list[int]] = None
 
 class CourtResponse(CourtBase):
     id: int

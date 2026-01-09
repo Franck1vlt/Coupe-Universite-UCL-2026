@@ -10,10 +10,20 @@ type Court = {
   created_at?: string;
 };
 
+type MatchSchedule = {
+  match_id: number;
+  court_id: number;
+  scheduled_datetime: string;
+  actual_start_datetime: string | null;
+  actual_end_datetime: string | null;
+  estimated_duration_minutes: number | null;
+};
+
 export default function CourtsPage() {
   const router = useRouter();
 
   const [courts, setCourts] = useState<Court[]>([]);
+  const [matchSchedules, setMatchSchedules] = useState<MatchSchedule[]>([]);
   const [inputName, setInputName] = useState("");
   const [loading, setLoading] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -45,8 +55,51 @@ export default function CourtsPage() {
     }
   };
 
+  const fetchMatchSchedules = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/match-schedules`);
+      if (!res.ok) throw new Error("Impossible de charger les horaires des matchs.");
+      const data = await res.json();
+
+      // Vérifiez si la réponse contient les données attendues
+      if (data.success && Array.isArray(data.data)) {
+        setMatchSchedules(data.data.map((schedule: MatchSchedule) => ({
+          court_id: schedule.court_id,
+          scheduled_datetime: schedule.scheduled_datetime,
+          actual_start_datetime: schedule.actual_start_datetime || schedule.scheduled_datetime,
+          actual_end_datetime: schedule.actual_end_datetime || schedule.scheduled_datetime,
+          estimated_duration_minutes: schedule.estimated_duration_minutes,
+        })));
+      } else {
+        throw new Error("Format de réponse inattendu.");
+      }
+    } catch (e: any) {
+      setError(e?.message || "Erreur lors du chargement des horaires des matchs.");
+    }
+  };
+
+  // Vérifier si un terrain est utilisé en fonction des horaires des matchs
+  const isCourtInUse = (courtId: number): boolean => {
+    const now = new Date();
+    return matchSchedules.some((match) => {
+      if (match.court_id === courtId) {
+        const startTime = new Date(match.actual_start_datetime || match.scheduled_datetime);
+        const endTime = new Date(match.actual_end_datetime || match.scheduled_datetime);
+        return now >= startTime && now <= endTime;
+      }
+      return false;
+    });
+  };
+
   useEffect(() => {
     fetchCourts();
+    fetchMatchSchedules();
+  }, []);
+
+  useEffect(() => {
+    // Recharger les horaires des matchs toutes les minutes pour garder les statuts à jour
+    const interval = setInterval(fetchMatchSchedules, 60000);
+    return () => clearInterval(interval);
   }, []);
 
   const handleAddCourt = async (e: React.FormEvent) => {
@@ -198,10 +251,10 @@ export default function CourtsPage() {
           className="mx-auto mb-6 h-24 w-24 object-contain"
         />
         <h1 className="text-4xl font-bold text-gray-800 mb-2">
-          Terrains du tournoi
+          Configuration des terrains
         </h1>
         <p className="text-gray-600 text-lg">
-          Ajouter un terrain à ce tournoi
+          Ajouter ou supprimer des terrains pour la Coupe de l'Université
         </p>
       </header>
       <section className="w-full max-w-3xl bg-white rounded-xl shadow-lg p-6">
@@ -238,6 +291,9 @@ export default function CourtsPage() {
                 Nom du terrain
               </th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                ID
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                 Créé le
               </th>
               <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">
@@ -249,7 +305,7 @@ export default function CourtsPage() {
           <tbody className="divide-y divide-gray-100">
             {loading ? (
               <tr>
-                <td colSpan={4} className="px-6 py-4 text-gray-500 italic text-center">
+                <td colSpan={(5)} className="px-6 py-4 text-gray-500 italic text-center">
                   Chargement...
                 </td>
               </tr>
@@ -277,6 +333,9 @@ export default function CourtsPage() {
                       court.name
                     )}
                   </td>
+                  <td className="px-4 py-4 whitespace-nowrap text-gray-700">
+                    {court.id}
+                  </td>
                   <td className="px-4 py-4 whitespace-nowrap text-gray-600 text-sm">
                     {court.created_at
                       ? (() => {
@@ -292,12 +351,12 @@ export default function CourtsPage() {
                   <td className="px-4 py-4 whitespace-nowrap text-center">
                     <span
                       className={
-                        court.is_active
-                          ? "inline-flex px-3 py-1 rounded-full bg-green-100 text-green-800 text-xs font-medium"
-                          : "inline-flex px-3 py-1 rounded-full bg-red-100 text-red-800 text-xs font-medium"
+                        isCourtInUse(court.id)
+                          ? "inline-flex px-3 py-1 rounded-full  bg-red-100 text-red-800 text-xs font-medium"
+                          : "inline-flex px-3 py-1 rounded-full bg-green-100 text-green-800 text-xs font-medium"
                       }
                     >
-                      {court.is_active ? "Utilisé" : "Libre"}
+                      {isCourtInUse(court.id) ? "Utilisé" : "Libre"}
                     </span>
                   </td>
                   <td className="px-4 py-4 whitespace-nowrap text-center relative">

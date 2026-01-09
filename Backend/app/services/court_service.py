@@ -79,6 +79,13 @@ class CourtService(BaseService[Court]):
         
         return court
     
+    def get_all_courts(self) -> List[Court]:
+        """
+        Récupère tous les terrains (actifs ou non)
+        """
+        return self.db.query(Court).all()
+
+
     def update_court(self, court_id: int, court_data: CourtUpdate) -> Court:
         """
         Met à jour un terrain

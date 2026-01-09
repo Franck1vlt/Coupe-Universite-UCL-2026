@@ -2,6 +2,7 @@
 Modèle Match
 """
 from sqlalchemy import Text, Column, Integer, String, DateTime, ForeignKey, UniqueConstraint, CheckConstraint
+from datetime import datetime
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.db import Base
@@ -52,15 +53,20 @@ class Match(Base):
     created_by_user_id = Column(Integer, ForeignKey("User.id"), nullable=False)  # Foreign Key → User.id
     updated_by_user_id = Column(Integer, ForeignKey("User.id"), nullable=True)  # Foreign Key → User.id
 
-    created_at = Column(DateTime, nullable=False, server_default=func.now())  # Date de création
-    updated_at = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())  # Date de mise à jour
+    created_at = Column(DateTime, nullable=False, server_default=func.now())
+    updated_at = Column(DateTime, nullable=True, onupdate=func.now())
     comment = Column(Text, nullable=True)
+    court = Column(String(100), nullable=True)  # Terrain du match
+    date = Column(String(20), nullable=True)    # Date du match (format ISO ou JJ/MM/AAAA)
+    time = Column(String(10), nullable=True)    # Heure du match (format HH:MM)
+    duration = Column(Integer, nullable=True)   # Durée prévue du match en minutes
 
     __table_args__ = (
         CheckConstraint("team_sport_a_id IS NULL OR team_sport_b_id IS NULL OR team_sport_a_id != team_sport_b_id", name="ck_match_different_teams"),
         CheckConstraint("status IN ('upcoming', 'in_progress', 'completed', 'cancelled')", name="ck_match_status"),
         CheckConstraint("match_type IN ('qualification', 'pool', 'bracket', 'loser_bracket')", name="ck_match_type"),
         CheckConstraint("bracket_type IS NULL OR bracket_type IN ('quarterfinal', 'semifinal', 'final', 'third_place', 'loser_round_1', 'loser_round_2', 'loser_round_3', 'loser_final')", name="ck_bracket_type"),
+        UniqueConstraint('phase_id', 'uuid', name='uq_match_phase_uuid'),
     )
 
     # Relations
@@ -78,12 +84,16 @@ class Match(Base):
     # Représentation de l'objet
     def __repr__(self):
         return (
-            f"<Match(id={self.id}, team_sport_a_id={self.team_sport_a_id}, "
-            f"team_sport_b_id={self.team_sport_b_id}, score_a={self.score_a}, "
-            f"score_b={self.score_b}, status='{self.status}', "
-            f"referee_user_id={self.referee_user_id}, "
-            f"created_by_user_id={self.created_by_user_id}, "
-            f"updated_by_user_id={self.updated_by_user_id}, "
-            f"created_at={self.created_at}, updated_at={self.updated_at}, "
-            f"comment={self.comment})>"
+            f"<Match(id={self.id}, phase_id={self.phase_id}, pool_id={self.pool_id}, "
+            f"match_type='{self.match_type}', bracket_type='{self.bracket_type}', "
+            f"team_sport_a_id={self.team_sport_a_id}, team_sport_b_id={self.team_sport_b_id}, "
+            f"team_a_source='{self.team_a_source}', team_b_source='{self.team_b_source}', "
+            f"winner_destination_match_id={self.winner_destination_match_id}, "
+            f"loser_destination_match_id={self.loser_destination_match_id}, "
+            f"label='{self.label}', match_order={self.match_order}, "
+            f"score_a={self.score_a}, score_b={self.score_b}, status='{self.status}', "
+            f"referee_user_id={self.referee_user_id}, created_by_user_id={self.created_by_user_id}, "
+            f"updated_by_user_id={self.updated_by_user_id}, created_at={self.created_at}, "
+            f"updated_at={self.updated_at}, comment='{self.comment}', court='{self.court}', "
+            f"date='{self.date}', time='{self.time}', duration={self.duration})>"
         )

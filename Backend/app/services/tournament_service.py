@@ -55,36 +55,65 @@ class TournamentService(BaseService[Tournament]):
     
     def create_tournament(self, tournament_data: TournamentCreate) -> Tournament:
         """
-        Crée un nouveau tournoi
-        
-        Args:
-            tournament_data: Les données du tournoi à créer
-            
-        Returns:
-            Le tournoi créé
-            
-        Raises:
-            ConflictError: Si un tournoi avec le même nom existe déjà
-            NotFoundError: Si le sport ou l'utilisateur n'existe pas
+        Crée un nouveau tournoi et tous les matchs associés (avec planification si court_id/scheduled_datetime)
         """
         # Vérifier si un tournoi avec le même nom existe déjà
         existing = self.get_by_name(tournament_data.name)
         if existing:
             raise ConflictError(f"Tournament with name '{tournament_data.name}' already exists")
-        
+
         # Vérifier que le sport existe
         from app.models.sport import Sport
         sport = self.db.query(Sport).filter(Sport.id == tournament_data.sport_id).first()
         if not sport:
             raise NotFoundError("Sport", str(tournament_data.sport_id))
-        
+
         # Vérifier que l'utilisateur existe
         from app.models.user import User
         user = self.db.query(User).filter(User.id == tournament_data.created_by_user_id).first()
         if not user:
             raise NotFoundError("User", str(tournament_data.created_by_user_id))
-        
-        return self.create(**tournament_data.model_dump())
+
+        # Création du tournoi
+        tournament = self.create(**tournament_data.model_dump(exclude={
+            "qualification_matches", "pools", "brackets", "loser_brackets"
+        }))
+
+        # Création des matchs et planifications associés
+        from app.services.match_service import MatchService
+        match_service = MatchService(self.db)
+
+        # Helper pour créer les matchs d'une liste
+        def create_matches_from_list(matches):
+            created_matches = []
+            for match in matches or []:
+                # On force l'association à la phase/tournoi si besoin
+                match_data = match.copy()
+                if "phase_id" not in match_data or not match_data["phase_id"]:
+                    # On ne peut pas deviner la phase, donc on laisse tel quel
+                    pass
+                # Ajoute created_by_user_id si absent
+                if "created_by_user_id" not in match_data:
+                    match_data["created_by_user_id"] = tournament_data.created_by_user_id
+                # Ajoute le match
+                try:
+                    match_obj = match_service.create_match(match_service.MatchCreate.model_validate(match_data))
+                    created_matches.append(match_obj)
+                except Exception as e:
+                    print(f"[TournamentService] Erreur lors de la création d'un match: {e}")
+            return created_matches
+
+        # Qualification matches
+        create_matches_from_list(getattr(tournament_data, "qualification_matches", []))
+        # Pools (liste de pools, chaque pool a une clé 'matches')
+        for pool in getattr(tournament_data, "pools", []):
+            create_matches_from_list(pool.get("matches", []))
+        # Brackets (liste de matches)
+        create_matches_from_list(getattr(tournament_data, "brackets", []))
+        # Loser brackets (liste de matches)
+        create_matches_from_list(getattr(tournament_data, "loser_brackets", []))
+
+        return tournament
     
     def update_tournament(self, tournament_id: int, tournament_data: TournamentUpdate) -> Tournament:
         """
