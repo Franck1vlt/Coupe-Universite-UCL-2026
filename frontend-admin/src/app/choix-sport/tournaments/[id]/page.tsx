@@ -264,334 +264,63 @@ export default function TournamentViewPage() {
 
   // Une fois que le mapping est chargé, charger la structure du tournoi
   useEffect(() => {
-    if (Object.keys(teamSportIdToName).length === 0) return; // Attendre que le mapping soit chargé
-    
+    if (Object.keys(teamSportIdToName).length === 0) return;
     const id = params?.id;
     if (typeof id !== "string") return;
 
-    // Charger depuis l'API
-    const loadTournamentStructure = async () => {
+    // Charger tous les tournois et trouver celui pour ce sport
+    const loadTournamentMatches = async () => {
       try {
-          // D'abord, charger tous les tournois et trouver celui pour ce sport
-          const tournamentsResponse = await fetch(`http://localhost:8000/tournaments`);
-          if (!tournamentsResponse.ok) {
-            throw new Error("Impossible de charger les tournois");
-          }
-          
-          const tournamentsData = await tournamentsResponse.json();
-          console.log("📥 Réponse API tournois:", tournamentsData);
-          
-          if (!tournamentsData.success || !tournamentsData.data) {
-            throw new Error("Pas de tournois trouvés");
-          }
-          
-          // L'API peut retourner data.items ou directement data comme array
-          const tournaments = Array.isArray(tournamentsData.data.items) 
-            ? tournamentsData.data.items 
-            : Array.isArray(tournamentsData.data) 
-            ? tournamentsData.data 
-            : [];
-          
-          console.log("📋 Tournois disponibles:", tournaments);
-          
-          // Chercher le tournoi pour ce sport
-          const tournament = tournaments.find((t: any) => t.sport_id === parseInt(id));
-          if (!tournament) {
-            throw new Error("Aucun tournoi trouvé pour ce sport. Veuillez le configurer d'abord.");
-          }
-          
-          console.log("✅ Tournoi trouvé pour sport", id, ":", tournament);
-          
-          // Charger la structure du tournoi
-          const response = await fetch(`http://localhost:8000/tournaments/${tournament.id}/structure`);
-          if (response.ok) {
-            const data = await response.json();
-            if (data.success && data.data) {
-              console.log("📥 Chargement de la structure depuis l'API:", data.data);
-              
-              // Propager automatiquement les résultats avant de charger les données
-              try {
-                await fetch(`http://localhost:8000/tournaments/${tournament.id}/propagate-results`, {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json',
-                  },
-                });
-                console.log("✅ Résultats propagés automatiquement");
-                
-                // Recharger la structure après propagation
-                const updatedResponse = await fetch(`http://localhost:8000/tournaments/${tournament.id}/structure`);
-                if (updatedResponse.ok) {
-                  const updatedData = await updatedResponse.json();
-                  if (updatedData.success && updatedData.data) {
-                    console.log("📥 Structure mise à jour après propagation:", updatedData.data);
-                    // Utiliser les données mises à jour
-                    Object.assign(data, updatedData);
-                  }
-                }
-              } catch (propagateErr) {
-                console.warn("⚠️ Impossible de propager les résultats:", propagateErr);
-              }
-              
-              const collected: TournamentMatch[] = [];
-              const poolsData: Pool[] = [];
-              
-              // Fonction pour obtenir le nom d'une équipe à partir de team_sport_id ou source
-              const getTeamName = (teamSportId: number | null | undefined, teamSource: string | null | undefined): string => {
-                if (teamSportId && teamSportIdToName[teamSportId]) {
-                  return teamSportIdToName[teamSportId];
-                }
-                // Si la source est un code (WQ, LSF, etc.), afficher une version lisible
-                if (teamSource) {
-                  const codePatterns: Record<string, string> = {
-                    "WQ": "Vainqueur Qualif",
-                    "WQF": "Vainqueur Quart",
-                    "WSF": "Vainqueur Demi",
-                    "WF": "Vainqueur Finale",
-                    "WPF": "Vainqueur Petite Finale",
-                    "LQ": "Perdant Qualif",
-                    "LQF": "Perdant Quart",
-                    "LSF": "Perdant Demi",
-                    "LF": "Perdant Finale",
-                    "P": "Poule",
-                    "WLR": "Vainqueur LR",
-                    "LLR": "Perdant LR",
-                    "WLF": "Vainqueur Finale Loser",
-                  };
-                  for (const [code, label] of Object.entries(codePatterns)) {
-                    if (teamSource.startsWith(code)) {
-                      const number = teamSource.replace(code, "").replace(/[^0-9-]/g, "");
-                      return number ? `${label} ${number}` : label;
-                    }
-                  }
-                }
-                return teamSource || "En attente";
-              };
-              
-              // Convertir les matchs de qualification
-              (data.data.qualification_matches || []).forEach((m: any) => {
-                collected.push({
-                  id: m.id?.toString() || "", // Toujours transmettre l'ID
-                  label: m.label || "",
-                  teamA: getTeamName(m.team_sport_a_id, m.team_a_source),
-                  teamB: getTeamName(m.team_sport_b_id, m.team_b_source),
-                  type: "qualifications",
-                  status: m.status === "upcoming" ? "planifié" : 
-                          m.status === "in_progress" ? "en-cours" :
-                          m.status === "completed" ? "terminé" : "planifié",
-                  court: m.court ? m.court.trim() : "", // Normalisation du nom du court
-                  scoreA: m.score_a,
-                  scoreB: m.score_b,
-                  date: m.date,
-                  time: m.time,
-                });
-              });
-              
-              // Convertir les poules
-              (data.data.pools || []).forEach((p: any) => {
-                const poolMatches: TournamentMatch[] = [];
-                (p.matches || []).forEach((m: any) => {
-                  const match: TournamentMatch = {
-                    id: m.id?.toString() || "", // Toujours transmettre l'ID
-                    label: m.label || "",
-                    teamA: getTeamName(m.team_sport_a_id, m.team_a_source),
-                    teamB: getTeamName(m.team_sport_b_id, m.team_b_source),
-                    type: "poule",
-                    status: m.status === "upcoming" ? "planifié" : 
-                            m.status === "in_progress" ? "en-cours" :
-                            m.status === "completed" ? "terminé" : "planifié",
-                    court: m.court ? m.court.trim() : "", // Normalisation du nom du court
-                    scoreA: m.score_a,
-                    scoreB: m.score_b,
-                    date: m.date,
-                    time: m.time,
-                  };
-                  poolMatches.push(match);
-                  collected.push(match);
-                });
-                poolsData.push({
-                  id: p.id?.toString() || "", // Toujours transmettre l'ID
-                  name: p.name,
-                  teams: [], // Les équipes seront récupérées si nécessaire
-                  qualifiedToFinals: p.qualified_to_finals || 2,
-                  qualifiedToLoserBracket: p.qualified_to_loser_bracket || 0,
-                });
-              });
-              
-              // Convertir les matchs de bracket (depuis bracket_matches ou brackets)
-              const bracketMatches = data.data.bracket_matches || [];
-              const bracketsFromStructure = data.data.brackets || [];
-              // Si les matchs ne sont pas directement dans bracket_matches, les récupérer depuis brackets
-              if (bracketMatches.length === 0 && bracketsFromStructure.length > 0) {
-                bracketsFromStructure.forEach((bracket: any) => {
-                  (bracket.matches || []).forEach((m: any) => {
-                    const typeMap: Record<string, TournamentMatchType> = {
-                      "quarts": "quarts",
-                      "demi": "demi-finale",
-                      "finale": "finale",
-                      "petite-finale": "petite-finale",
-                    };
-                    collected.push({
-                      id: m.id?.toString() || "", // Toujours transmettre l'ID
-                      label: m.label || m.winnerCode || "",
-                      teamA: getTeamName(m.team_sport_a_id, m.team_a_source || m.teamA),
-                      teamB: getTeamName(m.team_sport_b_id, m.team_b_source || m.teamB),
-                      type: typeMap[m.bracketMatchType || m.bracket_type] || "finale",
-                      status: m.status === "upcoming" ? "planifié" : 
-                              m.status === "in_progress" ? "en-cours" :
-                              m.status === "completed" ? "terminé" : "planifié",
-                      court: m.court ? m.court.trim() : "", // Normalisation du nom du court
-                      scoreA: m.score_a || m.scoreA,
-                      scoreB: m.score_b || m.scoreB,
-                      date: m.date,
-                      time: m.time,
-                    });
-                  });
-                });
-              } else {
-                bracketMatches.forEach((m: any) => {
-                  const typeMap: Record<string, TournamentMatchType> = {
-                    "quarterfinal": "quarts",
-                    "semifinal": "demi-finale",
-                    "final": "finale",
-                    "third_place": "petite-finale",
-                  };
-                  collected.push({
-                    id: m.id?.toString() || "", // Toujours transmettre l'ID
-                    label: m.label || "",
-                    teamA: getTeamName(m.team_sport_a_id, m.team_a_source),
-                    teamB: getTeamName(m.team_sport_b_id, m.team_b_source),
-                    type: typeMap[m.bracket_type] || "finale",
-                    status: m.status === "upcoming" ? "planifié" : 
-                            m.status === "in_progress" ? "en-cours" :
-                            m.status === "completed" ? "terminé" : "planifié",
-                    court: m.court ? m.court.trim() : "", // Normalisation du nom du court
-                    scoreA: m.score_a,
-                    scoreB: m.score_b,
-                    date: m.date,
-                    time: m.time,
-                  });
-                });
-              }
-              
-              // Convertir les matchs de loser bracket (depuis loser_bracket_matches ou loser_brackets)
-              const loserBracketMatches = data.data.loser_bracket_matches || [];
-              const loserBracketsFromStructure = data.data.loser_brackets || [];
-              if (loserBracketMatches.length === 0 && loserBracketsFromStructure.length > 0) {
-                loserBracketsFromStructure.forEach((loserBracket: any) => {
-                  (loserBracket.matches || []).forEach((m: any) => {
-                    collected.push({
-                      id: m.id?.toString() || "", // Toujours transmettre l'ID
-                      label: m.label || m.winnerCode || "",
-                      teamA: getTeamName(m.team_sport_a_id, m.team_a_source || m.teamA),
-                      teamB: getTeamName(m.team_sport_b_id, m.team_b_source || m.teamB),
-                      type: "loser-bracket",
-                      status: m.status === "upcoming" ? "planifié" : 
-                              m.status === "in_progress" ? "en-cours" :
-                              m.status === "completed" ? "terminé" : "planifié",
-                      court: m.court ? m.court.trim() : "", // Normalisation du nom du court
-                      scoreA: m.score_a || m.scoreA,
-                      scoreB: m.score_b || m.scoreB,
-                      date: m.date,
-                      time: m.time,
-                    });
-                  });
-                });
-              } else {
-                loserBracketMatches.forEach((m: any) => {
-                  collected.push({
-                    id: m.id?.toString() || "", // Toujours transmettre l'ID
-                    label: m.label || "Loser Bracket",
-                    teamA: getTeamName(m.team_sport_a_id, m.team_a_source),
-                    teamB: getTeamName(m.team_sport_b_id, m.team_b_source),
-                    type: "loser-bracket",
-                    status: m.status === "upcoming" ? "planifié" : 
-                            m.status === "in_progress" ? "en-cours" :
-                            m.status === "completed" ? "terminé" : "planifié",
-                    court: m.court ? m.court.trim() : "", // Normalisation du nom du court
-                    scoreA: m.score_a,
-                    scoreB: m.score_b,
-                    date: m.date,
-                    time: m.time,
-                  });
-                });
-              }
+        const tournamentsResponse = await fetch(`http://localhost:8000/tournaments`);
+        if (!tournamentsResponse.ok) throw new Error("Impossible de charger les tournois");
+        const tournamentsData = await tournamentsResponse.json();
+        const tournaments = Array.isArray(tournamentsData.data?.items)
+          ? tournamentsData.data.items
+          : Array.isArray(tournamentsData.data)
+          ? tournamentsData.data
+          : [];
+        const tournament = tournaments.find((t: any) => t.sport_id === parseInt(id));
+        if (!tournament) throw new Error("Aucun tournoi trouvé pour ce sport. Veuillez le configurer d'abord.");
 
-              console.log("✅ Structure chargée - Matchs:", collected.length, "Poules:", poolsData.length);
-              
-              // Stocker aussi pour la résolution des noms
-              setTournamentMatches(data.data.qualification_matches || []);
-              setTournamentPools(data.data.pools || []);
-              
-              // Convertir les brackets pour la résolution des noms
-              const bracketsForResolution = (data.data.brackets || []).map((b: any, idx: number) => ({
-                id: (idx + 1).toString(),
-                name: b.name || "Phase Finale",
-                matches: (b.matches || []).map((m: any) => ({
-                  id: m.id,
-                  teamA: m.team_a_source || m.teamA,
-                  teamB: m.team_b_source || m.teamB,
-                  scoreA: m.score_a || m.scoreA,
-                  scoreB: m.score_b || m.scoreB,
-                  status: m.status,
-                  winnerCode: m.winnerCode || m.label,
-                })),
-                enabledRounds: b.enabled_rounds || [],
-                teams: b.teams || [],
-                position: { x: 0, y: 0 },
-                loserToLoserBracket: false
-              }));
-              
-              // Convertir les loser brackets pour la résolution des noms
-              const loserBracketsForResolution = (data.data.loser_brackets || []).map((lb: any, idx: number) => ({
-                id: (idx + 1).toString(),
-                name: lb.name || "Loser Bracket",
-                matches: (lb.matches || []).map((m: any) => ({
-                  id: m.id,
-                  teamA: m.team_a_source || m.teamA,
-                  teamB: m.team_b_source || m.teamB,
-                  scoreA: m.score_a || m.scoreA,
-                  scoreB: m.score_b || m.scoreB,
-                  status: m.status,
-                  winnerCode: m.winnerCode || m.label,
-                })),
-                enabledRounds: lb.enabled_rounds || [],
-                teams: lb.teams || [],
-                position: { x: 0, y: 0 }
-              }));
-              
-              setTournamentBrackets(bracketsForResolution.length > 0 ? bracketsForResolution : (data.data.bracket_matches ? [{
-                id: "1",
-                name: "Phase Finale",
-                matches: data.data.bracket_matches,
-                enabledRounds: [],
-                teams: [],
-                position: { x: 0, y: 0 },
-                loserToLoserBracket: false
-              }] : []));
-              
-              setTournamentLoserBrackets(loserBracketsForResolution.length > 0 ? loserBracketsForResolution : (data.data.loser_bracket_matches ? [{
-                id: "1",
-                name: "Loser Bracket",
-                matches: data.data.loser_bracket_matches,
-                enabledRounds: [],
-                teams: [],
-                position: { x: 0, y: 0 }
-              }] : []));
-              
-              setMatches(collected);
-              setPools(poolsData);
-              return;
-            }
+        // Charger tous les matchs du tournoi
+        const response = await fetch(`http://localhost:8000/matches?tournament_id=${tournament.id}`);
+        if (!response.ok) throw new Error("Impossible de charger les matchs du tournoi");
+        const data = await response.json();
+        const all = data.data || [];
+        const collected: TournamentMatch[] = all.map((m: any) => {
+          // Déterminer le type de match
+          let type: TournamentMatchType = "qualifications";
+          if (m.match_type === "qualification") type = "qualifications";
+          else if (m.match_type === "bracket") {
+            if (m.bracket_type === "semifinal") type = "demi-finale";
+            else if (m.bracket_type === "final") type = "finale";
+            else if (m.bracket_type === "third_place") type = "petite-finale";
+            else type = "bracket" as TournamentMatchType;
           }
-        } catch (err) {
-          console.error("❌ Impossible de charger la structure du tournoi depuis l'API:", err);
-          setError("Impossible de charger les données du tournoi. Veuillez configurer le tournoi d'abord.");
-        }
-      };
-      
-      loadTournamentStructure();
+          // Ajoute d'autres types si besoin
+          return {
+            id: m.id?.toString() || "",
+            label: m.label || "",
+            teamA: m.team_a_source || "",
+            teamB: m.team_b_source || "",
+            type,
+            status: m.status === "upcoming" ? "planifié" : 
+                   m.status === "in_progress" ? "en-cours" :
+                   m.status === "completed" ? "terminé" : "planifié",
+            court: m.court ? m.court.trim() : "",
+            scoreA: m.score_a,
+            scoreB: m.score_b,
+            date: m.date,
+            time: m.time,
+          };
+        });
+        setMatches(collected);
+      } catch (err) {
+        console.error("❌ Impossible de charger les matchs du tournoi:", err);
+        setError("Impossible de charger les matchs du tournoi. Veuillez configurer le tournoi d'abord.");
+      }
+    };
+    loadTournamentMatches();
   }, [params, teamSportIdToName]);
 
   // Générer le classement des poules avec les vrais résultats
@@ -989,6 +718,7 @@ export default function TournamentViewPage() {
           </div>
         </div>
 
+        {(() => {console.log('MATCHES AFFICHÉS', matches); return null;})()}
         {matches.length === 0 ? (
           <div className="text-center py-8">
           <p className="text-black text-sm mb-4">

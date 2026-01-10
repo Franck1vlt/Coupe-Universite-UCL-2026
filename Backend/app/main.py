@@ -15,11 +15,12 @@ from fastapi import (
 )
 from fastapi.responses import JSONResponse
 from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from sqlalchemy.exc import SQLAlchemyError
 import logging
+from app.utils.serializers import match_to_dict
 from typing import Optional, List
-
 from sqlalchemy.orm import Session
 from app.db import get_db, init_db
 from app.config import settings
@@ -78,6 +79,7 @@ logger.info(f"CORS_ORIGINS: {settings.CORS_ORIGINS}")
 logger.info(f"CORS_ORIGINS: {settings.CORS_ORIGINS}")
 
 # Middlewares
+app.add_middleware(CORSMiddleware, allow_origins=settings.CORS_ORIGINS, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(LoggingMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
@@ -2744,3 +2746,80 @@ async def propagate_tournament_results(
         "tournament_id": tournament_id,
         "propagated_matches": propagated_count
     }, message=f"Successfully propagated {propagated_count} match results")
+
+
+@app.delete("/tournaments/{tournament_id}/reset", tags=["Tournaments"])
+async def reset_tournament_structure(
+    tournament_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Supprimer toute la structure d'un tournoi (matchs, poules, phases)
+    mais garder le tournoi lui-même.
+    """
+    from app.models.tournament import Tournament
+    from app.models.tournamentphase import TournamentPhase
+    from app.models.pool import Pool
+    from app.models.match import Match
+    from app.models.teampool import TeamPool
+    
+    tournament = db.query(Tournament).filter(Tournament.id == tournament_id).first()
+    if not tournament:
+        raise NotFoundError(f"Tournament {tournament_id} not found")
+    
+    deleted_matches = 0
+    deleted_pools = 0
+    deleted_phases = 0
+    
+    # Récupérer toutes les phases du tournoi
+    phases = db.query(TournamentPhase).filter(
+        TournamentPhase.tournament_id == tournament_id
+    ).all()
+    
+    for phase in phases:
+        # Supprimer tous les matchs de cette phase
+        match_count = db.query(Match).filter(Match.phase_id == phase.id).delete()
+        deleted_matches += match_count
+        
+        # Supprimer les team_pools associées aux poules
+        pools = db.query(Pool).filter(Pool.phase_id == phase.id).all()
+        for pool in pools:
+            db.query(TeamPool).filter(TeamPool.pool_id == pool.id).delete()
+        
+        # Supprimer toutes les poules de cette phase
+        pool_count = db.query(Pool).filter(Pool.phase_id == phase.id).delete()
+        deleted_pools += pool_count
+        
+        # Supprimer la phase elle-même
+        db.delete(phase)
+        deleted_phases += 1
+    
+    db.commit()
+    
+    return create_success_response(
+        {
+            "tournament_id": tournament_id,
+            "deleted_matches": deleted_matches,
+            "deleted_pools": deleted_pools,
+            "deleted_phases": deleted_phases
+        },
+        message=f"Tournament structure reset: {deleted_matches} matches, {deleted_pools} pools, {deleted_phases} phases deleted"
+    )
+
+@app.get("/tournaments/{tournament_id}/matches")
+def get_matches_by_tournament(
+    tournament_id: int,
+    db: Session = Depends(get_db)
+):
+    matches = (
+        db.query(Match)
+        .join(TournamentPhase)
+        .filter(TournamentPhase.tournament_id == tournament_id)
+        .all()
+    )
+
+    return {
+        "success": True,
+        "data": [match_to_dict(m) for m in matches]
+    }
+

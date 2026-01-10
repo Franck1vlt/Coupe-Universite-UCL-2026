@@ -6,6 +6,7 @@ from datetime import datetime
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.db import Base
+import uuid
 
 class Match(Base):
     """
@@ -16,6 +17,12 @@ class Match(Base):
     __tablename__ = "Match"
 
     id = Column(Integer, primary_key=True, index=True)  # Primary Key
+    uuid = Column(
+        String,
+        nullable=False,
+        default=lambda: str(uuid.uuid4()),
+        server_default="",
+    )    
     phase_id = Column(Integer, ForeignKey("TournamentPhase.id"), nullable=False)
     pool_id = Column(Integer, ForeignKey("Pool.id"), nullable=True)  # Pour les matchs de poule
     

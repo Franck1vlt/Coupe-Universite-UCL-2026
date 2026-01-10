@@ -29,6 +29,6 @@
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts",
     "**/*.mts"
-  ],
+, "src/app/configuration-coupe/tournaments/[id]/types/tournament.types"  ],
   "exclude": ["node_modules"]
 }

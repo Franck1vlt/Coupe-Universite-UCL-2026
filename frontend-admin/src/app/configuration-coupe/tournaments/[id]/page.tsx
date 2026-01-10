@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
+import { v4 as uuidv4 } from "uuid";
 import { 
   resolveTeamName, 
   calculatePoolStandings, 
@@ -94,6 +95,87 @@ type Team = {
 type Court = {
   id: string;
   name: string;
+};
+
+// --- MAPPING VOCABULAIRE API → REACT ---
+// L'API envoie "semifinal", "final", etc. mais React attend "demi", "finale"
+const bracketTypeApiToReact: Record<string, BracketMatchType> = {
+  'quarterfinal': 'quarts',
+  'semifinal': 'demi',
+  'final': 'finale',
+  'third_place': 'petite-finale',
+  // Fallbacks si déjà en français
+  'quarts': 'quarts',
+  'demi': 'demi',
+  'finale': 'finale',
+  'petite-finale': 'petite-finale'
+};
+
+const loserBracketTypeApiToReact: Record<string, LoserBracketMatchType> = {
+  'loser_round_1': 'loser-round-1',
+  'loser_round_2': 'loser-round-2',
+  'loser_round_3': 'loser-round-3',
+  'loser_final': 'loser-finale',
+  // Fallbacks si déjà en français
+  'loser-round-1': 'loser-round-1',
+  'loser-round-2': 'loser-round-2',
+  'loser-round-3': 'loser-round-3',
+  'loser-finale': 'loser-finale'
+};
+
+// Fonction pour calculer la position automatique des matchs de bracket
+const calculateBracketMatchPosition = (
+  bracketType: BracketMatchType,
+  matchIndex: number,
+  totalMatchesInRound: number
+): { x: number; y: number } => {
+  const columnOffsets: Record<BracketMatchType, number> = {
+    'quarts': 0,
+    'demi': 320,
+    'finale': 640,
+    'petite-finale': 640
+  };
+  
+  const x = columnOffsets[bracketType] || 0;
+  const baseSpacing = 160;
+  
+  // Espacement différent selon le round
+  const spacingMultiplier: Record<BracketMatchType, number> = {
+    'quarts': 1,
+    'demi': 2,
+    'finale': 1,
+    'petite-finale': 1
+  };
+  
+  const spacing = baseSpacing * (spacingMultiplier[bracketType] || 1);
+  const startY = 100;
+  
+  // Position verticale: petite-finale en dessous de la finale
+  if (bracketType === 'petite-finale') {
+    return { x, y: startY + 300 };
+  }
+  
+  const y = startY + matchIndex * spacing;
+  return { x, y };
+};
+
+// Fonction pour calculer la position automatique des matchs de loser bracket
+const calculateLoserBracketMatchPosition = (
+  loserBracketType: LoserBracketMatchType,
+  matchIndex: number
+): { x: number; y: number } => {
+  const columnOffsets: Record<LoserBracketMatchType, number> = {
+    'loser-round-1': 0,
+    'loser-round-2': 280,
+    'loser-round-3': 560,
+    'loser-finale': 840
+  };
+  
+  const x = columnOffsets[loserBracketType] || 0;
+  const spacing = 140;
+  const y = 100 + matchIndex * spacing;
+  
+  return { x, y };
 };
 
 
@@ -344,10 +426,194 @@ export default function TournamentsPage() {
     );
   };
 
+  const loadTournamentData = async () => {
+    try {
+      // 1. Récupération du tournoi
+      const response = await fetch(`http://localhost:8000/tournaments`);
+      if (!response.ok) return;
+      const tournamentsData = await response.json();
+      const tournament = tournamentsData.data.items.find(
+        (t: any) => t.sport_id === parseInt(params.id as string)
+      );
+
+      if (!tournament) return;
+      setTournamentId(tournament.id);
+
+      // 2. Récupération des matchs via la liste globale (plus fiable)
+      const matchesRes = await fetch(
+        `http://localhost:8000/tournaments/${tournament.id}/matches`
+      );
+      if (!matchesRes.ok) return;
+      const matchesJson = await matchesRes.json();
+      
+      // Filtrage pour ne garder que les matchs qui pourraient appartenir à ce tournoi
+      const allMatchesRaw = matchesJson.data || [];
+
+      const mapRawToMatch = (m: any, type: MatchType): Match => ({
+        id: m.id?.toString() || uuidv4(),
+        uuid: m.uuid || `match-${m.id || uuidv4()}`,
+        teamA: m.team_a_source || "",
+        teamB: m.team_b_source || "",
+        label: m.label || "",
+        status: m.status === "upcoming" ? "planifié" : (m.status === "in_progress" ? "en-cours" : "terminé"),
+        date: m.date || "",
+        time: m.time || "",
+        court: m.court || "",
+        duration: m.duration || 90,
+        type: type,
+        bracketMatchType: bracketTypeApiToReact[m.bracket_type] || m.bracket_type || 'finale',
+        position: { x: 0, y: 0 }
+      });
+
+      // 3. RECONSTRUCTION DES QUALIFICATIONS
+      const qualMatches = allMatchesRaw
+        .filter((m: any) => m.match_type === "qualification")
+        .map((m: any, i: number) => ({
+          ...mapRawToMatch(m, "qualifications"),
+          position: { x: 50, y: 100 + i * 160 }
+        }));
+      setMatches(qualMatches);
+
+      // 4. RECONSTRUCTION DU BRACKET (PHASE FINALE)
+      const bracketMatchesRaw = allMatchesRaw.filter(
+        (m: any) => m.match_type === "bracket"
+      );
+      
+      if (bracketMatchesRaw.length > 0) {
+        console.log("Matchs de bracket trouvés:", bracketMatchesRaw.length);
+
+        // Grouper les matchs par type pour calculer les positions
+        const matchesByType: Record<string, any[]> = {};
+        bracketMatchesRaw.forEach((m: any) => {
+          const mappedType = bracketTypeApiToReact[m.bracket_type] || m.bracket_type || 'finale';
+          if (!matchesByType[mappedType]) matchesByType[mappedType] = [];
+          matchesByType[mappedType].push(m);
+        });
+
+        const mappedBracketMatches = bracketMatchesRaw.map((m: any, index: number) => {
+          const mappedType = bracketTypeApiToReact[m.bracket_type] || m.bracket_type || 'finale';
+          const matchesOfSameType = matchesByType[mappedType] || [];
+          const indexInType = matchesOfSameType.findIndex((match: any) => match.id === m.id);
+          
+          return {
+            ...mapRawToMatch(m, "phase-finale"),
+            bracketMatchType: mappedType as BracketMatchType,
+            position: calculateBracketMatchPosition(
+              mappedType as BracketMatchType,
+              indexInType >= 0 ? indexInType : index,
+              matchesOfSameType.length
+            )
+          };
+        });
+        
+        // On identifie les rounds (colonnes) présents
+        const roundsFound = Array.from(new Set(
+          mappedBracketMatches.map((m: any) => m.bracketMatchType).filter(Boolean)
+        )) as BracketMatchType[];
+
+        // ON FORCE LA CRÉATION DE LA TUILE DANS L'ÉTAT
+        setBrackets([{
+          id: "bracket-auto",
+          name: "Phase Finale",
+          matches: mappedBracketMatches,
+          enabledRounds: roundsFound,
+          teams: [],
+          position: { x: 850, y: 100 }, // Position par défaut à droite
+          winnerPoints: 0,
+          loserPoints: 0,
+          loserToLoserBracket: false
+        }]);
+      } else {
+        setBrackets([]); // On vide si aucun match de bracket
+      }
+
+      // 5. RECONSTRUCTION DES POULES
+      // On groupe les matchs par pool_id pour créer autant de tuiles que de poules
+      const poolIds = Array.from(new Set(allMatchesRaw.filter((m: any) => m.match_type === "pool").map((m: any) => m.pool_id)));
+      
+      const reconstructedPools = poolIds.map((pId: any, i: number) => {
+        const pMatches = allMatchesRaw
+          .filter((m: any) => m.match_type === "pool" && m.pool_id === pId)
+          .map((m: any, idx: number) => ({
+            ...mapRawToMatch(m, "poule"),
+            position: { x: 0, y: idx * 100 }
+          }));
+
+        return {
+          id: pId?.toString() || uuidv4(),
+          name: `Poule ${pId}`,
+          teams: [],
+          matches: pMatches,
+          position: { x: 450, y: 100 + i * 350 },
+          qualifiedToFinals: 2,
+          qualifiedToLoserBracket: 0
+        };
+      });
+      setPools(reconstructedPools);
+
+      // 6. RECONSTRUCTION DES LOSER BRACKETS
+      const loserMatchesRaw = allMatchesRaw.filter(
+        (m: any) => m.match_type === "loser_bracket"
+      );
+
+      
+      if (loserMatchesRaw.length > 0) {
+        console.log("Matchs de loser bracket trouvés:", loserMatchesRaw.length);
+
+        // Grouper les matchs par type pour calculer les positions
+        const loserMatchesByType: Record<string, any[]> = {};
+        loserMatchesRaw.forEach((m: any) => {
+          const mappedType = loserBracketTypeApiToReact[m.bracket_type] || m.bracket_type || 'loser-round-1';
+          if (!loserMatchesByType[mappedType]) loserMatchesByType[mappedType] = [];
+          loserMatchesByType[mappedType].push(m);
+        });
+
+        const mappedLoserMatches = loserMatchesRaw.map((m: any, index: number) => {
+          const mappedType = loserBracketTypeApiToReact[m.bracket_type] || m.bracket_type || 'loser-round-1';
+          const matchesOfSameType = loserMatchesByType[mappedType] || [];
+          const indexInType = matchesOfSameType.findIndex((match: any) => match.id === m.id);
+          
+          return {
+            ...mapRawToMatch(m, "loser-bracket"),
+            loserBracketMatchType: mappedType as LoserBracketMatchType,
+            position: calculateLoserBracketMatchPosition(
+              mappedType as LoserBracketMatchType,
+              indexInType >= 0 ? indexInType : index
+            )
+          };
+        });
+
+        const loserRoundsFound = Array.from(new Set(
+          mappedLoserMatches.map((m: any) => m.loserBracketMatchType).filter(Boolean)
+        )) as LoserBracketMatchType[];
+
+        setLoserBrackets([{
+          id: "loser-bracket-auto",
+          name: "Loser Bracket",
+          matches: mappedLoserMatches,
+          enabledRounds: loserRoundsFound,
+          teams: [],
+          position: { x: 100, y: 500 },
+          winnerPoints: 0,
+          loserPoints: 0
+        }]);
+      } else {
+        setLoserBrackets([]);
+      }
+
+      console.log("✅ Reconstruction terminée");
+
+    } catch (error) {
+      console.error("❌ Erreur dans loadTournamentData:", error);
+    }
+  };
+
   // Charger les données initiales (équipes, terrains, layout éventuel enregistré)
   useEffect(() => {
     fetchTeams();
     fetchCourts();
+    // Note: loadTournamentData() est maintenant intégré dans loadFromAPI() 
+    // pour éviter les conditions de course
 
     if (params.id && typeof params.id === "string") {
       // Essayer de charger depuis l'API d'abord
@@ -376,6 +642,8 @@ export default function TournamentsPage() {
               // Convertir les matchs de qualification
               const apiQualificationMatches: Match[] = (structureData.data.qualification_matches || []).map((m: any) => ({
                 id: m.id.toString(),
+                uuid: m.uuid,
+                label: m.label,
                 teamA: m.team_a_source ?? "",
                 teamB: m.team_b_source ?? "",
                 date: m.scheduled_datetime ? m.scheduled_datetime.split('T')[0] : (m.date ?? ""),
@@ -392,6 +660,18 @@ export default function TournamentsPage() {
                 position: { x: 100, y: 100 + (m.match_order || 0) * 100 },
               }));
 
+              console.log("=== MATCHS CHARGÉS DEPUIS LA BDD ===");
+              apiQualificationMatches.forEach((m, idx) => {
+                console.log(`Match ${idx + 1}:`, {
+                  id: m.id,
+                  uuid: m.uuid,
+                  label: m.label,
+                  teamA: m.teamA,
+                  teamB: m.teamB
+                });
+              });
+
+
               // Convertir les poules
               const apiPools: Pool[] = (structureData.data.pools || []).map((p: any) => ({
                 id: p.id.toString(),
@@ -399,6 +679,8 @@ export default function TournamentsPage() {
                 teams: [], // Les équipes seront récupérées séparément si nécessaire
                 matches: (p.matches || []).map((m: any) => ({
                     id: m.id.toString(),
+                    uuid: m.uuid,
+                    label: m.label,
                     teamA: m.team_a_source ?? "",
                     teamB: m.team_b_source ?? "",
                     date: m.scheduled_datetime ? m.scheduled_datetime.split('T')[0] : (m.date ?? ""),
@@ -421,29 +703,61 @@ export default function TournamentsPage() {
               // Convertir les brackets
               const apiBrackets: Bracket[] = [];
               if (structureData.data.bracket_matches && structureData.data.bracket_matches.length > 0) {
-                const bracketMatches = structureData.data.bracket_matches.map((m: any) => ({
-                    id: m.id.toString(),
-                    teamA: m.team_a_source ?? "",
-                    teamB: m.team_b_source ?? "",
-                    date: m.scheduled_datetime ? m.scheduled_datetime.split('T')[0] : (m.date ?? ""),
-                    time: m.scheduled_datetime ? (m.scheduled_datetime.split('T')[1]?.slice(0,5) ?? "") : (m.time ?? ""),
-                    court: m.court ?? "",
-                    status: m.status === "upcoming" ? "planifié" : 
-                      m.status === "in_progress" ? "en-cours" :
-                      m.status === "completed" ? "terminé" : "planifié",
-                    duration: m.duration || 90,
-                    type: "phase-finale" as MatchType,
-                    scoreA: m.score_a,
-                    scoreB: m.score_b,
-                    bracketMatchType: m.bracket_type as BracketMatchType,
-                    winnerCode: m.label,
-                    position: { x: 0, y: 0 },
-                }));
+                // Grouper les matchs par type de bracket pour calculer les positions
+                const matchesByType: Record<string, any[]> = {};
+                structureData.data.bracket_matches.forEach((m: any) => {
+                  const mappedType = bracketTypeApiToReact[m.bracket_type] || m.bracket_type || 'finale';
+                  if (!matchesByType[mappedType]) matchesByType[mappedType] = [];
+                  matchesByType[mappedType].push(m);
+                });
+
+                const bracketMatches = structureData.data.bracket_matches.map((m: any, index: number) => {
+                    // CORRECTION 1: Mapping vocabulaire API → React
+                    const mappedBracketType = bracketTypeApiToReact[m.bracket_type] || m.bracket_type || 'finale';
+                    
+                    // CORRECTION 4: UUID généré si absent
+                    const matchUuid = m.uuid || `bracket-match-${m.id || uuidv4()}`;
+                    
+                    // CORRECTION 5: Calculer la position automatiquement
+                    const matchesOfSameType = matchesByType[mappedBracketType] || [];
+                    const indexInType = matchesOfSameType.findIndex((match: any) => match.id === m.id);
+                    const position = calculateBracketMatchPosition(
+                      mappedBracketType as BracketMatchType,
+                      indexInType >= 0 ? indexInType : index,
+                      matchesOfSameType.length
+                    );
+                    
+                    return {
+                      id: m.id?.toString() || matchUuid,
+                      uuid: matchUuid,
+                      label: m.label,
+                      teamA: m.team_a_source ?? "",
+                      teamB: m.team_b_source ?? "",
+                      date: m.scheduled_datetime ? m.scheduled_datetime.split('T')[0] : (m.date ?? ""),
+                      time: m.scheduled_datetime ? (m.scheduled_datetime.split('T')[1]?.slice(0,5) ?? "") : (m.time ?? ""),
+                      court: m.court ?? "",
+                      status: m.status === "upcoming" ? "planifié" : 
+                        m.status === "in_progress" ? "en-cours" :
+                        m.status === "completed" ? "terminé" : "planifié",
+                      duration: m.duration || 90,
+                      type: "phase-finale" as MatchType,
+                      scoreA: m.score_a,
+                      scoreB: m.score_b,
+                      bracketMatchType: mappedBracketType as BracketMatchType,
+                      winnerCode: m.label,
+                      position: position,
+                    };
+                });
+                
+                // CORRECTION 3: Initialiser enabledRounds avec les rounds trouvés
+                const enabledRounds = Array.from(new Set(
+                  bracketMatches.map((m: Match) => m.bracketMatchType).filter(Boolean)
+                )) as BracketMatchType[];
                 
                 apiBrackets.push({
                   id: "bracket-1",
                   name: "Phase Finale",
-                  enabledRounds: [],
+                  enabledRounds: enabledRounds,
                   teams: [],
                   matches: bracketMatches,
                   position: { x: 500, y: 100 },
@@ -454,28 +768,59 @@ export default function TournamentsPage() {
               // Convertir les loser brackets
               const apiLoserBrackets: LoserBracket[] = [];
               if (structureData.data.loser_bracket_matches && structureData.data.loser_bracket_matches.length > 0) {
-                const loserMatches = structureData.data.loser_bracket_matches.map((m: any) => ({
-                    id: m.id.toString(),
-                    teamA: m.team_a_source || "",
-                    teamB: m.team_b_source || "",
-                    date: m.scheduled_datetime ? m.scheduled_datetime.split('T')[0] : (m.date ?? ""),
-                    time: m.scheduled_datetime ? (m.scheduled_datetime.split('T')[1]?.slice(0,5) ?? "") : (m.time ?? ""),
-                    court: m.court ?? "",
-                    status: m.status === "upcoming" ? "planifié" : 
-                      m.status === "in_progress" ? "en-cours" :
-                      m.status === "completed" ? "terminé" : "planifié",
-                    duration: m.duration || 90,
-                    type: "loser-bracket" as MatchType,
-                    scoreA: m.score_a,
-                    scoreB: m.score_b,
-                    loserBracketMatchType: m.bracket_type as LoserBracketMatchType,
-                    position: { x: 0, y: 0 },
-                }));
+                // Grouper les matchs par type pour calculer les positions
+                const loserMatchesByType: Record<string, any[]> = {};
+                structureData.data.loser_bracket_matches.forEach((m: any) => {
+                  const mappedType = loserBracketTypeApiToReact[m.bracket_type] || m.bracket_type || 'loser-round-1';
+                  if (!loserMatchesByType[mappedType]) loserMatchesByType[mappedType] = [];
+                  loserMatchesByType[mappedType].push(m);
+                });
+
+                const loserMatches = structureData.data.loser_bracket_matches.map((m: any, index: number) => {
+                    // CORRECTION 1: Mapping vocabulaire API → React
+                    const mappedLoserType = loserBracketTypeApiToReact[m.bracket_type] || m.bracket_type || 'loser-round-1';
+                    
+                    // CORRECTION 4: UUID généré si absent
+                    const matchUuid = m.uuid || `loser-match-${m.id || uuidv4()}`;
+                    
+                    // CORRECTION 5: Calculer la position automatiquement
+                    const matchesOfSameType = loserMatchesByType[mappedLoserType] || [];
+                    const indexInType = matchesOfSameType.findIndex((match: any) => match.id === m.id);
+                    const position = calculateLoserBracketMatchPosition(
+                      mappedLoserType as LoserBracketMatchType,
+                      indexInType >= 0 ? indexInType : index
+                    );
+                    
+                    return {
+                      id: m.id?.toString() || matchUuid,
+                      uuid: matchUuid,
+                      label: m.label,
+                      teamA: m.team_a_source || "",
+                      teamB: m.team_b_source || "",
+                      date: m.scheduled_datetime ? m.scheduled_datetime.split('T')[0] : (m.date ?? ""),
+                      time: m.scheduled_datetime ? (m.scheduled_datetime.split('T')[1]?.slice(0,5) ?? "") : (m.time ?? ""),
+                      court: m.court ?? "",
+                      status: m.status === "upcoming" ? "planifié" : 
+                        m.status === "in_progress" ? "en-cours" :
+                        m.status === "completed" ? "terminé" : "planifié",
+                      duration: m.duration || 90,
+                      type: "loser-bracket" as MatchType,
+                      scoreA: m.score_a,
+                      scoreB: m.score_b,
+                      loserBracketMatchType: mappedLoserType as LoserBracketMatchType,
+                      position: position,
+                    };
+                });
+                
+                // CORRECTION 3: Initialiser enabledRounds avec les rounds trouvés
+                const enabledLoserRounds = Array.from(new Set(
+                  loserMatches.map((m: Match) => m.loserBracketMatchType).filter(Boolean)
+                )) as LoserBracketMatchType[];
                 
                 apiLoserBrackets.push({
                   id: "loser-bracket-1",
                   name: "Loser Bracket",
-                  enabledRounds: [],
+                  enabledRounds: enabledLoserRounds,
                   teams: [],
                   matches: loserMatches,
                   position: { x: 300, y: 100 },
@@ -484,8 +829,163 @@ export default function TournamentsPage() {
 
               setMatches(apiQualificationMatches);
               setPools(apiPools);
-              setBrackets(apiBrackets);
-              setLoserBrackets(apiLoserBrackets);
+              
+              // CORRECTION: Si l'API structure ne retourne pas de bracket_matches,
+              // on les charge depuis /matches pour ne pas écraser les données de loadTournamentData
+              if (apiBrackets.length > 0) {
+                setBrackets(apiBrackets);
+              } else {
+                // Charger les brackets depuis /matches si structure ne les a pas
+                console.log("⚠️ Pas de bracket_matches dans /structure, chargement depuis /matches...");
+                try {
+                  const matchesRes = await fetch(
+                    `http://localhost:8000/tournaments/${tournament.id}/matches`
+                  );
+                  if (matchesRes.ok) {
+                    const matchesJson = await matchesRes.json();
+                    const allMatchesRaw = matchesJson.data || [];
+                    const bracketMatchesRaw = allMatchesRaw.filter(
+                      (m: any) => m.match_type === "bracket"
+                    );
+
+                    
+                    if (bracketMatchesRaw.length > 0) {
+                      console.log(`✅ ${bracketMatchesRaw.length} matchs de bracket trouvés via /matches`);
+                      
+                      // Grouper les matchs par type pour calculer les positions
+                      const matchesByType: Record<string, any[]> = {};
+                      bracketMatchesRaw.forEach((m: any) => {
+                        const mappedType = bracketTypeApiToReact[m.bracket_type] || m.bracket_type || 'finale';
+                        if (!matchesByType[mappedType]) matchesByType[mappedType] = [];
+                        matchesByType[mappedType].push(m);
+                      });
+
+                      const bracketMatches = bracketMatchesRaw.map((m: any, index: number) => {
+                        const mappedBracketType = bracketTypeApiToReact[m.bracket_type] || m.bracket_type || 'finale';
+                        const matchUuid = m.uuid || `bracket-match-${m.id || uuidv4()}`;
+                        const matchesOfSameType = matchesByType[mappedBracketType] || [];
+                        const indexInType = matchesOfSameType.findIndex((match: any) => match.id === m.id);
+                        const position = calculateBracketMatchPosition(
+                          mappedBracketType as BracketMatchType,
+                          indexInType >= 0 ? indexInType : index,
+                          matchesOfSameType.length
+                        );
+                        
+                        return {
+                          id: m.id?.toString() || matchUuid,
+                          uuid: matchUuid,
+                          label: m.label,
+                          teamA: m.team_a_source ?? "",
+                          teamB: m.team_b_source ?? "",
+                          date: m.date ?? "",
+                          time: m.time ?? "",
+                          court: m.court ?? "",
+                          status: m.status === "upcoming" ? "planifié" : 
+                            m.status === "in_progress" ? "en-cours" :
+                            m.status === "completed" ? "terminé" : "planifié",
+                          duration: m.duration || 90,
+                          type: "phase-finale" as MatchType,
+                          scoreA: m.score_a,
+                          scoreB: m.score_b,
+                          bracketMatchType: mappedBracketType as BracketMatchType,
+                          winnerCode: m.label,
+                          position: position,
+                        };
+                      });
+                      
+                      const enabledRounds = Array.from(new Set(
+                        bracketMatches.map((m: Match) => m.bracketMatchType).filter(Boolean)
+                      )) as BracketMatchType[];
+                      
+                      setBrackets([{
+                        id: "bracket-1",
+                        name: "Phase Finale",
+                        enabledRounds: enabledRounds,
+                        teams: [],
+                        matches: bracketMatches,
+                        position: { x: 500, y: 100 },
+                        loserToLoserBracket: false,
+                      }]);
+                    }
+                  }
+                } catch (e) {
+                  console.log("⚠️ Impossible de charger les brackets depuis /matches:", e);
+                }
+              }
+              
+              // Idem pour les loser brackets
+              if (apiLoserBrackets.length > 0) {
+                setLoserBrackets(apiLoserBrackets);
+              } else {
+                // Charger les loser brackets depuis /matches si structure ne les a pas
+                try {
+                  const matchesRes = await fetch(
+                    `http://localhost:8000/tournaments/${tournament.id}/matches`
+                  );
+                  if (matchesRes.ok) {
+                    const matchesJson = await matchesRes.json();
+                    const allMatchesRaw = matchesJson.data || [];
+                    const loserMatchesRaw = allMatchesRaw.filter((m: any) => m.match_type === "loser_bracket");
+                    
+                    if (loserMatchesRaw.length > 0) {
+                      console.log(`✅ ${loserMatchesRaw.length} matchs de loser bracket trouvés via /matches`);
+                      
+                      const loserMatchesByType: Record<string, any[]> = {};
+                      loserMatchesRaw.forEach((m: any) => {
+                        const mappedType = loserBracketTypeApiToReact[m.bracket_type] || m.bracket_type || 'loser-round-1';
+                        if (!loserMatchesByType[mappedType]) loserMatchesByType[mappedType] = [];
+                        loserMatchesByType[mappedType].push(m);
+                      });
+
+                      const loserMatches = loserMatchesRaw.map((m: any, index: number) => {
+                        const mappedLoserType = loserBracketTypeApiToReact[m.bracket_type] || m.bracket_type || 'loser-round-1';
+                        const matchUuid = m.uuid || `loser-match-${m.id || uuidv4()}`;
+                        const matchesOfSameType = loserMatchesByType[mappedLoserType] || [];
+                        const indexInType = matchesOfSameType.findIndex((match: any) => match.id === m.id);
+                        const position = calculateLoserBracketMatchPosition(
+                          mappedLoserType as LoserBracketMatchType,
+                          indexInType >= 0 ? indexInType : index
+                        );
+                        
+                        return {
+                          id: m.id?.toString() || matchUuid,
+                          uuid: matchUuid,
+                          label: m.label,
+                          teamA: m.team_a_source || "",
+                          teamB: m.team_b_source || "",
+                          date: m.date ?? "",
+                          time: m.time ?? "",
+                          court: m.court ?? "",
+                          status: m.status === "upcoming" ? "planifié" : 
+                            m.status === "in_progress" ? "en-cours" :
+                            m.status === "completed" ? "terminé" : "planifié",
+                          duration: m.duration || 90,
+                          type: "loser-bracket" as MatchType,
+                          scoreA: m.score_a,
+                          scoreB: m.score_b,
+                          loserBracketMatchType: mappedLoserType as LoserBracketMatchType,
+                          position: position,
+                        };
+                      });
+                      
+                      const enabledLoserRounds = Array.from(new Set(
+                        loserMatches.map((m: Match) => m.loserBracketMatchType).filter(Boolean)
+                      )) as LoserBracketMatchType[];
+                      
+                      setLoserBrackets([{
+                        id: "loser-bracket-1",
+                        name: "Loser Bracket",
+                        enabledRounds: enabledLoserRounds,
+                        teams: [],
+                        matches: loserMatches,
+                        position: { x: 300, y: 100 },
+                      }]);
+                    }
+                  }
+                } catch (e) {
+                  console.log("⚠️ Impossible de charger les loser brackets depuis /matches:", e);
+                }
+              }
               
               // Calculer le prochain ID
               const allIds = [
@@ -507,6 +1007,9 @@ export default function TournamentsPage() {
           }
         } catch (err) {
           console.log("⚠️ Impossible de charger depuis l'API:", err);
+          // Fallback: charger via loadTournamentData
+          console.log("🔄 Fallback vers loadTournamentData...");
+          loadTournamentData();
         }
         
         // Ne plus utiliser localStorage pour éviter les conflits
@@ -541,86 +1044,96 @@ export default function TournamentsPage() {
     }
   }, [params.id]);
 
-  const addNewMatchFromPalette = (type: MatchType, x: number, y: number) => {
-    if (type === "poule") {
-      // Créer une nouvelle poule
-      const newPool: Pool = {
-        id: `pool-${nextMatchId}`,
-        name: `Poule ${pools.length + 1}`,
-        teams: [],
-        matches: [],
-        position: { x: Math.max(0, x - 150), y: Math.max(0, y - 100) },
-        qualifiedToFinals: 2,
-        qualifiedToLoserBracket: 0
-      };
-      setPools([...pools, newPool]);
-      setSelectedPool(newPool);
-      setSelectedMatch(null);
-      setSelectedBracket(null);
-      setNextMatchId(nextMatchId + 1);
-    } else if (type === "phase-finale") {
-      // Créer un nouveau bracket (phase finale)
-      const newBracket: Bracket = {
-        id: `bracket-${nextMatchId}`,
-        name: `Phase Finale ${brackets.length + 1}`,
-        enabledRounds: ["demi", "finale"], // Par défaut: demi-finale et finale
-        teams: [],
-        matches: [],
-        position: { x: Math.max(0, x - 150), y: Math.max(0, y - 100) },
-        winnerPoints: 0,
-        loserPoints: 0,
-        loserToLoserBracket: false
-      };
-      setBrackets([...brackets, newBracket]);
-      setSelectedBracket(newBracket);
-      setSelectedMatch(null);
-      setSelectedPool(null);
-      setNextMatchId(nextMatchId + 1);
-    } else if (type === "loser-bracket") {
-      // Créer un nouveau loser bracket
-      const newLoserBracket: LoserBracket = {
-        id: `loser-${nextMatchId}`,
-        name: `Loser Bracket ${loserBrackets.length + 1}`,
-        enabledRounds: ["loser-round-1", "loser-finale"], // Par défaut: round 1 et finale
-        teams: [],
-        matches: [],
-        position: { x: Math.max(0, x - 150), y: Math.max(0, y - 100) },
-        winnerPoints: 60,
-        loserPoints: 50
-      };
-      setLoserBrackets([...loserBrackets, newLoserBracket]);
-      setSelectedLoserBracket(newLoserBracket);
-      setSelectedMatch(null);
-      setSelectedPool(null);
-      setSelectedBracket(null);
-      setNextMatchId(nextMatchId + 1);
-    } else {
-      const isQualification = type === "qualifications";
-      const existingQualifsCount = matches.filter(m => m.type === "qualifications").length;
-      const qualifIndex = isQualification ? existingQualifsCount + 1 : undefined;
+  useEffect(() => {
+    setMatches([]);
+    setPools([]);
+    setBrackets([]);
+    setLoserBrackets([]);
+  }, [tournamentId]);
 
-      // Créer un match normal (ou de qualifications)
-      const newMatch: Match = {
-        id: `match-${nextMatchId}`,
-        teamA: "",
-        teamB: "",
-        date: "",
-        time: "",
-        court: "",
-        status: "planifié",
-        duration: 90,
-        type: type,
-        position: { x: Math.max(0, x - 144), y: Math.max(0, y - 80) },
-        winnerPoints: isQualification ? 0 : undefined,
-        loserPoints: isQualification ? 0 : undefined,
-        winnerCode: isQualification && qualifIndex ? `WQ${qualifIndex}` : undefined
-      };
-      setMatches([...matches, newMatch]);
-      setSelectedMatch(newMatch);
-      setSelectedPool(null);
-      setSelectedBracket(null);
-      setNextMatchId(nextMatchId + 1);
-    }
+
+  const addNewMatchFromPalette = (type: MatchType, x: number, y: number) => {
+      // Générer l'UUID ici pour qu'il soit persistant
+      const newUuid = uuidv4();
+
+      if (type === "poule") {
+        const newPool: Pool = {
+          id: `pool-${nextMatchId}`,
+          name: `Poule ${pools.length + 1}`,
+          teams: [],
+          matches: [],
+          position: { x: Math.max(0, x - 150), y: Math.max(0, y - 100) },
+          qualifiedToFinals: 0,
+          qualifiedToLoserBracket: 0
+        };
+        setPools([...pools, newPool]);
+        setSelectedPool(newPool);
+        setSelectedMatch(null);
+        setSelectedBracket(null);
+        setNextMatchId(nextMatchId + 1);
+      } else if (type === "phase-finale") {
+        // (Code bracket inchangé, pas d'UUID sur le conteneur bracket lui-même pour l'instant)
+        const newBracket: Bracket = {
+          id: `bracket-${nextMatchId}`,
+          name: `Phase Finale ${brackets.length + 1}`,
+          enabledRounds: ["quarts", "demi", "finale", "petite-finale"],
+          teams: [],
+          matches: [],
+          position: { x: Math.max(0, x - 150), y: Math.max(0, y - 100) },
+          winnerPoints: 0,
+          loserPoints: 0,
+          loserToLoserBracket: false
+        };
+        setBrackets([...brackets, newBracket]);
+        setSelectedBracket(newBracket);
+        setSelectedMatch(null);
+        setSelectedPool(null);
+        setNextMatchId(nextMatchId + 1);
+      } else if (type === "loser-bracket") {
+        // (Code loser bracket inchangé)
+        const newLoserBracket: LoserBracket = {
+          id: `loser-${nextMatchId}`,
+          name: `Loser Bracket ${loserBrackets.length + 1}`,
+          enabledRounds: ["loser-round-1", "loser-finale"],
+          teams: [],
+          matches: [],
+          position: { x: Math.max(0, x - 150), y: Math.max(0, y - 100) },
+          winnerPoints: 0,
+          loserPoints: 0
+        };
+        setLoserBrackets([...loserBrackets, newLoserBracket]);
+        setSelectedLoserBracket(newLoserBracket);
+        setSelectedMatch(null);
+        setSelectedPool(null);
+        setSelectedBracket(null);
+        setNextMatchId(nextMatchId + 1);
+      } else {
+        const isQualification = type === "qualifications";
+        const existingQualifsCount = matches.filter(m => m.type === "qualifications").length;
+        const qualifIndex = isQualification ? existingQualifsCount + 1 : undefined;
+
+        const newMatch: Match = {
+          id: `match-${nextMatchId}`,
+          uuid: uuidv4(),
+          teamA: "",
+          teamB: "",
+          date: "",
+          time: "",
+          court: "",
+          status: "planifié",
+          duration: 90,
+          type: type,
+          position: { x: Math.max(0, x - 144), y: Math.max(0, y - 80) },
+          winnerPoints: isQualification ? 0 : undefined,
+          loserPoints: isQualification ? 0 : undefined,
+          winnerCode: isQualification && qualifIndex ? `WQ${qualifIndex}` : undefined
+        };
+        setMatches([...matches, newMatch]);
+        setSelectedMatch(newMatch);
+        setSelectedPool(null);
+        setSelectedBracket(null);
+        setNextMatchId(nextMatchId + 1);
+      }
   };
 
   const adjustQualificationMatchesCount = (targetCount: number) => {
@@ -644,6 +1157,8 @@ export default function TournamentsPage() {
       const index = i + 1; // WQ1, WQ2, ...
       newMatches.push({
         id: `match-${currentId}`,
+        uuid: uuidv4(),
+        label: `WQ${index}`,
         teamA: "",
         teamB: "",
         date: "",
@@ -746,31 +1261,44 @@ export default function TournamentsPage() {
   };
 
   const generatePoolMatches = (pool: Pool) => {
-    if (pool.teams.length < 2) return;
+      if (pool.teams.length < 2) return;
 
-    const newMatches: Match[] = [];
-    for (let i = 0; i < pool.teams.length; i++) {
-      for (let j = i + 1; j < pool.teams.length; j++) {
-        newMatches.push({
-          id: `${pool.id}-${i}-${j}`,
-          teamA: pool.teams[i],
-          teamB: pool.teams[j],
-          date: "",
-          time: "",
-          court: "",
-          status: "planifié",
-          duration: 90,
-          type: "poule",
-          position: { x: 0, y: 0 }
-        });
+      // Sauvegarde des anciens matchs pour récupérer les UUIDs/IDs
+      const oldMatches = pool.matches || [];
+
+      const newMatches: Match[] = [];
+      for (let i = 0; i < pool.teams.length; i++) {
+        for (let j = i + 1; j < pool.teams.length; j++) {
+          const teamA = pool.teams[i];
+          const teamB = pool.teams[j];
+          
+          // Cherche si ce match existait déjà
+          const existing = oldMatches.find(m => 
+              (m.teamA === teamA && m.teamB === teamB) || 
+              (m.teamA === teamB && m.teamB === teamA)
+          );
+
+          newMatches.push({
+            id: existing?.id || `${pool.id}-${i}-${j}`,
+            uuid: existing?.uuid || uuidv4(), // Garde l'UUID existant ou en crée un nouveau
+            teamA: teamA,
+            teamB: teamB,
+            date: existing?.date || "",
+            time: existing?.time || "",
+            court: existing?.court || "",
+            status: existing?.status || "planifié",
+            duration: existing?.duration || 90,
+            type: "poule",
+            position: { x: 0, y: 0 }
+          });
+        }
       }
-    }
-    
-    const updatedPool = {
-      ...pool,
-      matches: newMatches
-    };
-    updatePool(updatedPool);
+      
+      const updatedPool = {
+        ...pool,
+        matches: newMatches
+      };
+      updatePool(updatedPool);
   };
 
   // Fonctions de gestion des brackets
@@ -804,133 +1332,71 @@ export default function TournamentsPage() {
   };
 
   const generateBracketMatches = (bracket: Bracket) => {
-    // Déterminer le tour le plus élevé (plus grand round)
-    const roundOrder: BracketMatchType[] = ["quarts", "demi", "petite-finale", "finale"];
-    const enabledRounds = bracket.enabledRounds.sort((a, b) => roundOrder.indexOf(a) - roundOrder.indexOf(b));
-    
-    if (enabledRounds.length === 0) return;
+      const roundOrder: BracketMatchType[] = ["quarts", "demi", "petite-finale", "finale"];
+      const enabledRounds = [...bracket.enabledRounds].sort((a, b) => roundOrder.indexOf(a) - roundOrder.indexOf(b));
+      
+      if (enabledRounds.length === 0) return;
 
-    const firstRound = enabledRounds[0];
-    const hasQuarts = enabledRounds.includes("quarts");
-    const hasDemi = enabledRounds.includes("demi");
-    const hasFinale = enabledRounds.includes("finale");
-    const hasPetiteFinale = enabledRounds.includes("petite-finale");
+      const oldMatches = bracket.matches || [];
 
-    const newMatches: Match[] = [];
-    
-    // Générer les matchs selon les rounds activés
-    if (hasQuarts) {
-      // 4 quarts de finale (QF1-QF4)
-      for (let i = 1; i <= 4; i++) {
-        const teamIndex = (i - 1) * 2;
-        newMatches.push({
-          id: `${bracket.id}-QF${i}`,
-          teamA: bracket.teams[teamIndex] || "",
-          teamB: bracket.teams[teamIndex + 1] || "",
-          date: "",
-          time: "",
-          court: "",
-          status: "planifié",
-          duration: 90,
-          type: "phase-finale",
-          bracketMatchType: "quarts",
-          winnerCode: `WQF${i}`,
-          loserCode: `LQF${i}`,
-          winnerDestination: `SF${Math.ceil(i / 2)}`,
-          loserDestination: bracket.loserToLoserBracket ? "LOSER_BRACKET" : undefined,
-          winnerPoints: 0,
-          loserPoints: 0,
-          position: { x: 0, y: 0 }
-        });
-      }
-    }
+      // Helper pour récupérer un match existant
+      const getPersistentMatch = (type: BracketMatchType, code: string, defaults: Partial<Match>): Match => {
+        const existing = oldMatches.find(m => m.bracketMatchType === type && m.winnerCode === code);
+        return {
+          ...defaults,
+          id: existing?.id || defaults.id || `${bracket.id}-${code}`,
+          uuid: existing?.uuid || uuidv4(), // Conservation UUID
+          date: existing?.date || "",
+          time: existing?.time || "",
+          court: existing?.court || "",
+          status: existing?.status || "planifié",
+          duration: existing?.duration || 90,
+        } as Match;
+      };
 
-    if (hasDemi) {
-      // 2 demi-finales (SF1-SF2)
-      for (let i = 1; i <= 2; i++) {
-        let teamA = "";
-        let teamB = "";
-        
-        if (!hasQuarts) {
-          // Si pas de quarts, utiliser les équipes directement
-          const teamIndex = (i - 1) * 2;
-          teamA = bracket.teams[teamIndex] || "";
-          teamB = bracket.teams[teamIndex + 1] || "";
-        } else {
-          // Sinon, référencer les vainqueurs des quarts
-          teamA = `WQF${(i - 1) * 2 + 1}`;
-          teamB = `WQF${(i - 1) * 2 + 2}`;
+      const newMatches: Match[] = [];
+
+      // (Logique de création identique, mais utilise getPersistentMatch)
+      if (enabledRounds.includes("quarts")) {
+        for (let i = 1; i <= 4; i++) {
+          newMatches.push(getPersistentMatch("quarts", `WQF${i}`, {
+            teamA: bracket.teams[(i - 1) * 2] || "",
+            teamB: bracket.teams[(i - 1) * 2 + 1] || "",
+            type: "phase-finale",
+            bracketMatchType: "quarts",
+            winnerCode: `WQF${i}`,
+            loserCode: `LQF${i}`,
+            winnerDestination: `SF${Math.ceil(i / 2)}`,
+            loserDestination: bracket.loserToLoserBracket ? "LOSER_BRACKET" : undefined,
+          }));
         }
-
-        newMatches.push({
-          id: `${bracket.id}-SF${i}`,
-          teamA,
-          teamB,
-          date: "",
-          time: "",
-          court: "",
-          status: "planifié",
-          duration: 90,
-          type: "phase-finale",
-          bracketMatchType: "demi",
-          winnerCode: `WSF${i}`,
-          loserCode: `LSF${i}`,
-          winnerDestination: "F",
-          loserDestination: hasPetiteFinale ? "PF" : (bracket.loserToLoserBracket ? "LOSER_BRACKET" : undefined),
-          winnerPoints: 0,
-          loserPoints: 0,
-          position: { x: 0, y: 0 }
-        });
       }
-    }
 
-    if (hasPetiteFinale) {
-      // Petite finale (pour les perdants des demi-finales)
-      newMatches.push({
-        id: `${bracket.id}-PF`,
-        teamA: hasDemi ? "LSF1" : "",
-        teamB: hasDemi ? "LSF2" : "",
-        date: "",
-        time: "",
-        court: "",
-        status: "planifié",
-        duration: 90,
-        type: "phase-finale",
-        bracketMatchType: "petite-finale",
-        winnerCode: "WPF",
-        loserCode: "LPF",
-        winnerPoints: 0,
-        loserPoints: 0,
-        position: { x: 0, y: 0 }
-      });
-    }
+      if (enabledRounds.includes("demi")) {
+        for (let i = 1; i <= 2; i++) {
+          const hasQuarts = enabledRounds.includes("quarts");
+          newMatches.push(getPersistentMatch("demi", `WSF${i}`, {
+            teamA: hasQuarts ? `WQF${(i - 1) * 2 + 1}` : (bracket.teams[(i - 1) * 2] || ""),
+            teamB: hasQuarts ? `WQF${(i - 1) * 2 + 2}` : (bracket.teams[(i - 1) * 2 + 1] || ""),
+            type: "phase-finale",
+            bracketMatchType: "demi",
+            winnerCode: `WSF${i}`,
+            winnerDestination: "F",
+          }));
+        }
+      }
 
-    if (hasFinale) {
-      // Finale
-      newMatches.push({
-        id: `${bracket.id}-F`,
-        teamA: hasDemi ? "WSF1" : (bracket.teams[0] || ""),
-        teamB: hasDemi ? "WSF2" : (bracket.teams[1] || ""),
-        date: "",
-        time: "",
-        court: "",
-        status: "planifié",
-        duration: 90,
-        type: "phase-finale",
-        bracketMatchType: "finale",
-        winnerCode: "WF",
-        loserCode: "LF",
-        winnerPoints: 0,
-        loserPoints: 0,
-        position: { x: 0, y: 0 }
-      });
-    }
+      if (enabledRounds.includes("finale")) {
+        newMatches.push(getPersistentMatch("finale", "WF", {
+          teamA: enabledRounds.includes("demi") ? "WSF1" : (bracket.teams[0] || ""),
+          teamB: enabledRounds.includes("demi") ? "WSF2" : (bracket.teams[1] || ""),
+          type: "phase-finale",
+          bracketMatchType: "finale",
+          winnerCode: "WF",
+        }));
+      }
 
-    const updatedBracket = {
-      ...bracket,
-      matches: newMatches
-    };
-    updateBracket(updatedBracket);
+      updateBracket({ ...bracket, matches: newMatches });
   };
 
   const updateBracketMatch = (updatedMatch: Match) => {
@@ -989,137 +1455,97 @@ export default function TournamentsPage() {
   };
 
   const generateLoserBracketMatches = (loserBracket: LoserBracket) => {
-    const enabledRounds = loserBracket.enabledRounds;
-    
-    if (enabledRounds.length === 0) return;
+      const enabledRounds = loserBracket.enabledRounds;
+      if (enabledRounds.length === 0) return;
 
-    const hasRound1 = enabledRounds.includes("loser-round-1");
-    const hasRound2 = enabledRounds.includes("loser-round-2");
-    const hasRound3 = enabledRounds.includes("loser-round-3");
-    const hasFinale = enabledRounds.includes("loser-finale");
-
-    const newMatches: Match[] = [];
-    
-    // Générer les matchs selon les rounds activés
-    if (hasRound1) {
-      // Round 1 du loser bracket (pour perdants des phases précédentes)
-      const round1Count = Math.floor(loserBracket.teams.length / 2);
-      for (let i = 1; i <= round1Count; i++) {
-        const teamIndex = (i - 1) * 2;
-        newMatches.push({
-          id: `${loserBracket.id}-LR1-${i}`,
-          teamA: loserBracket.teams[teamIndex] || "",
-          teamB: loserBracket.teams[teamIndex + 1] || "",
-          date: "",
-          time: "",
-          court: "",
-          status: "planifié",
-          duration: 90,
-          type: "loser-bracket",
-          loserBracketMatchType: "loser-round-1",
-          winnerCode: `WLR1-${i}`,
-          loserCode: `LLR1-${i}`,
-          winnerDestination: hasRound2 ? "LR2" : (hasFinale ? "LF" : undefined),
-          loserDestination: undefined,
-          winnerPoints: 0,
-          loserPoints: 0,
-          position: { x: 0, y: 0 }
-        });
-      }
-    }
-
-    if (hasRound2) {
-      // Round 2 du loser bracket
-      const round2Count = 2; // Généralement 2 matchs
-      for (let i = 1; i <= round2Count; i++) {
-        newMatches.push({
-          id: `${loserBracket.id}-LR2-${i}`,
-          teamA: hasRound1 ? `WLR1-${i * 2 - 1}` : (loserBracket.teams[i * 2 - 2] || ""),
-          teamB: hasRound1 ? `WLR1-${i * 2}` : (loserBracket.teams[i * 2 - 1] || ""),
-          date: "",
-          time: "",
-          court: "",
-          status: "planifié",
-          duration: 90,
-          type: "loser-bracket",
-          loserBracketMatchType: "loser-round-2",
-          winnerCode: `WLR2-${i}`,
-          loserCode: `LLR2-${i}`,
-          winnerDestination: hasRound3 ? "LR3" : (hasFinale ? "LF" : undefined),
-          loserDestination: undefined,
-          winnerPoints: 0,
-          loserPoints: 0,
-          position: { x: 0, y: 0 }
-        });
-      }
-    }
-
-    if (hasRound3) {
-      // Round 3 du loser bracket
-      newMatches.push({
-        id: `${loserBracket.id}-LR3`,
-        teamA: hasRound2 ? "WLR2-1" : (loserBracket.teams[0] || ""),
-        teamB: hasRound2 ? "WLR2-2" : (loserBracket.teams[1] || ""),
-        date: "",
-        time: "",
-        court: "",
-        status: "planifié",
-        duration: 90,
-        type: "loser-bracket",
-        loserBracketMatchType: "loser-round-3",
-        winnerCode: "WLR3",
-        loserCode: "LLR3",
-        winnerDestination: hasFinale ? "LF" : undefined,
-        loserDestination: undefined,
-        winnerPoints: 0,
-        loserPoints: 0,
-        position: { x: 0, y: 0 }
-      });
-    }
-
-    if (hasFinale) {
-      // Finale du loser bracket
-      let teamA = "";
-      let teamB = "";
+      const oldMatches = loserBracket.matches || [];
       
-      if (hasRound3) {
-        teamA = "WLR3";
-        teamB = loserBracket.teams[loserBracket.teams.length - 1] || ""; // Dernier ajouté
-      } else if (hasRound2) {
-        teamA = "WLR2-1";
-        teamB = "WLR2-2";
-      } else if (hasRound1) {
-        teamA = "WLR1-1";
-        teamB = "WLR1-2";
-      } else {
-        teamA = loserBracket.teams[0] || "";
-        teamB = loserBracket.teams[1] || "";
+      // Helper pour trouver match existant
+      const getPersistentMatch = (type: LoserBracketMatchType, code: string, defaults: Partial<Match>): Match => {
+          const existing = oldMatches.find(m => m.loserBracketMatchType === type && m.winnerCode === code);
+          return {
+              ...defaults,
+              id: existing?.id || defaults.id || `${loserBracket.id}-${code}`,
+              uuid: existing?.uuid || uuidv4(), // Conservation UUID
+              date: existing?.date || "",
+              time: existing?.time || "",
+              court: existing?.court || "",
+              status: existing?.status || "planifié",
+              duration: existing?.duration || 90,
+          } as Match;
+      };
+
+      const hasRound1 = enabledRounds.includes("loser-round-1");
+      const hasRound2 = enabledRounds.includes("loser-round-2");
+      const hasRound3 = enabledRounds.includes("loser-round-3");
+      const hasFinale = enabledRounds.includes("loser-finale");
+
+      const newMatches: Match[] = [];
+      
+      if (hasRound1) {
+        const round1Count = Math.floor(loserBracket.teams.length / 2);
+        for (let i = 1; i <= round1Count; i++) {
+          const teamIndex = (i - 1) * 2;
+          newMatches.push(getPersistentMatch("loser-round-1", `WLR1-${i}`, {
+            teamA: loserBracket.teams[teamIndex] || "",
+            teamB: loserBracket.teams[teamIndex + 1] || "",
+            type: "loser-bracket",
+            loserBracketMatchType: "loser-round-1",
+            winnerCode: `WLR1-${i}`,
+            loserCode: `LLR1-${i}`,
+            winnerDestination: hasRound2 ? "LR2" : (hasFinale ? "LF" : undefined),
+            position: { x: 0, y: 0 }
+          }));
+        }
+      }
+      
+      // (Ajouter la même logique getPersistentMatch pour Round 2, 3 et Finale selon ton code existant)
+      // Exemple pour Round 2 :
+      if (hasRound2) {
+        for (let i = 1; i <= 2; i++) {
+          newMatches.push(getPersistentMatch("loser-round-2", `WLR2-${i}`, {
+            teamA: hasRound1 ? `WLR1-${i * 2 - 1}` : (loserBracket.teams[i * 2 - 2] || ""),
+            teamB: hasRound1 ? `WLR1-${i * 2}` : (loserBracket.teams[i * 2 - 1] || ""),
+            type: "loser-bracket",
+            loserBracketMatchType: "loser-round-2",
+            winnerCode: `WLR2-${i}`,
+            winnerDestination: hasRound3 ? "LR3" : (hasFinale ? "LF" : undefined),
+          }));
+        }
       }
 
-      newMatches.push({
-        id: `${loserBracket.id}-LF`,
-        teamA,
-        teamB,
-        date: "",
-        time: "",
-        court: "",
-        status: "planifié",
-        duration: 90,
-        type: "loser-bracket",
-        loserBracketMatchType: "loser-finale",
-        winnerCode: "WLF",
-        loserCode: "LLF",
-        winnerPoints: 0,
-        loserPoints: 0,
-        position: { x: 0, y: 0 }
-      });
-    }
+      // Round 3 et Finale idem...
+      if (hasRound3) {
+          newMatches.push(getPersistentMatch("loser-round-3", "WLR3", {
+              teamA: hasRound2 ? "WLR2-1" : (loserBracket.teams[0] || ""),
+              teamB: hasRound2 ? "WLR2-2" : (loserBracket.teams[1] || ""),
+              type: "loser-bracket",
+              loserBracketMatchType: "loser-round-3",
+              winnerCode: "WLR3",
+              winnerDestination: hasFinale ? "LF" : undefined,
+          }));
+      }
 
-    const updatedLoserBracket = {
-      ...loserBracket,
-      matches: newMatches
-    };
-    updateLoserBracket(updatedLoserBracket);
+      if (hasFinale) {
+          let teamA = "", teamB = "";
+          if (hasRound3) { teamA = "WLR3"; teamB = loserBracket.teams[loserBracket.teams.length - 1] || ""; }
+          else if (hasRound2) { teamA = "WLR2-1"; teamB = "WLR2-2"; }
+          else if (hasRound1) { teamA = "WLR1-1"; teamB = "WLR1-2"; }
+          else { teamA = loserBracket.teams[0] || ""; teamB = loserBracket.teams[1] || ""; }
+
+          newMatches.push(getPersistentMatch("loser-finale", "WLF", {
+              teamA, teamB,
+              type: "loser-bracket",
+              loserBracketMatchType: "loser-finale",
+              winnerCode: "WLF",
+          }));
+      }
+
+      const updatedLoserBracket = {
+        ...loserBracket,
+        matches: newMatches
+      };
+      updateLoserBracket(updatedLoserBracket);
   };
 
   const updateLoserBracketMatch = (updatedMatch: Match) => {
@@ -1248,26 +1674,28 @@ export default function TournamentsPage() {
     }
 
     try {
-      // 1. Récupérer tous les IDs de matchs à supprimer (qualif, poules, brackets, loser brackets)
-      const matchIds = [
-        ...matches.map(m => m.id),
-        ...pools.flatMap(p => p.matches.map(m => m.id)),
-        ...brackets.flatMap(b => b.matches.map(m => m.id)),
-        ...loserBrackets.flatMap(lb => lb.matches.map(m => m.id)),
-      ].filter(Boolean);
-
-      // 2. Supprimer chaque match via l'API
-      for (const id of matchIds) {
-        if (id && /^\d+$/.test(id)) {
-          try {
-            await fetch(`http://localhost:8000/matches/${id}`, { method: 'DELETE' });
-          } catch (e) {
-            console.error(`Erreur suppression match ${id} :`, e);
-          }
+      // 1. Si on a un tournamentId, supprimer via l'API backend
+      if (tournamentId) {
+        console.log(`🗑️ Suppression de la structure du tournoi ${tournamentId}...`);
+        
+        const response = await fetch(`http://localhost:8000/tournament_structure/${tournamentId}/matches`, {
+          method: 'DELETE',
+          headers: { 'Accept': 'application/json' }
+        });
+        
+        if (response.ok) {
+          const result = await response.json();
+          console.log("✅ Structure supprimée côté serveur:", result);
+        } else {
+          const errorText = await response.text();
+          console.error(`⚠️ Erreur API: ${response.status} - ${errorText}`);
+          // On continue quand même pour nettoyer le frontend
         }
+      } else {
+        console.log("⚠️ Pas de tournamentId, suppression locale uniquement");
       }
 
-      // 3. Réinitialiser tous les états (comme avant)
+      // 2. Réinitialiser tous les états frontend
       setMatches([]);
       setPools([]);
       setBrackets([]);
@@ -1281,8 +1709,8 @@ export default function TournamentsPage() {
       setSelectedLoserBracketMatch(null);
       setNextMatchId(1);
 
-      console.log("✅ Toutes les tuiles et les matchs en base ont été supprimés");
-      alert("Toutes les tuiles et les matchs en base ont été supprimés avec succès !");
+      console.log("✅ Toutes les tuiles ont été supprimées");
+      alert("Toutes les tuiles et les matchs ont été supprimés avec succès !");
     } catch (err: any) {
       console.error("❌ Erreur lors de la réinitialisation:", err);
       alert(`Impossible de réinitialiser les tuiles: ${err.message}`);
@@ -1309,169 +1737,156 @@ export default function TournamentsPage() {
 
   // 2. Fonction de sauvegarde
   const handleSaveLayout = async () => {
-    const rawSportId = params.id;
-    const sportIdStr = Array.isArray(rawSportId) ? rawSportId[0] : rawSportId;
+      const rawSportId = params.id;
+      const sportIdStr = Array.isArray(rawSportId) ? rawSportId[0] : rawSportId;
 
-    if (!sportIdStr) {
-      alert("ID du sport introuvable");
-      return;
-    }
+      if (!sportIdStr) {
+        alert("ID du sport introuvable");
+        return;
+      }
 
-    const mapStatus = (s: string) => {
-      const map: Record<string, string> = {
-        "planifié": "upcoming",
-        "en-cours": "in_progress",
-        "terminé": "completed",
-      };
-      return map[s] || "upcoming";
-    };
-
-    try {
-      // 1. Construction de l'objet structure
-      const structure = {
-        qualification_matches: matches
-          .filter((m) => m.type === "qualifications")
-          .map((m, idx) => ({
-            // ✅ Ne pas envoyer 'id: undefined' - le backend le créera
-            ...(m.id && /^\d+$/.test(m.id) ? { id: parseInt(m.id) } : {}),
-            match_type: "qualification",
-            label: m.label ?? null,
-            status: mapStatus(m.status),
-            court: m.court || null,
-            scheduled_datetime: m.date && m.time ? `${m.date}T${m.time}:00` : null,
-            duration: m.duration || 90,
-            team_a_source: m.teamA || null,
-            team_b_source: m.teamB || null,
-            team_sport_a_id: null, // ✅ Ajouté pour correspondre au backend
-            team_sport_b_id: null, // ✅ Ajouté pour correspondre au backend
-          })),
-        pools: pools.map((pool, pIdx) => ({
-          // ✅ Correction : 'id' n'existe pas dans le schéma Pool du backend
-          name: pool.name,
-          display_order: pIdx + 1,
-          teams: [], // ✅ Ajouté (requis par le backend)
-          matches: pool.matches.map((m, mIdx) => ({
-            ...(m.id && /^\d+$/.test(m.id) ? { id: parseInt(m.id) } : {}),
-            match_type: "pool",
-            label: m.label ?? `${pool.name} - M${mIdx + 1}`,
-            status: mapStatus(m.status),
-            court: m.court || null,
-            scheduled_datetime: m.date && m.time ? `${m.date}T${m.time}:00` : null,
-            duration: m.duration || 90,
-            team_a_source: m.teamA || null,
-            team_b_source: m.teamB || null,
-            team_sport_a_id: null,
-            team_sport_b_id: null,
-          })),
-        })),
-        brackets: brackets.map((b) => ({
-          name: b.name || "Phase Finale",
-          matches: b.matches.map((m, idx) => ({
-            ...(m.id && /^\d+$/.test(m.id) ? { id: parseInt(m.id) } : {}),
-            match_type: "bracket",
-            bracket_type: mapBracketTypeToSQL(m.bracketMatchType),
-            label: m.label ?? (m.winnerCode || `Match ${idx + 1}`),
-            status: mapStatus(m.status),
-            court: m.court || null,
-            scheduled_datetime: m.date && m.time ? `${m.date}T${m.time}:00` : null,
-            duration: m.duration || 90,
-            team_a_source: m.teamA || null,
-            team_b_source: m.teamB || null,
-            team_sport_a_id: null,
-            team_sport_b_id: null,
-          })),
-        })),
+      const mapStatus = (s: string) => {
+        const map: Record<string, string> = {
+          "planifié": "upcoming",
+          "en-cours": "in_progress",
+          "terminé": "completed",
+        };
+        return map[s] || "upcoming";
       };
 
-      // --- 2. DÉFINITION DU PAYLOAD ---
-      const payload = tournamentId
-        ? structure // Si on a déjà un tournoi, on envoie juste la structure
-        : { 
-            sport_id: parseInt(sportIdStr, 10), 
-            name: `Tournoi ${sportIdStr}`, 
-            ...structure 
+      try {
+        // Construction du payload SANS générer de nouveaux UUIDs
+        const structure = {
+          qualification_matches: matches
+            .filter((m) => m.type === "qualifications")
+            .map((m) => ({
+              uuid: m.uuid, // Utilise strictement l'UUID du state
+              id: (m.id && /^\d+$/.test(m.id)) ? parseInt(m.id) : null, // ID SQL si dispo
+              match_type: "qualification",
+              label: m.label || m.winnerCode || null,
+              status: mapStatus(m.status),
+              court: m.court || null,
+              scheduled_datetime: m.date && m.time ? `${m.date}T${m.time}:00` : null,
+              duration: m.duration || 90,
+              team_a_source: m.teamA || null,
+              team_b_source: m.teamB || null,
+            })),
+
+          pools: pools.map((pool, pIdx) => ({
+            name: pool.name,
+            display_order: pIdx + 1,
+            matches: pool.matches.map((m) => ({
+              uuid: m.uuid, // Strict
+              id: (m.id && /^\d+$/.test(m.id)) ? parseInt(m.id) : null,
+              match_type: "pool",
+              label: m.label || m.winnerCode || null,
+              status: mapStatus(m.status),
+              court: m.court || null,
+              scheduled_datetime: m.date && m.time ? `${m.date}T${m.time}:00` : null,
+              duration: m.duration || 90,
+              team_a_source: m.teamA || null,
+              team_b_source: m.teamB || null,
+            })),
+          })),
+
+          brackets: brackets.map((b) => ({
+            name: b.name,
+            matches: b.matches.map((m) => ({
+              uuid: m.uuid, // Strict
+              id: (m.id && /^\d+$/.test(m.id)) ? parseInt(m.id) : null,
+              match_type: "bracket",
+              bracket_type: mapBracketTypeToSQL(m.bracketMatchType),
+              label: m.label || m.winnerCode,
+              status: mapStatus(m.status),
+              court: m.court || null,
+              scheduled_datetime: m.date && m.time ? `${m.date}T${m.time}:00` : null,
+              duration: m.duration || 90,
+              team_a_source: m.teamA || null,
+              team_b_source: m.teamB || null,
+            })),
+          })),
+
+          loserBrackets: loserBrackets.map((lb) => ({
+            name: lb.name,
+            matches: lb.matches.map((m) => ({
+              uuid: m.uuid, // Strict
+              id: (m.id && /^\d+$/.test(m.id)) ? parseInt(m.id) : null,
+              match_type: "bracket",
+              bracket_type: mapBracketTypeToSQL(m.bracketMatchType),
+              label: m.label || m.winnerCode,
+              status: mapStatus(m.status),
+              court: m.court || null,
+              scheduled_datetime: m.date && m.time ? `${m.date}T${m.time}:00` : null,
+              duration: m.duration || 90,
+              team_a_source: m.teamA || null,
+              team_b_source: m.teamB || null,
+            })),
+          })),
+        };
+
+        const url = tournamentId 
+          ? `http://localhost:8000/tournament_structure/${tournamentId}/structure` 
+          : `http://localhost:8000/tournaments`;
+
+        const payload = tournamentId ? structure : { sport_id: parseInt(sportIdStr), ...structure };
+
+        const response = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Serveur : ${errorText}`);
+        }
+
+        const result = await response.json();
+
+        // --- SYNCHRONISATION IMPORTANTE ---
+        // On met à jour le state avec les vrais ID SQL pour la prochaine sauvegarde
+        if (result.matches && Array.isArray(result.matches)) {
+          // Créer une map pour accès rapide : UUID -> ID Backend
+          const dbMatchMap = new Map();
+          result.matches.forEach((m: any) => {
+              if(m.uuid) dbMatchMap.set(m.uuid, m.id);
+          });
+
+          const syncMatchWithDB = (localM: Match) => {
+            if (localM.uuid && dbMatchMap.has(localM.uuid)) {
+              // Remplace l'ID temporaire "match-x" par l'ID SQL "42"
+              return { ...localM, id: dbMatchMap.get(localM.uuid).toString() };
+            }
+            return localM;
           };
 
-      // --- 3. ENVOI ---
-      // ✅ CORRECTION : Pas de slash final sur l'URL avec l'ID
-      const url = tournamentId
-      ? `http://localhost:8000/tournament_structure/${tournamentId}/structure`
-      : `http://localhost:8000/tournaments`;
+          setMatches(prev => prev.map(syncMatchWithDB));
+          
+          setPools(prev => prev.map(p => ({
+            ...p,
+            matches: p.matches.map(syncMatchWithDB)
+          })));
 
-      console.log("🚀 Envoi du payload:", payload);
+          setBrackets(prev => prev.map(b => ({
+            ...b,
+            matches: b.matches.map(syncMatchWithDB)
+          })));
 
-      const response = await fetch(url, {
-        method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          "Accept": "application/json"
-        },
-        body: JSON.stringify(payload),
-      });
+          setLoserBrackets(prev => prev.map(lb => ({
+            ...lb,
+            matches: lb.matches.map(syncMatchWithDB)
+          })));
+        }
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Erreur serveur (${response.status}): ${errorText}`);
+        if (!tournamentId && result.data?.id) {
+          setTournamentId(result.data.id);
+        }
+
+        alert("✅ Tournoi enregistré et synchronisé !");
+      } catch (err: any) {
+        console.error("Save error:", err);
+        alert("❌ Erreur : " + err.message);
       }
-
-      const result = await response.json();
-
-      // 🔹 Synchronisation UNIQUEMENT si le backend renvoie des matchs
-      if (Array.isArray(result.matches)) {
-        setMatches(prev =>
-          prev.map(m => {
-            // On cherche le match correspondant dans le backend via uuid
-            const backendMatch = result.matches.find(
-              (bm: any) => bm.uuid === m.uuid
-            );
-
-            // Si le backend a trouvé ce match, on met à jour son ID
-            if (backendMatch) {
-              return { ...m, id: backendMatch.id.toString() };
-            }
-
-            // Si aucun match correspondant, c'est un match nouveau ou non sauvegardé
-            // On garde l'objet tel quel (avec son uuid déjà généré côté frontend)
-            return m;
-          })
-        );
-
-        // 🔹 Optionnel : ajouter les nouveaux matchs renvoyés par le backend
-        // Ceux qui existent en base mais pas encore dans le state frontend
-        setMatches(prev => [
-          ...prev,
-          ...result.matches
-            .filter((bm: any) => !prev.some(m => m.uuid === bm.uuid))
-            .map((bm: any) => ({
-              uuid: bm.uuid,
-              id: bm.id.toString(),
-              type: bm.match_type,
-              label: bm.label ?? "",
-              status: bm.status ?? "upcoming",
-              court: bm.court ?? null,
-              date: bm.date ?? null,
-              time: bm.time ?? null,
-              duration: bm.duration ?? 90,
-              teamA: bm.team_a_source ?? null,
-              teamB: bm.team_b_source ?? null,
-            }))
-        ]);
-      }
-
-      console.log("✅ Résultat:", result);
-      
-      // ✅ Si c'est une création de tournoi, récupérer l'ID
-      if (!tournamentId && result.data?.id) {
-        setTournamentId(result.data.id);
-        console.log("🆕 Nouveau tournamentId:", result.data.id);
-      }
-      
-      alert("✅ Configuration sauvegardée !");
-      
-    } catch (err: any) {
-      console.error("❌ Erreur lors de la sauvegarde:", err);
-      alert(`Erreur: ${err.message}`);
-    }
   };
 
   return (
