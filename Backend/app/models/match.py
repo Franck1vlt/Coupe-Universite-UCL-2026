@@ -16,6 +16,7 @@ class Match(Base):
     __tablename__ = "Match"
 
     id = Column(Integer, primary_key=True, index=True)  # Primary Key
+    uuid = Column(String, unique=True, nullable=True)
     phase_id = Column(Integer, ForeignKey("TournamentPhase.id"), nullable=False)
     pool_id = Column(Integer, ForeignKey("Pool.id"), nullable=True)  # Pour les matchs de poule
     

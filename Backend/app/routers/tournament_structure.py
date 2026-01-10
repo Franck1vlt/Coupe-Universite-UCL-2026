@@ -3,7 +3,7 @@ Routes pour la gestion complète des tournois avec toutes leurs structures
 """
 from typing import List, Optional, Dict, Any
 from datetime import datetime
-from fastapi import APIRouter, Depends, Body, Path
+from fastapi import APIRouter, Depends, Body, HTTPException, Path
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 from datetime import datetime
@@ -21,15 +21,17 @@ router = APIRouter()
 
 class TournamentMatchCreate(BaseModel):
     """Match à créer dans le tournoi"""
-    match_type: str = "qualification"
+    id: Optional[int] = None
+    uuid: Optional[str] = None  # ✅ AJOUTE CETTE LIGNE
+    match_type: str
+    label: Optional[str] = None
+    team_a_source: Optional[str] = None
+    team_b_source: Optional[str] = None
     bracket_type: Optional[str] = None
     team_sport_a_id: Optional[int] = None
     team_sport_b_id: Optional[int] = None
-    team_a_source: Optional[str] = None
-    team_b_source: Optional[str] = None
     winner_destination_match_id: Optional[int] = None
     loser_destination_match_id: Optional[int] = None
-    label: Optional[str] = None
     match_order: Optional[int] = None
     status: str = "upcoming"
     court: Optional[str] = None  # Nom du terrain
@@ -99,21 +101,21 @@ class TournamentStructureResponse(BaseModel):
     loser_bracket_matches: List[TournamentMatchResponse] = []
 
 # --- 1. POST : CRÉATION / MISE À JOUR ---
+from datetime import datetime
+
 @router.post("/{tournament_id}/structure")
 def create_tournament_structure(
     tournament_id: int = Path(...),
     structure: TournamentStructureCreate = Body(...),
     db: Session = Depends(get_db)
 ):
+    # 1. Vérification du tournoi
     tournament = db.query(Tournament).filter(Tournament.id == tournament_id).first()
     if not tournament:
-        raise NotFoundError(f"Tournament {tournament_id} not found")
+        raise HTTPException(status_code=404, detail="Tournament not found")
 
-    def parse_datetime(dt_str):
-        if not dt_str or 'T' not in dt_str: return None, None
-        parts = dt_str.split('T')
-        return parts[0], parts[1][:5]
-
+    # --- FONCTIONS UTILITAIRES INTERNES ---
+    
     def get_or_create_phase(p_type, p_order):
         phase = db.query(TournamentPhase).filter(
             TournamentPhase.tournament_id == tournament_id,
@@ -123,177 +125,134 @@ def create_tournament_structure(
             phase = TournamentPhase(tournament_id=tournament_id, phase_type=p_type, phase_order=p_order)
             db.add(phase)
             db.flush()
+        print(f"Phase créée ou récupérée : {phase.id} ({phase.phase_type}) pour tournoi {phase.tournament_id}")
         return phase
 
-    from datetime import datetime  # ✅ Ajouter cet import en haut du fichier
-
     def upsert_match(m_data, phase_id, match_type, pool_id=None):
-        """Met à jour si l'ID existe, sinon crée un nouveau match"""
-        d, t = parse_datetime(getattr(m_data, 'scheduled_datetime', None))
+        """Logique de mise à jour ou création isolée"""
         
-        # Tentative de récupération du match existant
-        match = None
+        # ✅ Extraction locale de la date/heure pour éviter l'UnboundLocalError
+        match_date = None
+        match_time = None
+        dt_str = getattr(m_data, 'scheduled_datetime', None)
+        if dt_str and 'T' in dt_str:
+            parts = dt_str.split('T')
+            match_date = parts[0]
+            match_time = parts[1][:5]
+        
+        m_id = getattr(m_data, 'id', None)
+        m_uuid = getattr(m_data, 'uuid', None)
+        
+        # Recherche du match existant
+        match_obj = None
+        if m_id and isinstance(m_id, int):
+            match_obj = db.query(Match).get(m_id)
+        if not match_obj and m_uuid:
+            match_obj = db.query(Match).filter(Match.uuid == m_uuid).first()
 
-        if getattr(m_data, "id", None):
-            match = db.query(Match).filter(Match.id == m_data.id).first()
-
-        if not match and getattr(m_data, "uuid", None):
-            match = db.query(Match).filter(Match.uuid == m_data.uuid).first()
-
-        if match:
-            # MISE À JOUR
-            match.team_sport_a_id = getattr(m_data, 'team_sport_a_id', match.team_sport_a_id)
-            match.team_sport_b_id = getattr(m_data, 'team_sport_b_id', match.team_sport_b_id)
-            match.team_a_source = getattr(m_data, 'team_a_source', match.team_a_source)
-            match.team_b_source = getattr(m_data, 'team_b_source', match.team_b_source)
-            match.label = getattr(m_data, 'label', match.label)
-            match.status = m_data.status or match.status
-            match.date = d or match.date
-            match.time = t or match.time
-            match.court = getattr(m_data, 'court', match.court)
-            match.duration = getattr(m_data, 'duration', match.duration)
-            match.updated_at = datetime.utcnow()  # ✅ Mise à jour
-        if not match:
-            match = db.query(Match).filter(
-                Match.phase_id == phase_id,
-                Match.label == m_data.label
-            ).first()
+        if match_obj:
+            # ✅ MISE À JOUR
+            match_obj.label = getattr(m_data, 'label', match_obj.label)
+            match_obj.status = getattr(m_data, 'status', match_obj.status)
+            match_obj.date = match_date or match_obj.date
+            match_obj.time = match_time or match_obj.time
+            match_obj.court = getattr(m_data, 'court', match_obj.court)
+            match_obj.duration = getattr(m_data, 'duration', match_obj.duration)
+            match_obj.team_a_source = getattr(m_data, 'team_a_source', match_obj.team_a_source)
+            match_obj.team_b_source = getattr(m_data, 'team_b_source', match_obj.team_b_source)
+            match_obj.updated_at = datetime.utcnow()
         else:
-            # CRÉATION
-            now = datetime.utcnow()  # ✅ Créer le timestamp une fois
-            match = Match(
+            # ✅ CRÉATION
+            now_ts = datetime.utcnow()
+            match_obj = Match(
+                uuid=m_uuid,
                 phase_id=phase_id,
                 pool_id=pool_id,
                 match_type=match_type,
                 bracket_type=getattr(m_data, 'bracket_type', None),
-                team_sport_a_id=getattr(m_data, 'team_sport_a_id', None),
-                team_sport_b_id=getattr(m_data, 'team_sport_b_id', None),
-                team_a_source=getattr(m_data, 'team_a_source', None),
-                team_b_source=getattr(m_data, 'team_b_source', None),
                 label=getattr(m_data, 'label', None),
-                status=m_data.status or "upcoming",
-                date=d, time=t,
+                status=getattr(m_data, 'status', "upcoming") or "upcoming",
+                date=match_date,
+                time=match_time,
                 court=getattr(m_data, 'court', None),
                 duration=getattr(m_data, 'duration', 90),
                 created_by_user_id=1,
-                created_at=now,     
-                updated_at=now       
+                created_at=now_ts,
+                updated_at=now_ts
             )
-            db.add(match)
-        return match
+            db.add(match_obj)
+        return match_obj
 
     # --- TRAITEMENT DES SECTIONS ---
-    if structure.qualification_matches:
-        p = get_or_create_phase("qualifications", 1)
-        for m in structure.qualification_matches: upsert_match(m, p.id, "qualification")
+    try:
+        # Qualifications
+        if structure.qualification_matches:
+            phase_q = get_or_create_phase("qualifications", 1)
+            for m in structure.qualification_matches:
+                upsert_match(m, phase_q.id, "qualification")
 
-    if structure.pools:
-        p = get_or_create_phase("pools", 2)
-        for p_data in structure.pools:
-            pool = db.query(Pool).filter(Pool.phase_id == p.id, Pool.name == p_data.name).first()
-            if not pool:
-                pool = Pool(phase_id=p.id, name=p_data.name, order=p_data.display_order)
-                db.add(pool)
-                db.flush()
-            if hasattr(p_data, 'matches') and p_data.matches:
-                for m in p_data.matches: upsert_match(m, p.id, "pool", pool.id)
+        # Pools
+        if structure.pools:
+            phase_p = get_or_create_phase("pools", 2)
+            for p_data in structure.pools:
+                pool = db.query(Pool).filter(
+                    Pool.phase_id == phase_p.id, 
+                    Pool.name == p_data.name
+                ).first()
+                if not pool:
+                    pool = Pool(phase_id=phase_p.id, name=p_data.name, order=p_data.display_order)
+                    db.add(pool)
+                    db.flush()
+                
+                if hasattr(p_data, 'matches') and p_data.matches:
+                    for m in p_data.matches:
+                        upsert_match(m, phase_p.id, "pool", pool.id)
 
-    # --- BRACKETS (FINALES) ---
-    if structure.brackets:
-        phase_final = get_or_create_phase("final", 3)
-        for bracket_group in structure.brackets:
-            # On boucle sur la liste 'matches' à l'intérieur de chaque groupe de bracket
-            for m_data in bracket_group.matches:
-                # On appelle upsert_match avec l'objet m_data qui contient court, duration, etc.
-                upsert_match(m_data, phase_final.id, "bracket")
-    
-    # --- BRACKETS (LOSERS) ---
-    if structure.loser_brackets:
-        phase_loser = get_or_create_phase("loser_bracket", 4)
-        for loser_bracket_group in structure.loser_brackets:
-            for m_data in loser_bracket_group.matches:
-                upsert_match(m_data, phase_loser.id, "loser_bracket")
+        # Brackets
+        if structure.brackets:
+            phase_f = get_or_create_phase("final", 3)
+            for b_group in structure.brackets:
+                for m_data in b_group.matches:
+                    upsert_match(m_data, phase_f.id, "bracket")
 
-    db.commit()
+        db.commit()
+        return {"success": True, "message": "Structure mise à jour"}
 
-    matches = (
-        db.query(Match)
-        .join(TournamentPhase)
-        .filter(TournamentPhase.tournament_id == tournament_id)
-        .all()
-    )
-
-    return {
-        "status": "ok",
-        "matches": [
-            {
-                "id": m.id,
-                "uuid": m.uuid,         
-                "label": m.label,
-                "match_type": m.match_type
-            }
-            for m in matches
-        ]
-    }
+    except Exception as e:
+        db.rollback()
+        print(f"Erreur : {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
 
 # --- 2. GET : RÉCUPÉRATION ---
-@router.get("/{tournament_id}/structure")
-def get_tournament_structure(
+@router.get("/tournaments/{tournament_id}/matches")
+def get_tournament_matches(
     tournament_id: int = Path(..., description="ID du tournoi"),
     db: Session = Depends(get_db)
 ):
-    """
-    Récupérer la structure complète d'un tournoi
-    """
-    tournament = db.query(Tournament).filter(Tournament.id == tournament_id).first()
-    if not tournament:
-        raise NotFoundError(f"Tournament {tournament_id} not found")
-
-    # On récupère toutes les phases du tournoi d'un coup
     phases = db.query(TournamentPhase).filter(TournamentPhase.tournament_id == tournament_id).all()
     phase_ids = [p.id for p in phases]
-
-    # Récupérer tous les matchs et poules liés à ces phases
-    all_matches = db.query(Match).filter(Match.phase_id.in_(phase_ids)).all() if phase_ids else []
-    all_pools = db.query(Pool).filter(Pool.phase_id.in_(phase_ids)).all() if phase_ids else []
-
-    # Fonction utilitaire pour transformer un objet Match en dictionnaire
-    def match_to_dict(m):
-        return {
-            "id": m.id,
-            "match_type": m.match_type,
-            "bracket_type": m.bracket_type,
-            "team_sport_a_id": m.team_sport_a_id,
-            "team_sport_b_id": m.team_sport_b_id,
-            "team_a_source": m.team_a_source,
-            "team_b_source": m.team_b_source,
-            "label": m.label,
-            "status": m.status,
-            "court": m.court,
-            "date": str(m.date) if m.date else None,
-            "time": str(m.time) if m.time else None,
-            "duration": m.duration,
-            "pool_id": m.pool_id
-        }
-
-    # Organisation des données
-    pools_data = []
-    for pool in all_pools:
-        team_ids = [tp.team_sport_id for tp in db.query(TeamPool).filter(TeamPool.pool_id == pool.id).all()]
-        pools_data.append({
-            "id": pool.id,
-            "name": pool.name,
-            "display_order": pool.order,
-            "teams": team_ids,
-            "matches": [match_to_dict(m) for m in all_matches if m.pool_id == pool.id]
-        })
-
+    matches = db.query(Match).filter(Match.phase_id.in_(phase_ids)).all() if phase_ids else []
     return create_success_response({
         "tournament_id": tournament_id,
-        "qualification_matches": [match_to_dict(m) for m in all_matches if m.match_type == "qualification"],
-        "pools": pools_data,
-        "bracket_matches": [match_to_dict(m) for m in all_matches if m.match_type == "bracket"],
-        "loser_bracket_matches": [match_to_dict(m) for m in all_matches if m.match_type == "loser_bracket"]
+        "matches": [
+            {
+                "id": m.id,
+                "match_type": m.match_type,
+                "bracket_type": m.bracket_type,
+                "team_sport_a_id": m.team_sport_a_id,
+                "team_sport_b_id": m.team_sport_b_id,
+                "team_a_source": m.team_a_source,
+                "team_b_source": m.team_b_source,
+                "label": m.label,
+                "status": m.status,
+                "court": m.court,
+                "date": str(m.date) if m.date else None,
+                "time": str(m.time) if m.time else None,
+                "duration": m.duration,
+                "pool_id": m.pool_id
+            }
+            for m in matches
+        ]
     })
 
 @router.post("/{tournament_id}/reset-matches")

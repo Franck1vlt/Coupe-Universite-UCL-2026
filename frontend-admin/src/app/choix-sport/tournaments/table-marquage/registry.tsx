@@ -27,7 +27,7 @@ const scoreboardRegistry: Record<SportCode, () => Promise<{ default: ComponentTy
 
 // Registry des composants spectateurs
 const spectatorsRegistry: Record<SportCode, () => Promise<{ default: ComponentType<ScoreboardProps> }>> = {
-  football: () => import('../../../features/scoreboards/football/spectators/Scoreboard'),
+  football: () => import('../../../features/scoreboards/football/spectators/page'),
   handball: () => import('../../../features/scoreboards/handball/spectators/Scoreboard'),
   basketball: () => import('../../../features/scoreboards/basketball/spectators/Scoreboard'),
   // volleyball: () => import('../../../features/scoreboards/volleyball/spectators/Scoreboard'),

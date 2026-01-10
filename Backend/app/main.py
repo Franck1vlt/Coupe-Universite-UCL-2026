@@ -19,7 +19,7 @@ from fastapi.exceptions import RequestValidationError
 from sqlalchemy.exc import SQLAlchemyError
 import logging
 from typing import Optional, List
-
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from app.db import get_db, init_db
 from app.config import settings
@@ -78,6 +78,18 @@ logger.info(f"CORS_ORIGINS: {settings.CORS_ORIGINS}")
 logger.info(f"CORS_ORIGINS: {settings.CORS_ORIGINS}")
 
 # Middlewares
+origins = [
+    "http://localhost:3000",  # ton frontend
+    # tu peux mettre "*" pour autoriser tous les domaines (moins sûr)
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,  # domains autorisés
+    allow_credentials=True,
+    allow_methods=["*"],     # GET, POST, PUT, DELETE...
+    allow_headers=["*"],     # headers autorisés
+)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(LoggingMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
@@ -117,7 +129,7 @@ async def startup_event():
         if hasattr(route, "methods"):
             print(f"  {route.methods} {route.path}")
     print("\n")
-    
+
 @app.on_event("shutdown")
 async def shutdown_event():
     """Actions à effectuer à l'arrêt de l'application"""
