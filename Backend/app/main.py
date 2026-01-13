@@ -74,12 +74,17 @@ if hasattr(signal, 'SIGTERM'):
     signal.signal(signal.SIGTERM, signal_handler)
 
 # CORS setup
-setup_cors(app, settings)
-logger.info(f"CORS_ORIGINS: {settings.CORS_ORIGINS}")
 logger.info(f"CORS_ORIGINS: {settings.CORS_ORIGINS}")
 
-# Middlewares
-app.add_middleware(CORSMiddleware, allow_origins=settings.CORS_ORIGINS, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.CORS_ORIGINS,
+    allow_credentials=settings.CORS_ALLOW_CREDENTIALS,
+    allow_methods=settings.CORS_ALLOW_METHODS,
+    allow_headers=settings.CORS_ALLOW_HEADERS,
+)
+
+# Autres Middlewares
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(LoggingMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
@@ -95,7 +100,7 @@ app.add_exception_handler(Exception, general_exception_handler)
 from app.routers import tournament_structure
 app.include_router(
     tournament_structure.router, 
-    prefix="/tournament_structure", 
+    prefix="",
     tags=["Tournaments"]
 )
 from app.routers import courts_status
@@ -1013,29 +1018,29 @@ async def delete_court(court_id: int, db: Session = Depends(get_db)):
 from app.models.tournament import Tournament
 from app.schemas.tournament import TournamentResponse
 
-@app.get("/tournaments", tags=["Tournaments"])
-async def get_tournaments(
-    skip: int = 0,
-    limit: int = 100,
-    sport_id: Optional[int] = Query(None, description="Filtrer par sport"),
-    status: Optional[str] = Query(None, description="Filtrer par statut"),
-    db: Session = Depends(get_db),
-):
-    """Liste tous les tournois avec filtres optionnels"""
-    query = db.query(Tournament)
+# @app.get("/tournaments", tags=["Tournaments"])
+# async def get_tournaments(
+#     skip: int = 0,
+#     limit: int = 100,
+#     sport_id: Optional[int] = Query(None, description="Filtrer par sport"),
+#     status: Optional[str] = Query(None, description="Filtrer par statut"),
+#     db: Session = Depends(get_db),
+# ):
+#     """Liste tous les tournois avec filtres optionnels"""
+#     query = db.query(Tournament)
     
-    if sport_id is not None:
-        query = query.filter(Tournament.sport_id == sport_id)
-    if status is not None:
-        query = query.filter(Tournament.status == status)
+#     if sport_id is not None:
+#         query = query.filter(Tournament.sport_id == sport_id)
+#     if status is not None:
+#         query = query.filter(Tournament.status == status)
     
-    total = query.count()
-    tournaments = query.offset(skip).limit(limit).all()
+#     total = query.count()
+#     tournaments = query.offset(skip).limit(limit).all()
     
-    return create_success_response(
-        data={"items": [TournamentResponse.model_validate(t).model_dump(mode="json") for t in tournaments], "total": total, "skip": skip, "limit": limit},
-        message="Liste des tournois récupérée avec succès"
-    )
+#     return create_success_response(
+#         data={"items": [TournamentResponse.model_validate(t).model_dump(mode="json") for t in tournaments], "total": total, "skip": skip, "limit": limit},
+#         message="Liste des tournois récupérée avec succès"
+#     )
 
 @app.get("/tournaments/{tournament_id}", tags=["Tournaments"])
 async def get_tournament_by_id(
@@ -1052,254 +1057,6 @@ async def get_tournament_by_id(
     )
 
 from app.schemas.tournament import TournamentCreate, TournamentUpdate
-
-@app.post("/tournaments", tags=["Tournaments"], status_code=status.HTTP_201_CREATED)
-async def create_tournament(
-    tournament: TournamentCreate,
-    db: Session = Depends(get_db),
-):
-    """Crée un nouveau tournoi avec sa structure optionnelle (ou met à jour s'il existe)"""
-    # Vérifier que le sport existe
-    sport = db.query(Sport).filter(Sport.id == tournament.sport_id).first()
-    if not sport:
-        raise NotFoundError(f"Sport with id {tournament.sport_id} not found")
-    
-    # Extraire les données de structure
-    tournament_data = tournament.model_dump(exclude={'qualification_matches', 'pools', 'brackets', 'loser_brackets'})
-    
-    # Vérifier si le tournoi existe déjà par name (UNIQUE) ou par sport_id+name
-    existing_tournament = db.query(Tournament).filter(
-        Tournament.name == tournament.name
-    ).first()
-    
-    if not existing_tournament:
-        # Si pas trouvé par name, chercher par sport_id
-        existing_tournament = db.query(Tournament).filter(
-            Tournament.sport_id == tournament.sport_id
-        ).first()
-    
-    if existing_tournament:
-        # Mettre à jour le tournoi existant
-        new_tournament = existing_tournament
-        for key, value in tournament_data.items():
-            if key not in ['id']:
-                setattr(new_tournament, key, value)
-        db.flush()
-    else:
-        # Créer un nouveau tournoi
-        new_tournament = Tournament(**tournament_data)
-        db.add(new_tournament)
-        db.commit()
-        db.flush()
-    
-    # Si la structure est fournie, la créer
-    if any([
-        tournament.qualification_matches,
-        tournament.pools,
-        tournament.brackets,
-        tournament.loser_brackets
-    ]):
-        # Créer ou récupérer la phase principale
-        from app.models.tournamentphase import TournamentPhase
-        from app.models.pool import Pool
-        from app.models.teampool import TeamPool
-        from app.models.match import Match
-        from app.services.tournament_team_assignment import (
-            assign_teams_to_matches, 
-            assign_teams_to_pool_matches,
-            create_match_schedule_if_court
-        )
-        
-        phase = db.query(TournamentPhase).filter(
-            TournamentPhase.tournament_id == new_tournament.id,
-            TournamentPhase.phase_type == "qualifications"
-        ).first()
-        
-        if not phase:
-            phase = TournamentPhase(
-                tournament_id=new_tournament.id,
-                phase_type="qualifications",
-                phase_order=1
-            )
-            db.add(phase)
-            db.flush()
-        
-        # Assigner automatiquement les équipes aux matchs de qualification
-        processed_qualif_matches = assign_teams_to_matches(
-            db, 
-            tournament.qualification_matches or [], 
-            new_tournament.sport_id
-        )
-        
-        # Créer les matchs de qualification
-        for match_data in processed_qualif_matches:
-            match = Match(
-                phase_id=phase.id,
-                match_type="qualification",
-                bracket_type=match_data.get('bracket_type'),
-                team_sport_a_id=match_data.get('team_sport_a_id'),
-                team_sport_b_id=match_data.get('team_sport_b_id'),
-                team_a_source=match_data.get('team_a_source'),
-                team_b_source=match_data.get('team_b_source'),
-                label=match_data.get('label'),
-                match_order=match_data.get('match_order'),
-                status=match_data.get('status', 'upcoming'),
-                created_by_user_id=tournament.created_by_user_id,
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow()
-            )
-            db.add(match)
-            db.flush()
-            
-            # Créer le schedule si un terrain est spécifié
-            create_match_schedule_if_court(
-                db,
-                match.id,
-                match_data.get('court'),
-                new_tournament.sport_id,
-                None,
-                match_data.get('duration', 90)
-            )
-        
-        # Créer les poules
-        for pool_data in (tournament.pools or []):
-            pool = Pool(
-                phase_id=phase.id,
-                name=pool_data.get('name'),
-                order=pool_data.get('display_order', 1),
-                qualified_to_finals=pool_data.get('qualified_to_finals', 2),
-                qualified_to_loser_bracket=pool_data.get('qualified_to_loser_bracket', 0)
-            )
-            db.add(pool)
-            db.flush()
-            
-            # Ajouter les équipes à la poule
-            for team_sport_id in (pool_data.get('teams') or []):
-                team_pool = TeamPool(
-                    pool_id=pool.id,
-                    team_sport_id=team_sport_id
-                )
-                db.add(team_pool)
-            
-            # Assigner automatiquement les équipes aux matchs de poule
-            processed_pool_matches = assign_teams_to_pool_matches(
-                db,
-                pool_data,
-                new_tournament.sport_id
-            )
-            
-            # Créer les matchs de la poule
-            for match_data in processed_pool_matches:
-                match = Match(
-                    phase_id=phase.id,
-                    pool_id=pool.id,
-                    match_type="pool",
-                    team_sport_a_id=match_data.get('team_sport_a_id'),
-                    team_sport_b_id=match_data.get('team_sport_b_id'),
-                    team_a_source=match_data.get('team_a_source'),
-                    team_b_source=match_data.get('team_b_source'),
-                    label=match_data.get('label'),
-                    match_order=match_data.get('match_order'),
-                    status=match_data.get('status', 'upcoming'),
-                    created_by_user_id=tournament.created_by_user_id,
-                    created_at=datetime.utcnow(),
-                    updated_at=datetime.utcnow()
-                )
-                db.add(match)
-                db.flush()
-                
-                # Créer le schedule si un terrain est spécifié
-                create_match_schedule_if_court(
-                    db,
-                    match.id,
-                    match_data.get('court'),
-                    new_tournament.sport_id,
-                    None,  # scheduled_datetime à gérer plus tard
-                    match_data.get('duration', 90)
-                )
-        
-        # Assigner automatiquement les équipes aux matchs de bracket
-        for bracket in (tournament.brackets or []):
-            processed_bracket_matches = assign_teams_to_matches(
-                db,
-                bracket.get('matches') or [],
-                new_tournament.sport_id
-            )
-            
-            for match_data in processed_bracket_matches:
-                match = Match(
-                    phase_id=phase.id,
-                    match_type="bracket",
-                    bracket_type=match_data.get('bracket_type'),
-                    team_sport_a_id=match_data.get('team_sport_a_id'),
-                    team_sport_b_id=match_data.get('team_sport_b_id'),
-                    team_a_source=match_data.get('team_a_source'),
-                    team_b_source=match_data.get('team_b_source'),
-                    label=match_data.get('label'),
-                    match_order=match_data.get('match_order'),
-                    status=match_data.get('status', 'upcoming'),
-                    created_by_user_id=tournament.created_by_user_id,
-                    created_at=datetime.utcnow(),
-                    updated_at=datetime.utcnow()
-                )
-                db.add(match)
-                db.flush()
-                
-                # Créer le schedule si un terrain est spécifié
-                create_match_schedule_if_court(
-                    db,
-                    match.id,
-                    match_data.get('court'),
-                    new_tournament.sport_id,
-                    None,
-                    match_data.get('duration', 90)
-                )
-        
-        # Assigner automatiquement les équipes aux matchs de loser bracket
-        for loser_bracket in (tournament.loser_brackets or []):
-            processed_loser_matches = assign_teams_to_matches(
-                db,
-                loser_bracket.get('matches') or [],
-                new_tournament.sport_id
-            )
-            
-            for match_data in processed_loser_matches:
-                match = Match(
-                    phase_id=phase.id,
-                    match_type="loser_bracket",
-                    bracket_type=match_data.get('bracket_type'),
-                    team_sport_a_id=match_data.get('team_sport_a_id'),
-                    team_sport_b_id=match_data.get('team_sport_b_id'),
-                    team_a_source=match_data.get('team_a_source'),
-                    team_b_source=match_data.get('team_b_source'),
-                    label=match_data.get('label'),
-                    match_order=match_data.get('match_order'),
-                    status=match_data.get('status', 'upcoming'),
-                    created_by_user_id=tournament.created_by_user_id,
-                    created_at=datetime.utcnow(),
-                    updated_at=datetime.utcnow()
-                )
-                db.add(match)
-                db.flush()
-                
-                # Créer le schedule si un terrain est spécifié
-                create_match_schedule_if_court(
-                    db,
-                    match.id,
-                    match_data.get('court'),
-                    new_tournament.sport_id,
-                    None,
-                    match_data.get('duration', 90)
-                )
-        
-        db.commit()
-    
-    db.refresh(new_tournament)
-    
-    return create_success_response(
-        data=TournamentResponse.model_validate(new_tournament).model_dump(mode="json"),
-        message="Tournoi créé avec succès"
-    )
 
 @app.patch("/tournaments/{tournament_id}", tags=["Tournaments"])
 async def update_tournament(
@@ -2329,6 +2086,40 @@ async def create_match_schedule(
         message="Planification créée avec succès"
     )
 
+@app.get("/matches/{match_id}/schedule", response_model=dict, tags=["MatchSchedule"])
+async def get_match_schedule(match_id: int, db: Session = Depends(get_db)):
+    """
+    Récupère la planification d'un match avec le nom du terrain.
+    Retourne court_id, court_name, scheduled_datetime, etc.
+    """
+    from app.models.court import Court
+    
+    schedule = db.query(MatchSchedule).filter(MatchSchedule.match_id == match_id).first()
+    
+    if not schedule:
+        raise NotFoundError(f"MatchSchedule for match_id {match_id} not found")
+    
+    # Récupérer le nom du terrain si court_id existe
+    court_name = None
+    if schedule.court_id:
+        court = db.query(Court).filter(Court.id == schedule.court_id).first()
+        if court:
+            court_name = court.name
+    
+    return create_success_response(
+        data={
+            "match_id": schedule.match_id,
+            "court_id": schedule.court_id,
+            "court_name": court_name,  # ← C'est ce qui manquait !
+            "tournament_id": schedule.tournament_id,
+            "scheduled_datetime": schedule.scheduled_datetime.isoformat() if schedule.scheduled_datetime else None,
+            "actual_start_datetime": schedule.actual_start_datetime.isoformat() if schedule.actual_start_datetime else None,
+            "actual_end_datetime": schedule.actual_end_datetime.isoformat() if schedule.actual_end_datetime else None,
+            "estimated_duration_minutes": schedule.estimated_duration_minutes
+        },
+        message="Planification du match récupérée avec succès"
+    )
+
 @app.put("/matches/{match_id}/schedule", response_model=dict, tags=["MatchSchedule"])
 async def update_match_schedule(
     match_id: int,
@@ -2811,12 +2602,10 @@ def get_matches_by_tournament(
     tournament_id: int,
     db: Session = Depends(get_db)
 ):
-    matches = (
-        db.query(Match)
-        .join(TournamentPhase)
-        .filter(TournamentPhase.tournament_id == tournament_id)
-        .all()
-    )
+    """
+    Récupère tous les matchs d'un tournoi donné
+    """
+    matches = db.query(Match).filter(Match.tournament_id == tournament_id).all()
 
     return {
         "success": True,

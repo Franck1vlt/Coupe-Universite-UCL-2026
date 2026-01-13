@@ -3,7 +3,7 @@ Routes pour la gestion complète des tournois avec toutes leurs structures
 """
 from typing import List, Optional, Dict, Any
 from datetime import datetime
-from fastapi import APIRouter, Depends, Body, Path
+from fastapi import APIRouter, Depends, Body, Path, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 from datetime import datetime
@@ -14,7 +14,10 @@ from app.models.pool import Pool
 from app.models.match import Match
 from app.models.teampool import TeamPool
 from app.exceptions import create_success_response, NotFoundError
+
 from app.utils.serializers import match_to_dict
+from app.models.court import Court
+from app.models.matchschedule import MatchSchedule
 
 
 router = APIRouter()
@@ -100,10 +103,159 @@ class TournamentStructureResponse(BaseModel):
     bracket_matches: List[TournamentMatchResponse] = []
     loser_bracket_matches: List[TournamentMatchResponse] = []
 
-# --- 1. POST : CRÉATION / MISE À JOUR ---
-# app/routers/tournament_structure.py
+class TournamentCreate(BaseModel):
+    """Schéma pour la création d'un tournoi"""
+    name: str
+    sport_id: int
+    created_by_user_id: int
+    tournament_type: str = "qualifications"
+    status: str = "scheduled"
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    description: Optional[str] = None
+    rules: Optional[str] = None
+    image_url: Optional[str] = None
 
-@router.post("/{tournament_id}/structure")
+# --- 1. CRÉATION D'UN TOURNOI ---
+@router.post("/tournaments")
+def create_tournament(
+    tournament_data: TournamentCreate,
+    db: Session = Depends(get_db)
+):
+    """
+    Créer un nouveau tournoi.
+    
+    ⚠️ CRITIQUE : Cette route contient db.commit() pour sauvegarder en BDD
+    """
+    try:
+        print("=== 🏁 DÉBUT CRÉATION TOURNOI ===")
+        print(f"Données reçues : {tournament_data.dict()}")
+        
+        # 1️⃣ Créer l'objet Tournament
+        tournament = Tournament(
+            name=tournament_data.name,
+            sport_id=tournament_data.sport_id,
+            created_by_user_id=tournament_data.created_by_user_id,
+            tournament_type=tournament_data.tournament_type,
+            status=tournament_data.status,
+            description=tournament_data.description,
+            rules=tournament_data.rules,
+            image_url=tournament_data.image_url
+        )
+        
+        # Gérer les dates si présentes
+        if tournament_data.start_date:
+            try:
+                tournament.start_date = datetime.fromisoformat(tournament_data.start_date.replace('Z', '+00:00'))
+            except Exception as e:
+                print(f"⚠️ Erreur parsing start_date : {e}")
+        
+        if tournament_data.end_date:
+            try:
+                tournament.end_date = datetime.fromisoformat(tournament_data.end_date.replace('Z', '+00:00'))
+            except Exception as e:
+                print(f"⚠️ Erreur parsing end_date : {e}")
+        
+        print(f"✅ Objet Tournament créé : {tournament}")
+        
+        # 2️⃣ Ajouter à la session SQLAlchemy
+        db.add(tournament)
+        print("✅ db.add() effectué")
+        
+        # 3️⃣ Flush pour générer l'ID
+        db.flush()
+        print(f"✅ db.flush() effectué - ID généré : {tournament.id}")
+        
+        # 4️⃣ ⚠️ CRITIQUE : COMMIT POUR SAUVEGARDER EN BDD
+        db.commit()
+        print(f"✅ ✅ ✅ db.commit() effectué - Tournoi ID {tournament.id} SAUVEGARDÉ EN BDD")
+        
+        # 5️⃣ Vérification immédiate (optionnel, pour debug)
+        verification = db.query(Tournament).filter(Tournament.id == tournament.id).first()
+        if verification:
+            print(f"✅ VÉRIFICATION : Le tournoi ID {tournament.id} existe bien en BDD")
+        else:
+            print(f"❌ ERREUR : Le tournoi ID {tournament.id} N'EXISTE PAS en BDD après commit !")
+        
+        # 6️⃣ Construire la réponse
+        response_data = {
+            "success": True,
+            "message": "Tournoi créé avec succès",
+            "data": {
+                "id": tournament.id,
+                "name": tournament.name,
+                "sport_id": tournament.sport_id,
+                "created_by_user_id": tournament.created_by_user_id,
+                "tournament_type": tournament.tournament_type,
+                "status": tournament.status,
+                "start_date": tournament.start_date.isoformat() if tournament.start_date else None,
+                "end_date": tournament.end_date.isoformat() if tournament.end_date else None,
+                "description": tournament.description,
+                "rules": tournament.rules,
+                "image_url": tournament.image_url
+            }
+        }
+        
+        print("=== 🏁 FIN CRÉATION TOURNOI ===")
+        print(f"Réponse : {response_data}")
+        
+        return response_data
+        
+    except Exception as e:
+        # ⚠️ IMPORTANT : Rollback en cas d'erreur
+        print(f"❌ ERREUR lors de la création : {str(e)}")
+        db.rollback()
+        print("🔄 db.rollback() effectué")
+        
+        import traceback
+        traceback.print_exc()
+        
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erreur lors de la création du tournoi : {str(e)}"
+        )
+
+
+# --- 2. LISTE DES TOURNOIS AVEC FILTRAGE ---
+@router.get("/tournaments")
+def list_tournaments(
+    skip: int = 0,
+    limit: int = 100,
+    sport_id: Optional[int] = None,
+    db: Session = Depends(get_db)
+):
+    """Lister les tournois avec filtrage optionnel par sport"""
+    query = db.query(Tournament)
+    
+    if sport_id:
+        query = query.filter(Tournament.sport_id == sport_id)
+    
+    tournaments = query.offset(skip).limit(limit).all()
+    
+    return {
+        "success": True,
+        "data": {
+            "items": [
+                {
+                    "id": t.id,
+                    "name": t.name,
+                    "sport_id": t.sport_id,
+                    "tournament_type": t.tournament_type,
+                    "status": t.status,
+                    "created_by_user_id": t.created_by_user_id,
+                    "start_date": t.start_date.isoformat() if t.start_date else None,
+                    "end_date": t.end_date.isoformat() if t.end_date else None,
+                }
+                for t in tournaments
+            ],
+            "total": query.count(),
+            "skip": skip,
+            "limit": limit
+        }
+    }
+
+# --- 3. STRUCTURE D'UN TOURNOI - POST : CRÉATION / MISE À JOUR ---
+@router.post("/tournaments/{tournament_id}/structure")
 def create_tournament_structure(
     tournament_id: int = Path(...),
     structure: TournamentStructureCreate = Body(...),
@@ -164,19 +316,17 @@ def create_tournament_structure(
         # 3. Dernier recours : Recherche sémantique (Phase + Type + Label/Pool)
         # Cela empêche de recréer "Finale" ou "Poule A - Match 1" si l'UUID a été perdu
         if not match and m_label:
-            query = (
-                db.query(Match)
-                .join(TournamentPhase)
-                .filter(
-                    Match.phase_id == phase_id,
-                    Match.match_type == match_type,
-                    Match.label == m_label,
-                    TournamentPhase.tournament_id == tournament_id
-                )
-            )
+            query = db.query(Match).filter(
+                Match.phase_id == phase_id,
+                Match.tournament_id == tournament_id,
+                Match.match_type == match_type,
+                Match.label == m_label
+            )  
+            
             if pool_id:
                 query = query.filter(Match.pool_id == pool_id)
-            match = query.first()
+            
+            match = query.first() 
 
         # Gestion date / heure
         sched_dt = get_val(m_data, 'scheduled_datetime')
@@ -188,10 +338,10 @@ def create_tournament_structure(
 
         if match:
             # --- UPDATE ---
-            # Si on a trouvé le match par Label mais que le front envoie un nouvel UUID, on met à jour l'UUID
             if m_uuid and match.uuid != m_uuid:
                 match.uuid = m_uuid
 
+            match.tournament_id = tournament_id
             match.team_a_source = get_val(m_data, 'team_a_source', match.team_a_source)
             match.team_b_source = get_val(m_data, 'team_b_source', match.team_b_source)
             match.label = get_val(m_data, 'label', match.label)
@@ -209,6 +359,7 @@ def create_tournament_structure(
                 uuid=final_uuid,
                 phase_id=phase_id,
                 pool_id=pool_id,
+                tournament_id=tournament_id,
                 match_type=match_type,
                 bracket_type=get_val(m_data, 'bracket_type'),
                 team_a_source=get_val(m_data, 'team_a_source'),
@@ -224,6 +375,45 @@ def create_tournament_structure(
                 created_by_user_id=1
             )
             db.add(match)
+            db.flush()  # Pour avoir match.id
+
+        # --- Création ou update du MatchSchedule associé ---
+        # Récupérer court_id si possible
+        court_name = get_val(m_data, 'court')
+        court_id = None
+        if court_name:
+            court_obj = db.query(Court).filter(Court.name == court_name).first()
+            if court_obj:
+                court_id = court_obj.id
+
+        # scheduled_datetime (format ISO)
+        scheduled_datetime = get_val(m_data, 'scheduled_datetime')
+        if scheduled_datetime:
+            try:
+                from dateutil.parser import parse as parse_dt
+                scheduled_dt = parse_dt(scheduled_datetime)
+            except Exception:
+                scheduled_dt = None
+        else:
+            scheduled_dt = None
+
+        estimated_duration = get_val(m_data, 'duration', 90)
+
+        ms = db.query(MatchSchedule).filter(MatchSchedule.match_id == match.id).first()
+        if ms:
+            ms.court_id = court_id
+            ms.scheduled_datetime = scheduled_dt
+            ms.estimated_duration_minutes = estimated_duration
+            ms.tournament_id = tournament_id
+        else:
+            ms = MatchSchedule(
+                match_id=match.id,
+                court_id=court_id,
+                scheduled_datetime=scheduled_dt,
+                estimated_duration_minutes=estimated_duration,
+                tournament_id=tournament_id
+            )
+            db.add(ms)
 
         return match
 
@@ -283,7 +473,7 @@ def create_tournament_structure(
     }
 
 # --- 2. GET : RÉCUPÉRATION ---
-@router.get("/{tournament_id}/structure")
+@router.get("/tournaments/{tournament_id}/structure")
 def get_tournament_structure(
     tournament_id: int,
     db: Session = Depends(get_db)
@@ -338,7 +528,7 @@ def get_tournament_structure(
     })
 
 
-@router.delete("/{tournament_id}/structure")
+@router.delete("/tournaments/{tournament_id}/structure")
 def reset_tournament_matches(
     tournament_id: int = Path(..., description="ID du tournoi"),
     db: Session = Depends(get_db)
@@ -385,7 +575,7 @@ def reset_tournament_matches(
     )
 
 
-@router.post("/{tournament_id}/propagate-results")
+@router.post("/tournaments/{tournament_id}/propagate-results")
 def propagate_tournament_results(
     tournament_id: int = Path(..., description="ID du tournoi"),
     db: Session = Depends(get_db)
@@ -573,7 +763,7 @@ def propagate_tournament_results(
     }, message=f"Successfully propagated {propagated_count} match results")
 
 
-@router.delete("/{tournament_id}/structure")
+@router.delete("/tournaments/{tournament_id}/structure")
 def delete_tournament_structure(
     tournament_id: int = Path(..., description="ID du tournoi"),
     db: Session = Depends(get_db)
@@ -626,7 +816,7 @@ def delete_tournament_structure(
     )
 
 
-@router.delete("/{tournament_id}/matches")
+@router.delete("/tournaments/{tournament_id}/matches")
 def delete_tournament_matches_only(
     tournament_id: int = Path(..., description="ID du tournoi"),
     db: Session = Depends(get_db)

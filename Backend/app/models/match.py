@@ -24,6 +24,7 @@ class Match(Base):
         server_default="",
     )    
     phase_id = Column(Integer, ForeignKey("TournamentPhase.id"), nullable=False)
+    tournament_id = Column(Integer, ForeignKey("Tournament.id"), nullable=False, index=True) 
     pool_id = Column(Integer, ForeignKey("Pool.id"), nullable=True)  # Pour les matchs de poule
     
     # Type de match : qualification, pool, bracket, loser_bracket
@@ -79,6 +80,7 @@ class Match(Base):
     # Relations
     # Note: Le backref "matches" est défini dans TournamentPhase.matches
     # phase = relationship("TournamentPhase")
+    tournament = relationship("Tournament", foreign_keys=[tournament_id], backref="matches")
     pool = relationship("Pool", foreign_keys=[pool_id], backref="matches")
     team_sport_a = relationship("TeamSport", foreign_keys=[team_sport_a_id], backref="matches_as_team_a")
     team_sport_b = relationship("TeamSport", foreign_keys=[team_sport_b_id], backref="matches_as_team_b")
@@ -91,7 +93,7 @@ class Match(Base):
     # Représentation de l'objet
     def __repr__(self):
         return (
-            f"<Match(id={self.id}, phase_id={self.phase_id}, pool_id={self.pool_id}, "
+            f"<Match(id={self.id}, phase_id={self.phase_id}, tournament_id={self.tournament_id}, pool_id={self.pool_id}, "
             f"match_type='{self.match_type}', bracket_type='{self.bracket_type}', "
             f"team_sport_a_id={self.team_sport_a_id}, team_sport_b_id={self.team_sport_b_id}, "
             f"team_a_source='{self.team_a_source}', team_b_source='{self.team_b_source}', "

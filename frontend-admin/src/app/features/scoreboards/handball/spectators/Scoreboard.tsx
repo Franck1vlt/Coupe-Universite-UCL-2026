@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from "react";
 import Image from "next/image";
+import { useHandballMatch } from "../useHandballMatch";
+import { useSearchParams } from "next/navigation";
 import "./spectators.css";
 
 interface MatchData {
@@ -16,14 +18,16 @@ interface MatchData {
     redCards2?: number;
     chrono?: string;
     lastUpdate?: string;
+    period?: string;
 }
 
 export default function HandballTableSpectatorPage() {
-    const [matchData, setMatchData] = useState<MatchData>({});
     const [logoA, setLogoA] = useState('/img/default.png');
     const [logoB, setLogoB] = useState('/img/default.png');
     const [animateScoreA, setAnimateScoreA] = useState(false);
     const [animateScoreB, setAnimateScoreB] = useState(false);
+    const [matchData, setMatchData] = useState<MatchData>({});
+
 
     useEffect(() => {
         // Charger les données initiales
@@ -102,44 +106,63 @@ export default function HandballTableSpectatorPage() {
         }
     }
 
-    // Ancienne logique hors ligne supprimée au profit de l'événement storage + polling
+return (
+        // bg-[#E0E0E0] et centrage total
+        <main className="min-h-screen w-full bg-white flex items-center justify-center p-4 overflow-hidden">
+            <section className="score-board-container gap-8">
+                
+                {/* Chrono */}
+                <div className="flex justify-center mb-4 md:mb-8">
+                    <span className="remaining-time">{matchData.chrono || '10:00'}</span>
+                </div>
 
-    return (
-        <main>
-            <div className="score-board">
-                <div className="teams">
-                    <div className="team">
-                        <Image src={logoB} alt="Logo Team B" width={100} height={100} className="team-logo" onError={() => setLogoB('/img/no-logo.png')} loading="eager" />
-                        <div id="teamBName">{matchData.team2 || 'ÉQUIPE B'}</div>
+                {/* Bloc central : Équipes + Scores */}
+                <div className="flex items-center justify-between w-full gap-4 md:gap-12">
+                    
+                    {/* Team B */}
+                    <div className="team-column">
+                        <div className="logo-wrapper">
+                            <Image src={logoB} alt="Logo Team B" width={180} height={180} className="team-logo" onError={() => setLogoB('/img/no-logo.png')} priority />
+                        </div>
+                        <div className="team-name">{matchData.team2 || 'ÉQUIPE B'}</div>
                     </div>
-                    <div className="team">
-                        <Image src={logoA} alt="Logo Team A" width={100} height={100} className="team-logo" onError={() => setLogoA('/img/no-logo.png')} loading="eager" />
-                        <div id="teamAName">{matchData.team1 || 'ÉQUIPE A'}</div>
+
+                    {/* Score */}
+                    <div className="score-display">
+                        <span className={animateScoreB ? 'score-change' : ''}>{matchData.score2 || 0}</span>
+                        <span className="mx-2 md:mx-4">-</span>
+                        <span className={animateScoreA ? 'score-change' : ''}>{matchData.score1 || 0}</span>
+                    </div>
+
+                    {/* Team A */}
+                    <div className="team-column">
+                        <div className="logo-wrapper">
+                            <Image src={logoA} alt="Logo Team A" width={180} height={180} className="team-logo" onError={() => setLogoA('/img/no-logo.png')} priority />
+                        </div>
+                        <div className="team-name">{matchData.team1 || 'ÉQUIPE A'}</div>
                     </div>
                 </div>
 
-                <div className="score-container">
-                    <span id="teamBScore" className={animateScoreB ? 'score-change' : ''}>{matchData.score2 || 0}</span>
-                    <span className="score-divider">-</span>
-                    <span id="teamAScore" className={animateScoreA ? 'score-change' : ''}>{matchData.score1 || 0}</span>
+                {/* Infos Match */}
+                <div className="match-infos">
+                    <div className="match-period">{matchData.period || "MT1"}</div>
+                    <p>-</p>
+                    <div className="match-type-label">{matchData.matchType || 'Match'}</div>
                 </div>
 
-                <div className="match-info">
-                    <span className="remaining-time" id="gameChrono">{matchData.chrono || '00:00'}</span>
-                    <span className="match-type" id="matchType">{matchData.matchType || 'Match'}</span>
+                {/* Cartons */}
+                <div className="cards-row">
+                    <div className="card-group">
+                        <span className="card-icon">🟨</span> {matchData.yellowCards2 || 0}
+                        <span className="card-icon ml-2">🟥</span> {matchData.redCards2 || 0}
+                    </div>
+                    <div className="card-group">
+                        <span className="card-icon">🟨</span> {matchData.yellowCards1 || 0}
+                        <span className="card-icon ml-2">🟥</span> {matchData.redCards1 || 0}
+                    </div>
                 </div>
 
-                <div className="cards">
-                    <div className="team-cards">
-                        <span>🟨</span><span id="teamBYellowCard">{matchData.yellowCards2 || 0}</span>
-                        <span>🟥</span><span id="teamBRedCard">{matchData.redCards2 || 0}</span>
-                    </div>
-                    <div className="team-cards">
-                        <span>🟨</span><span id="teamAYellowCard">{matchData.yellowCards1 || 0}</span>
-                        <span>🟥</span><span id="teamARedCard">{matchData.redCards1 || 0}</span>
-                    </div>
-                </div>
-            </div>
+            </section>
         </main>
     );
 }

@@ -19,10 +19,10 @@ const scoreboardRegistry: Record<SportCode, () => Promise<{ default: ComponentTy
   football: () => import('../../../features/scoreboards/football/Scoreboard'),
   handball: () => import('../../../features/scoreboards/handball/Scoreboard'),
   basketball: () => import('../../../features/scoreboards/basketball/Scoreboard'),
-  // volleyball: () => import('../../../features/scoreboards/volleyball/Scoreboard'),
+  volleyball: () => import('../../../features/scoreboards/volleyball/Scoreboard'),
   badminton: () => import('../../../features/scoreboards/badminton/Scoreboard'),
-  // petanque: () => import('../../../features/scoreboards/petanque/Scoreboard'),
-  // flechettes: () => import('../../../features/scoreboards/flechettes/Scoreboard'),
+  petanque: () => import('../../../features/scoreboards/petanque/Scoreboard'), 
+  flechettes: () => import('../../../features/scoreboards/flechettes/Scoreboard'),
 };
 
 // Registry des composants spectateurs
@@ -30,10 +30,10 @@ const spectatorsRegistry: Record<SportCode, () => Promise<{ default: ComponentTy
   football: () => import('../../../features/scoreboards/football/spectators/Scoreboard'),
   handball: () => import('../../../features/scoreboards/handball/spectators/Scoreboard'),
   basketball: () => import('../../../features/scoreboards/basketball/spectators/Scoreboard'),
-  // volleyball: () => import('../../../features/scoreboards/volleyball/spectators/Scoreboard'),
+  volleyball: () => import('../../../features/scoreboards/volleyball/spectators/Scoreboard'),
   badminton: () => import('../../../features/scoreboards/badminton/spectators/Scoreboard'),
-  // petanque: () => import('../../../features/scoreboards/petanque/spectators/Scoreboard'),
-  // flechettes: () => import('../../../features/scoreboards/flechettes/spectators/Scoreboard'),
+  petanque: () => import('../../../features/scoreboards/petanque/spectators/Scoreboard'),
+  flechettes: () => import('../../../features/scoreboards/flechettes/spectators/Scoreboard'),
 };
 
 // Fonction pour récupérer le composant scoreboard

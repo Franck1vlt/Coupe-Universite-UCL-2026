@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { getAvailableCourts } from "./courtUtils";
 import "./handball.css";
 import { useSearchParams } from "next/navigation";
 import { useHandballMatch } from "./useHandballMatch";
@@ -22,6 +23,8 @@ export default function HandballTableMarquagePage() {
   const [teams, setTeams] = useState<Team[]>([]);
   const params = useSearchParams();
   const matchId = params.get("matchId");
+  console.log('[Handball Scoreboard] ========== COMPONENT LOADED ==========');
+  console.log('[Handball Scoreboard] MatchId from URL:', matchId);
   const router = useRouter();
 
   const [teamA, setTeamA] = useState("");
@@ -30,19 +33,37 @@ export default function HandballTableMarquagePage() {
   const [matchGround, setMatchGround] = useState("Terrain");
 
   const [courts, setCourts] = useState<Court[]>([]);
+  const [courtSchedules, setCourtSchedules] = useState<any[]>([]);
   const [loadingCourts, setLoadingCourts] = useState(true);
+  const [selectedDateTime, setSelectedDateTime] = useState<string>("");
 
   // Charger les équipes au montage du composant
   useEffect(() => {
     fetchTeams();
     fetchCourts();
+    fetchCourtSchedules();
   }, []);
+  // Récupérer les plannings de tous les terrains (pour filtrer les dispos)
+  const fetchCourtSchedules = async () => {
+    try {
+      const res = await fetch("http://localhost:8000/match-schedules?skip=0&limit=200", {
+        method: "GET",
+        headers: { "Accept": "application/json" }
+      });
+      if (!res.ok) throw new Error("Impossible de charger les plannings");
+      const data = await res.json();
+      setCourtSchedules(Array.isArray(data?.data?.items) ? data.data.items : []);
+    } catch (error) {
+      setCourtSchedules([]);
+    }
+  };
 
   const {
     matchData,
     formattedTime,
     startChrono,
     stopChrono,
+    addSecond,
     addPoint,
     subPoint,
     addYellowCard,
@@ -54,21 +75,32 @@ export default function HandballTableMarquagePage() {
     setMatchType: setMatchTypeMeta,
     swapSides,
     court,
+    handleEnd,
+    togglePeriod,
+    periodSwitchChecked,
+    period
   } = useHandballMatch(matchId);
 
   // Synchroniser les données du match avec les states locaux
   useEffect(() => {
+    console.log('[Handball Scoreboard] Match data changed:', matchData);
+    console.log('[Handball Scoreboard] Court:', court);
+    
     if (matchData.teamA.name && matchData.teamA.name !== "Team A") {
       setTeamA(matchData.teamA.name);
+      console.log('[Handball Scoreboard] Set Team A to:', matchData.teamA.name);
     }
     if (matchData.teamB.name && matchData.teamB.name !== "Team B") {
       setTeamB(matchData.teamB.name);
+      console.log('[Handball Scoreboard] Set Team B to:', matchData.teamB.name);
     }
     if (matchData.matchType) {
       setMatchType(matchData.matchType);
+      console.log('[Handball Scoreboard] Set Match Type to:', matchData.matchType);
     }
     if (court) {
       setMatchGround(court);
+      console.log('[Handball Scoreboard] Set Court to:', court);
     }
   }, [matchData, court]);
 
@@ -153,55 +185,116 @@ export default function HandballTableMarquagePage() {
   };
 
   return (
-    <main>
+    <main className="handball-root">
       <header className="mb-10 text-center">
         <h1 className="text-3xl font-bold text-black mb-2">
           Handball - Table de marquage
         </h1>
       </header>
 
-      <div className="gauche">
+<div className="gauche">
         <div className="parametres-match mb-6">
           <label htmlFor="teamA">Équipe A :</label>
-          <select name="teamA" value={teamA} onChange={handleTeamAChange} disabled={loadingTeams || !!matchId}>
-            <option value="">{loadingTeams ? "Chargement..." : "Sélectionner"}</option>
-            {teams.map((team) => (
+            {matchId ? (
+            <input
+              type="text"
+              value={matchData.teamA.name}
+              disabled
+              className="w-full text-center rounded-md border-none mb-2.5 bg-white text-black cursor-not-allowed p-2"
+            />
+            ) : (
+            <select name="teamA" value={teamA} onChange={handleTeamAChange} disabled={loadingTeams}>
+              <option value="">{loadingTeams ? "Chargement..." : "Sélectionner"}</option>
+              {teams.map((team) => (
               <option key={team.id} value={team.id}>
                 {team.name}
               </option>
-            ))}
-          </select>
+              ))}
+            </select>
+            )}
 
           <label htmlFor="teamB">Équipe B :</label>
-          <select id="teamB" name="teamB" value={teamB} onChange={handleTeamBChange} disabled={loadingTeams || !!matchId}>
-            <option value="">{loadingTeams ? "Chargement..." : "Sélectionner"}</option>
-            {teams.map((team) => (
-              <option key={team.id} value={team.id}>
-                {team.name}
-              </option>
-            ))}
-          </select>
+          {matchId ? (
+            <input
+              type="text"
+              value={matchData.teamB.name}
+              disabled
+              className="w-full text-center rounded-md border-none mb-2.5 bg-white text-black cursor-not-allowed p-2"
+            />
+          ) : (
+            <select id="teamB" name="teamB" value={teamB} onChange={handleTeamBChange} disabled={loadingTeams}>
+              <option value="">{loadingTeams ? "Chargement..." : "Sélectionner"}</option>
+              {teams.map((team) => (
+                <option key={team.id} value={team.id}>
+                  {team.name}
+                </option>
+              ))}
+            </select>
+          )}
 
           <label htmlFor="matchType">Type de match :</label>
-          <select id="matchTypeSelector" value={matchType} onChange={handleMatchTypeChange} disabled={!!matchId}>
-            <option value="">Sélectionner</option>
-            <option value="Qualification">Qualification</option>
-            <option value="Poule">Poule</option>
-            <option value="Quart de finale">Quart de finale</option>
-            <option value="Demi-finale">Demi-finale</option>
-            <option value="Petite Finale">Petite Finale</option>
-            <option value="Finale">Finale</option>
-          </select>
+          {matchId ? (
+            <input
+              type="text"
+              value={matchData.matchType}
+              disabled
+              className="w-full text-center rounded-md border-none mb-2.5 bg-white text-black cursor-not-allowed p-2"
+            />
+          ) : (
+            <select id="matchTypeSelector" value={matchType} onChange={handleMatchTypeChange}>
+              <option value="">Sélectionner</option>
+              <option value="Qualification">Qualification</option>
+              <option value="Poule">Poule</option>
+              <option value="Quart de finale">Quart de finale</option>
+              <option value="Demi-finale">Demi-finale</option>
+              <option value="Petite Finale">Petite Finale</option>
+              <option value="Finale">Finale</option>
+            </select>
+          )}
 
           <label htmlFor="matchGround">Terrain :</label>
-          <select id="matchGroundSelector" value={matchGround} onChange={(e) => setMatchGround(e.target.value)} disabled={loadingCourts || !!matchId}>
-            <option value="">{loadingCourts ? "Chargement..." : "Sélectionner"}</option>
-            {courts.map((court) => (
-              <option key={court.id} value={court.id}>
-                {court.name}
-              </option>
-            ))}
-          </select>
+          {matchId ? (
+            <input
+              type="text"
+              value={
+                // Affiche toujours le nom du terrain si possible
+                courts.find(c => c.id === matchData.court?.toString())?.name
+                || courts.find(c => c.name === matchData.court)?.name
+                || courts.find(c => c.id === court?.toString())?.name
+                || courts.find(c => c.name === court)?.name
+                || courts.find(c => c.id === matchGround)?.name
+                || matchData.court
+                || court
+                || (matchGround !== "Terrain" ? courts.find(c => c.id === matchGround)?.name : "Terrain")
+              }
+              disabled
+              className="w-full text-center rounded-md border-none mb-2.5 bg-white text-black cursor-not-allowed p-2"
+            />
+          ) : (
+            <>
+              {/* Sélection du terrain avec désactivation des terrains occupés */}
+              <select
+                id="matchGroundSelector"
+                value={matchGround}
+                onChange={(e) => setMatchGround(e.target.value)}
+                disabled={loadingCourts}
+              >
+                <option value="">{loadingCourts ? "Chargement..." : "Sélectionner"}</option>
+                {getAvailableCourts(courts, courtSchedules, selectedDateTime).map((court: any) => (
+                  <option key={court.id} value={court.id} disabled={court.isOccupied}>
+                    {court.name} {court.isOccupied ? "(occupé)" : ""}
+                  </option>
+                ))}
+              </select>
+              {/* Sélecteur de date/heure pour la planification (exemple simple) */}
+              <input
+                type="datetime-local"
+                value={selectedDateTime}
+                onChange={e => setSelectedDateTime(e.target.value)}
+                className="border border-gray-300 rounded px-2 py-1 mt-2"
+              />
+            </>
+          )}
         </div>
 
         <div className="bouton_pied_page">
@@ -209,7 +302,7 @@ export default function HandballTableMarquagePage() {
             <button onClick={() => router.back()}>Retour</button>
           </div>
             <div className="button-row2">
-            <button onClick={() => window.open("/handball/spectators", "_blank")}>Spectateurs</button>
+            <button onClick={() => window.open("./handball/spectators", "_blank")}>Spectateurs</button>
             </div>
         </div>
       </div>
@@ -219,10 +312,20 @@ export default function HandballTableMarquagePage() {
         <div className="scoreboard">
           <div className="score-display">
             <div className="score-line">
-              <span>{teamA != "" ? teams.find((c: Team) => c.id === teamA)?.name : "Team A"} {matchData.teamA.score} - {matchData.teamB.score} {teamB != "" ? teams.find((c: Team) => c.id === teamB)?.name : "Team B"}</span>
+              <span>{matchData.teamA.name !== "Team A" ? matchData.teamA.name : (teamA != "" ? teams.find((c: Team) => c.id === teamA)?.name : "Team A")} {matchData.teamA.score} - {matchData.teamB.score} {matchData.teamB.name !== "Team B" ? matchData.teamB.name : (teamB != "" ? teams.find((c: Team) => c.id === teamB)?.name : "Team B")}</span>
             </div>
             <div className="info-line">
-              <p>{matchType !== "Type de match" ? matchType : "Type de match"} - {matchGround !== "Terrain" ? courts.find(c => c.id === matchGround)?.name : "Terrain"}</p>
+              <p>{matchData.matchType || (matchType !== "Type de match" ? matchType : "Type de match")} - {period !== "MT1" ? period : "MT1"} - {
+                // Affiche toujours le nom du terrain si possible
+                courts.find(c => c.id === matchData.court?.toString())?.name
+                || courts.find(c => c.name === matchData.court)?.name
+                || courts.find(c => c.id === court?.toString())?.name
+                || courts.find(c => c.name === court)?.name
+                || courts.find(c => c.id === matchGround)?.name
+                || matchData.court
+                || court
+                || (matchGround !== "Terrain" ? courts.find(c => c.id === matchGround)?.name : "Terrain")
+              }</p>
             </div>
           </div>
 
@@ -240,9 +343,9 @@ export default function HandballTableMarquagePage() {
             </div>
           </div>
 
-          <div className="cards-section grid grid-cols-2 gap-4 mb-4">
+          <div className="cards-section">
             {/* Cartons Équipe A */}
-            <div className="flex flex-col items-center gap-4">
+            <div className="flex flex-col items-center gap-4 space-x-4">
               <div className="flex items-center gap-2">
                 <p>Cartons Jaunes : {matchData.teamA.yellowCards != 0 ? matchData.teamA.yellowCards : 0}</p>
                 <button style={{ backgroundColor: 'var(--bg-yellow-900)' }} onClick={() => subYellowCard("A")}>-</button>
@@ -253,6 +356,19 @@ export default function HandballTableMarquagePage() {
                 <button style={{ backgroundColor: 'var(--bg-red-900)' }} onClick={() => subRedCard("A")}>-</button>
                 <button style={{ backgroundColor: 'var(--bg-red-900)' }} onClick={() => addRedCard("A")}>+</button>
               </div>
+            </div>
+            <div className="period-switch text-lg">
+              <span>MT1</span>
+              <label className="switch">
+                  <input 
+                    type="checkbox" 
+                    id="periodToggle" 
+                    checked={periodSwitchChecked}  // 👈 Ajoutez cette ligne
+                    onChange={togglePeriod} 
+                  />
+                  <span className="slider round"></span>
+              </label>
+              <span>MT2</span>
             </div>
             {/* Cartons Équipe B */}
             <div className="flex flex-col items-center gap-4">
@@ -272,8 +388,25 @@ export default function HandballTableMarquagePage() {
           <div className="bottom-controls">
             <button onClick={startChrono}>Start</button>
             <button onClick={stopChrono}>Stop</button>
+            <button onClick={addSecond}>+1s</button>
             <button onClick={handleSwipe}>Swipe</button>
-            <button>End</button>
+            <button
+              onClick={() => {
+                handleEnd();
+                const tournamentId = matchData.tournamentId;
+                console.log('[Handball] MatchData complet:', matchData);
+                console.log('[Handball] TournamentId from matchData:', tournamentId);
+                console.log('[Handball] MatchId:', matchId);
+                if (!tournamentId) {
+                  alert("Impossible de retrouver l'ID du tournoi pour la redirection.");
+                  return;
+                }
+                console.log('[Handball] Redirecting to tournament:', tournamentId);
+                window.location.href = `/choix-sport/tournaments/${tournamentId}`;
+              }}
+            >
+              END
+            </button>
           </div>
         </div>
       </div>

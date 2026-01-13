@@ -1,6 +1,7 @@
 "use client";
 
 import { use, useEffect, useState } from 'react';
+
 import { getScoreboardComponent, getSportConfig, type SportCode } from '../registry';
 import { notFound, useSearchParams } from 'next/navigation';
 
@@ -36,6 +37,8 @@ interface SportData {
 }
 
 export default function TableMarquagePage({ params }: PageProps) {
+  // Ajout d'un state pour stocker toutes les infos du match (doit être dans le composant !)
+  const [matchData, setMatchData] = useState<any>(null);
   const resolvedParams = use(params);
   const searchParams = useSearchParams();
   const matchIdFromUrl = searchParams.get('matchId');
@@ -56,6 +59,7 @@ export default function TableMarquagePage({ params }: PageProps) {
       .then(async (res) => {
         if (!res.ok) throw new Error('Match not found');
         const match = await res.json();
+        setMatchData(match.data); // Stocke toutes les infos du match
         const currentStatus = match?.data?.status;
         console.log("Status actuel du match:", currentStatus);
         if (currentStatus === 'in_progress' || currentStatus === 'completed') {
@@ -64,7 +68,7 @@ export default function TableMarquagePage({ params }: PageProps) {
         }
         // PATCH pour passer le match en "in_progress"
         console.log("Envoi PATCH pour passer en in_progress");
-        return fetch(`http://localhost:8000/matches/${matchId}`, {
+        return fetch(`http://localhost:8000/matches/${matchId}` , {
           method: "PATCH",
           headers: {
             "Content-Type": "application/json",
@@ -149,6 +153,16 @@ export default function TableMarquagePage({ params }: PageProps) {
 
   return (
     <div className="min-h-screen bg-gray-100">
+      {/* Affichage des infos du match */}
+      {matchData && (
+        <div className="mb-4 p-4 bg-white rounded shadow">
+          <div><b>Équipe A :</b> {matchData.team_a_source || matchData.team_sport_a_id || "?"}</div>
+          <div><b>Équipe B :</b> {matchData.team_b_source || matchData.team_sport_b_id || "?"}</div>
+          <div><b>Terrain :</b> {matchData.court || matchData.court_id || "?"}</div>
+          <div><b>Horaire :</b> {matchData.scheduled_datetime ? new Date(matchData.scheduled_datetime).toLocaleString() : "?"}</div>
+          <div><b>Durée estimée :</b> {matchData.estimated_duration_minutes ? matchData.estimated_duration_minutes + " min" : "?"}</div>
+        </div>
+      )}
       <ScoreboardComponent config={config} matchId={matchId || undefined} />
     </div>
   );

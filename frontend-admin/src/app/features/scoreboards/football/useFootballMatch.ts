@@ -15,9 +15,6 @@ export function useFootballMatch(initialMatchId: string | null) {
         tournamentId: undefined
     });
 
-    // (déjà déclarés ci-dessus)
-
-    // --- Fonction utilitaire pour mettre à jour le statut du match ---
     const updateMatchStatus = async (status: 'en_cours' | 'termine') => {
         if (!initialMatchId) return;
         try {
@@ -34,15 +31,15 @@ export function useFootballMatch(initialMatchId: string | null) {
     const intervalRef = useRef<number | null>(null);
     const [court, setCourt] = useState<string>("");
 
-    // Récupérer les données du match depuis l'API
+    // UN SEUL useEffect pour récupérer les données du match
     useEffect(() => {
         if (!initialMatchId) return;
-        // Mettre le match en "en cours" à l'ouverture de la page
         updateMatchStatus('en_cours');
+
         async function fetchMatchData() {
             try {
                 console.log('[Football Hook] Fetching match data for matchId:', initialMatchId);
-                
+
                 // 1. Récupérer les données du match
                 const matchResponse = await fetch(`http://localhost:8000/matches/${initialMatchId}`);
                 if (!matchResponse.ok) {
@@ -52,12 +49,6 @@ export function useFootballMatch(initialMatchId: string | null) {
                 const matchResult = await matchResponse.json();
                 const match = matchResult.data;
                 console.log('[Football Hook] Match data:', match);
-                // Log détaillé pour debug
-                if (match && typeof match === 'object') {
-                    Object.keys(match).forEach(k => {
-                        console.log(`[Football Hook] match[${k}]:`, match[k]);
-                    });
-                }
 
                 // 2. Récupérer les informations des équipes
                 let teamAName = "Team A";
@@ -65,6 +56,7 @@ export function useFootballMatch(initialMatchId: string | null) {
                 let teamBName = "Team B";
                 let teamBLogo = "";
 
+                // Équipe A
                 if (match.team_sport_a_id) {
                     console.log('[Football Hook] Fetching team_sport_a:', match.team_sport_a_id);
                     const teamSportAResponse = await fetch(`http://localhost:8000/team-sports/${match.team_sport_a_id}`);
@@ -77,16 +69,15 @@ export function useFootballMatch(initialMatchId: string | null) {
                             teamAName = teamAData.data.name;
                             teamALogo = teamAData.data.logo_url || "";
                             console.log('[Football Hook] Team A:', teamAName);
-                        } else {
-                            console.error('[Football Hook] Failed to fetch team A:', teamAResponse.status);
                         }
-                    } else {
-                        console.error('[Football Hook] Failed to fetch teamSport A:', teamSportAResponse.status);
                     }
-                } else {
-                    console.log('[Football Hook] No team_sport_a_id in match');
+                } else if (match.team_a_source) {
+                    // Fallback: afficher la source si l'équipe n'est pas encore résolue
+                    teamAName = match.team_a_source;
+                    console.log('[Football Hook] Team A (source fallback):', teamAName);
                 }
 
+                // Équipe B
                 if (match.team_sport_b_id) {
                     console.log('[Football Hook] Fetching team_sport_b:', match.team_sport_b_id);
                     const teamSportBResponse = await fetch(`http://localhost:8000/team-sports/${match.team_sport_b_id}`);
@@ -99,125 +90,12 @@ export function useFootballMatch(initialMatchId: string | null) {
                             teamBName = teamBData.data.name;
                             teamBLogo = teamBData.data.logo_url || "";
                             console.log('[Football Hook] Team B:', teamBName);
-                        } else {
-                            console.error('[Football Hook] Failed to fetch team B:', teamBResponse.status);
                         }
-                    } else {
-                        console.error('[Football Hook] Failed to fetch teamSport B:', teamSportBResponse.status);
                     }
-                } else {
-                    console.log('[Football Hook] No team_sport_b_id in match');
-                }
-
-                // 3. Récupérer les informations de planification (terrain)
-                console.log('[Football Hook] Fetching schedule for match:', initialMatchId);
-                const scheduleResponse = await fetch(`http://localhost:8000/matches/${initialMatchId}/schedule`);
-                console.log('[Football Hook] Schedule response status:', scheduleResponse.status);
-                if (scheduleResponse.ok) {
-                    const scheduleData = await scheduleResponse.json();
-                    console.log('[Football Hook] Schedule data:', scheduleData.data);
-                    if (scheduleData.data?.court_id) {
-                        const courtResponse = await fetch(`http://localhost:8000/courts/${scheduleData.data.court_id}`);
-                        if (courtResponse.ok) {
-                            const courtData = await courtResponse.json();
-                            const courtName = courtData.data.name || "";
-                            setCourt(courtName);
-                            console.log('[Football Hook] Court name:', courtName);
-                        } else {
-                            console.error('[Football Hook] Failed to fetch court:', courtResponse.status);
-                        }
-                    } else {
-                        console.log('[Football Hook] No court_id in schedule data');
-                    }
-                } else {
-                    console.warn('[Football Hook] Schedule not found (404) - this is normal if no schedule exists yet');
-                }
-
-                // 4. Déterminer le type de match
-                let matchType = "Match";
-                if (match.match_type === "qualification") {
-                    matchType = "Qualifications";
-                } else if (match.match_type === "pool") {
-                    matchType = "Poule";
-                } else if (match.match_type === "bracket") {
-                    if (match.bracket_type === "quarterfinal") matchType = "Quart de finale";
-                    else if (match.bracket_type === "semifinal") matchType = "Demi-finale";
-                    else if (match.bracket_type === "final") matchType = "Finale";
-                    else if (match.bracket_type === "third_place") matchType = "Petite finale";
-                    else matchType = match.label || "Bracket";
-                } else if (match.match_type === "loser_bracket") {
-                    matchType = match.label || "Repêchage";
-                }
-
-                console.log('[Football Hook] Final values - TeamA:', teamAName, 'TeamB:', teamBName, 'MatchType:', matchType, 'Court:', court);
-
-                // 5. Mettre à jour le state avec les données récupérées
-                setMatchData(prev => ({
-                    ...prev,
-                    teamA: { ...prev.teamA, name: teamAName, logo_url: teamALogo },
-                    teamB: { ...prev.teamB, name: teamBName, logo_url: teamBLogo },
-                    matchType: matchType,
-                    // Récupération robuste de l'id du tournoi
-                    tournamentId: match.tournament_id || match.tournamentId || (match.tournament && (match.tournament.id || match.tournament.tournament_id)) || undefined
-                }));
-
-                console.log('[Football Hook] Match data updated successfully');
-
-            } catch (error) {
-                console.error('[Football Hook] Error fetching match data:', error);
-            }
-        }
-
-        fetchMatchData();
-    }, [initialMatchId]);
-
-    useEffect(() => {
-        if (!initialMatchId) return;
-        // Mettre le match en "en cours" à l'ouverture de la page
-        updateMatchStatus('en_cours');
-        async function fetchMatchData() {
-            try {
-                console.log('[Football Hook] Fetching match data for matchId:', initialMatchId);
-                
-                // 1. Récupérer les données du match
-                const matchResponse = await fetch(`http://localhost:8000/matches/${initialMatchId}`);
-                if (!matchResponse.ok) {
-                    console.error('[Football Hook] Match not found:', matchResponse.status);
-                    throw new Error('Match not found');
-                }
-                const matchResult = await matchResponse.json();
-                const match = matchResult.data;
-                console.log('[Football Hook] Match data:', match);
-                // Log détaillé pour debug
-                if (match && typeof match === 'object') {
-                    Object.keys(match).forEach(k => {
-                        console.log(`[Football Hook] match[${k}]:`, match[k]);
-                    });
-                }
-
-                // 2. Récupérer les informations des équipes
-                let teamAName = "Team A";
-                let teamALogo = "";
-                let teamBName = "Team B";
-                let teamBLogo = "";
-
-                if (match.team_sport_a_id) {
-                    console.log('[Football Hook] Fetching team_sport_a:', match.team_sport_a_id);
-                    const teamSportAResponse = await fetch(`http://localhost:8000/team-sports/${match.team_sport_a_id}`);
-                    if (teamSportAResponse.ok) {
-                        const teamSportAData = await teamSportAResponse.json();
-                        /* Lines 73-83 omitted */
-                    } else {/* Lines 84-85 omitted */}
-                } else {
-                    console.log('[Football Hook] No team_sport_a_id in match');
-                }
-
-                if (match.team_sport_b_id) {
-                    console.log('[Football Hook] Fetching team_sport_b:', match.team_sport_b_id);
-                    const teamSportBResponse = await fetch(`http://localhost:8000/team-sports/${match.team_sport_b_id}`);
-                    if (teamSportBResponse.ok) {/* Lines 94-105 omitted */} else {/* Lines 106-107 omitted */}
-                } else {
-                    console.log('[Football Hook] No team_sport_b_id in match');
+                } else if (match.team_b_source) {
+                    // Fallback: afficher la source si l'équipe n'est pas encore résolue
+                    teamBName = match.team_b_source;
+                    console.log('[Football Hook] Team B (source fallback):', teamBName);
                 }
 
                 // 3. Récupérer les informations de planification (terrain)
@@ -230,12 +108,8 @@ export function useFootballMatch(initialMatchId: string | null) {
                     console.log('[Football Hook] Schedule data:', scheduleData.data);
                     if (scheduleData.data?.court_name) {
                         courtName = scheduleData.data.court_name;
-                    } else if (scheduleData.data?.court_id) {
-                        // fallback: si court_id seulement, essaye de trouver le nom dans courts
-                        courtName = scheduleData.data.court_id.toString();
+                        setCourt(courtName ?? "");
                     }
-                } else {
-                    console.warn('[Football Hook] Schedule not found (404) - this is normal if no schedule exists yet');
                 }
 
                 // 4. Déterminer le type de match
@@ -262,7 +136,125 @@ export function useFootballMatch(initialMatchId: string | null) {
                     teamA: { ...prev.teamA, name: teamAName, logo_url: teamALogo },
                     teamB: { ...prev.teamB, name: teamBName, logo_url: teamBLogo },
                     matchType: matchType,
-                    // Récupération robuste de l'id du tournoi
+                    tournamentId: match.tournament_id || match.tournamentId || undefined,
+                    court: courtName
+                }));
+
+                console.log('[Football Hook] Match data updated successfully');
+
+            } catch (error) {
+                console.error('[Football Hook] Error fetching match data:', error);
+            }
+        }
+
+        fetchMatchData();
+    }, [initialMatchId]);
+
+    useEffect(() => {
+        if (!initialMatchId) return;
+        // Mettre le match en "en cours" à l'ouverture de la page
+        updateMatchStatus('en_cours');
+        async function fetchMatchData() {
+            try {
+                console.log('[Football Hook] Fetching match data for matchId:', initialMatchId);
+
+                // 1. Récupérer les données du match
+                const matchResponse = await fetch(`http://localhost:8000/matches/${initialMatchId}`);
+                if (!matchResponse.ok) {
+                    console.error('[Football Hook] Match not found:', matchResponse.status);
+                    throw new Error('Match not found');
+                }
+                const matchResult = await matchResponse.json();
+                const match = matchResult.data;
+                console.log('[Football Hook] Match data:', match);
+
+                // 2. Récupérer les informations des équipes
+                let teamAName = "Team A";
+                let teamALogo = "";
+                let teamBName = "Team B";
+                let teamBLogo = "";
+
+                // Équipe A
+                if (match.team_sport_a_id) {
+                    console.log('[Football Hook] Fetching team_sport_a:', match.team_sport_a_id);
+                    const teamSportAResponse = await fetch(`http://localhost:8000/team-sports/${match.team_sport_a_id}`);
+                    if (teamSportAResponse.ok) {
+                        const teamSportAData = await teamSportAResponse.json();
+                        console.log('[Football Hook] TeamSport A data:', teamSportAData.data);
+                        const teamAResponse = await fetch(`http://localhost:8000/teams/${teamSportAData.data.team_id}`);
+                        if (teamAResponse.ok) {
+                            const teamAData = await teamAResponse.json();
+                            teamAName = teamAData.data.name;
+                            teamALogo = teamAData.data.logo_url || "";
+                            console.log('[Football Hook] Team A:', teamAName);
+                        }
+                    }
+                } else if (match.team_a_source) {
+                    // Fallback: afficher la source si l'équipe n'est pas encore résolue
+                    teamAName = match.team_a_source;
+                    console.log('[Football Hook] Team A (source):', teamAName);
+                }
+
+                // Équipe B
+                if (match.team_sport_b_id) {
+                    console.log('[Football Hook] Fetching team_sport_b:', match.team_sport_b_id);
+                    const teamSportBResponse = await fetch(`http://localhost:8000/team-sports/${match.team_sport_b_id}`);
+                    if (teamSportBResponse.ok) {
+                        const teamSportBData = await teamSportBResponse.json();
+                        console.log('[Football Hook] TeamSport B data:', teamSportBData.data);
+                        const teamBResponse = await fetch(`http://localhost:8000/teams/${teamSportBData.data.team_id}`);
+                        if (teamBResponse.ok) {
+                            const teamBData = await teamBResponse.json();
+                            teamBName = teamBData.data.name;
+                            teamBLogo = teamBData.data.logo_url || "";
+                            console.log('[Football Hook] Team B:', teamBName);
+                        }
+                    }
+                } else if (match.team_b_source) {
+                    // Fallback: afficher la source si l'équipe n'est pas encore résolue
+                    teamBName = match.team_b_source;
+                    console.log('[Football Hook] Team B (source):', teamBName);
+                }
+
+                // 3. Récupérer les informations de planification (terrain)
+                let courtName: string | undefined = undefined;
+                console.log('[Football Hook] Fetching schedule for match:', initialMatchId);
+                const scheduleResponse = await fetch(`http://localhost:8000/matches/${initialMatchId}/schedule`);
+                console.log('[Football Hook] Schedule response status:', scheduleResponse.status);
+                if (scheduleResponse.ok) {
+                    const scheduleData = await scheduleResponse.json();
+                    console.log('[Football Hook] Schedule data:', scheduleData.data);
+                    if (scheduleData.data?.court_name) {
+                        courtName = scheduleData.data.court_name;
+                    } else if (scheduleData.data?.court_id) {
+                        courtName = scheduleData.data.court_id.toString();
+                    }
+                }
+
+                // 4. Déterminer le type de match
+                let matchType = "Match";
+                if (match.match_type === "qualification") {
+                    matchType = "Qualifications";
+                } else if (match.match_type === "pool") {
+                    matchType = "Poule";
+                } else if (match.match_type === "bracket") {
+                    if (match.bracket_type === "quarterfinal") matchType = "Quart de finale";
+                    else if (match.bracket_type === "semifinal") matchType = "Demi-finale";
+                    else if (match.bracket_type === "final") matchType = "Finale";
+                    else if (match.bracket_type === "third_place") matchType = "Petite finale";
+                    else matchType = match.label || "Bracket";
+                } else if (match.match_type === "loser_bracket") {
+                    matchType = match.label || "Repêchage";
+                }
+
+                console.log('[Football Hook] Final values - TeamA:', teamAName, 'TeamB:', teamBName, 'MatchType:', matchType, 'Court:', courtName);
+
+                // 5. Mettre à jour le state avec les données récupérées
+                setMatchData(prev => ({
+                    ...prev,
+                    teamA: { ...prev.teamA, name: teamAName, logo_url: teamALogo },
+                    teamB: { ...prev.teamB, name: teamBName, logo_url: teamBLogo },
+                    matchType: matchType,
                     tournamentId: match.tournament_id || match.tournamentId || (match.tournament && (match.tournament.id || match.tournament.tournament_id)) || undefined,
                     court: courtName
                 }));

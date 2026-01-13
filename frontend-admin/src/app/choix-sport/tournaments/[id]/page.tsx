@@ -37,6 +37,9 @@ type TournamentMatch = {
   date?: string;
   time?: string;
   court?: string;
+  courtId?: number;
+  scheduledDatetime?: string;
+  estimatedDurationMinutes?: number;
   scoreA?: number;
   scoreB?: number;
 };
@@ -264,64 +267,122 @@ export default function TournamentViewPage() {
 
   // Une fois que le mapping est chargé, charger la structure du tournoi
   useEffect(() => {
-    if (Object.keys(teamSportIdToName).length === 0) return;
-    const id = params?.id;
-    if (typeof id !== "string") return;
+      if (Object.keys(teamSportIdToName).length === 0) return;
+      const id = params?.id;
+      if (typeof id !== "string") return;
 
-    // Charger tous les tournois et trouver celui pour ce sport
-    const loadTournamentMatches = async () => {
-      try {
-        const tournamentsResponse = await fetch(`http://localhost:8000/tournaments`);
-        if (!tournamentsResponse.ok) throw new Error("Impossible de charger les tournois");
-        const tournamentsData = await tournamentsResponse.json();
-        const tournaments = Array.isArray(tournamentsData.data?.items)
-          ? tournamentsData.data.items
-          : Array.isArray(tournamentsData.data)
-          ? tournamentsData.data
-          : [];
-        const tournament = tournaments.find((t: any) => t.sport_id === parseInt(id));
-        if (!tournament) throw new Error("Aucun tournoi trouvé pour ce sport. Veuillez le configurer d'abord.");
+      const loadTournamentMatches = async () => {
+        try {
+          // 1. Récupérer le tournoi spécifique au sport via le filtre backend
+          // Cela évite de charger tous les tournois de la base
+          const tournamentsResponse = await fetch(`http://localhost:8000/tournaments?sport_id=${id}`);
+          if (!tournamentsResponse.ok) throw new Error("Impossible de charger le tournoi");
+          
+          const tournamentsData = await tournamentsResponse.json();
+          const items = tournamentsData.data?.items || [];
+          
+          // Comme on filtre par sport_id, on prend le premier résultat
+          const tournament = items.length > 0 ? items[0] : null;
 
-        // Charger tous les matchs du tournoi
-        const response = await fetch(`http://localhost:8000/matches?tournament_id=${tournament.id}`);
-        if (!response.ok) throw new Error("Impossible de charger les matchs du tournoi");
-        const data = await response.json();
-        const all = data.data || [];
-        const collected: TournamentMatch[] = all.map((m: any) => {
-          // Déterminer le type de match
-          let type: TournamentMatchType = "qualifications";
-          if (m.match_type === "qualification") type = "qualifications";
-          else if (m.match_type === "bracket") {
-            if (m.bracket_type === "semifinal") type = "demi-finale";
-            else if (m.bracket_type === "final") type = "finale";
-            else if (m.bracket_type === "third_place") type = "petite-finale";
-            else type = "bracket" as TournamentMatchType;
-          }
-          // Ajoute d'autres types si besoin
-          return {
-            id: m.id?.toString() || "",
-            label: m.label || "",
-            teamA: m.team_a_source || "",
-            teamB: m.team_b_source || "",
-            type,
-            status: m.status === "upcoming" ? "planifié" : 
-                   m.status === "in_progress" ? "en-cours" :
-                   m.status === "completed" ? "terminé" : "planifié",
-            court: m.court ? m.court.trim() : "",
-            scoreA: m.score_a,
-            scoreB: m.score_b,
-            date: m.date,
-            time: m.time,
+          if (!tournament) throw new Error("Aucun tournoi trouvé pour ce sport. Veuillez le configurer d'abord.");
+
+          // 2. Charger la STRUCTURE du tournoi (c'est là que sont vos matchs configurés)
+          // On utilise la route définie dans tournament_structure.py
+          const response = await fetch(`http://localhost:8000/tournaments/${tournament.id}/structure`);
+          if (!response.ok) throw new Error("Impossible de charger la structure du tournoi");
+          
+          const structureData = await response.json();
+          const data = structureData.data || structureData; // Adaptation selon le format de réponse (create_success_response ou direct)
+
+          // 3. Aplatir la structure (Qualifs + Poules + Brackets) en une liste unique de matchs
+          const collected: TournamentMatch[] = [];
+
+          // Fonction helper pour mapper le format Backend vers Frontend
+          const mapMatch = (m: any, forcedType?: TournamentMatchType): TournamentMatch => {
+            let type: TournamentMatchType = forcedType || "qualifications";
+            
+            // Détection du type si pas forcé
+            if (!forcedType) {
+              if (m.match_type === "qualification") type = "qualifications";
+              else if (m.bracket_type === "loser") type = "loser-bracket"; // Gestion spécifique loser bracket
+              else if (m.match_type === "bracket") {
+                if (m.bracket_type === "quarterfinal") type = "quarts"; // Mapping explicite si nécessaire
+                else if (m.bracket_type === "semifinal") type = "demi-finale";
+                else if (m.bracket_type === "final") type = "finale";
+                else if (m.bracket_type === "third_place") type = "petite-finale";
+                else type = "quarts"; // Par défaut pour les brackets classiques
+              }
+            }
+
+            return {
+              id: m.id?.toString() || "",
+              label: m.label || `Match ${m.match_order || ""}`,
+              teamA: m.team_a_source || (m.team_sport_a_id ? m.team_sport_a_id.toString() : "Équipe A"),
+              teamB: m.team_b_source || (m.team_sport_b_id ? m.team_sport_b_id.toString() : "Équipe B"),
+              type: type,
+              status: m.status === "upcoming" ? "planifié" : 
+                    m.status === "in_progress" ? "en-cours" :
+                    m.status === "completed" ? "terminé" : "planifié",
+              court: m.court ? m.court.trim() : (m.court_id ? `Terrain #${m.court_id}` : ""),
+              courtId: m.court_id,
+              scheduledDatetime: m.scheduled_datetime,
+              estimatedDurationMinutes: m.estimated_duration_minutes,
+              scoreA: m.score_a,
+              scoreB: m.score_b,
+              date: m.date,
+              time: m.time,
+            };
           };
-        });
-        setMatches(collected);
-      } catch (err) {
-        console.error("❌ Impossible de charger les matchs du tournoi:", err);
-        setError("Impossible de charger les matchs du tournoi. Veuillez configurer le tournoi d'abord.");
-      }
-    };
-    loadTournamentMatches();
-  }, [params, teamSportIdToName]);
+
+          // A. Ajout des qualifications
+          if (data.qualification_matches) {
+            data.qualification_matches.forEach((m: any) => collected.push(mapMatch(m, "qualifications")));
+          }
+
+          // B. Ajout des matchs de poules
+          if (data.pools) {
+            data.pools.forEach((pool: any) => {
+              if (pool.matches) {
+                pool.matches.forEach((m: any) => collected.push(mapMatch(m, "poule")));
+              }
+            });
+            // On met aussi à jour l'état des poules pour les classements
+            setPools(data.pools.map((p: any) => ({
+              id: p.id.toString(),
+              name: p.name,
+              teams: p.teams || [], // Il faudra peut-être adapter si teams n'est pas rempli
+              qualifiedToFinals: p.qualified_to_finals,
+              qualifiedToLoserBracket: p.qualified_to_loser_bracket
+            })));
+          }
+
+          // C. Ajout des brackets (Winner)
+          if (data.bracket_matches) {
+            data.bracket_matches.forEach((m: any) => collected.push(mapMatch(m)));
+          }
+
+          // D. Ajout des brackets (Loser)
+          if (data.loser_bracket_matches) {
+            data.loser_bracket_matches.forEach((m: any) => collected.push(mapMatch(m, "loser-bracket")));
+          }
+
+          // Trier les matchs : terminés en bas, planifiés en haut (optionnel)
+          // collected.sort((a, b) => ... );
+
+          setMatches(collected);
+          
+          // Mise à jour des données brutes pour la logique de tournoi (calculs JS)
+          setTournamentMatches(collected as unknown as TournamentLogicMatch[]); // Adaptation de type simple
+          // Note: Pour une logique JS parfaite, il faudrait aussi mapper vers TournamentLogicPool, etc.
+          
+        } catch (err) {
+          console.error("❌ Impossible de charger les matchs du tournoi:", err);
+          setError("Impossible de charger les matchs. Vérifiez que la structure est bien générée.");
+        }
+      };
+      
+      loadTournamentMatches();
+    }, [params, teamSportIdToName]);
 
   // Générer le classement des poules avec les vrais résultats
   const generatePoolRankings = async (): Promise<Map<string, RankingEntry[]>> => {

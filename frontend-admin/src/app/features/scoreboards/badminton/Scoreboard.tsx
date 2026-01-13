@@ -1,9 +1,12 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { getAvailableCourts } from "./courtUtils";
 import "./badminton.css";
 import { useSearchParams } from "next/navigation";
+// Make sure the hook exists at the correct path, or create a stub if missing
 import { useBadmintonMatch } from "./useBadmintonMatch";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 
 type Team = {
@@ -22,21 +25,41 @@ export default function BadmintonTableMarquagePage() {
   const [teams, setTeams] = useState<Team[]>([]);
   const params = useSearchParams();
   const matchId = params.get("matchId");
+  console.log('[Badminton Scoreboard] ========== COMPONENT LOADED ==========');
+  console.log('[Badminton Scoreboard] MatchId from URL:', matchId);
   const router = useRouter();
-
+  const logoService = "/img/badminton.png";
+  const CONST_SIZE = 30;
   const [teamA, setTeamA] = useState("");
   const [teamB, setTeamB] = useState("");
   const [matchType, setMatchType] = useState("Type de match");
   const [matchGround, setMatchGround] = useState("Terrain");
 
   const [courts, setCourts] = useState<Court[]>([]);
+  const [courtSchedules, setCourtSchedules] = useState<any[]>([]);
   const [loadingCourts, setLoadingCourts] = useState(true);
+  const [selectedDateTime, setSelectedDateTime] = useState<string>("");
 
   // Charger les équipes au montage du composant
   useEffect(() => {
     fetchTeams();
     fetchCourts();
+    fetchCourtSchedules();
   }, []);
+  // Récupérer les plannings de tous les terrains (pour filtrer les dispos)
+  const fetchCourtSchedules = async () => {
+    try {
+      const res = await fetch("http://localhost:8000/match-schedules?skip=0&limit=200", {
+        method: "GET",
+        headers: { "Accept": "application/json" }
+      });
+      if (!res.ok) throw new Error("Impossible de charger les plannings");
+      const data = await res.json();
+      setCourtSchedules(Array.isArray(data?.data?.items) ? data.data.items : []);
+    } catch (error) {
+      setCourtSchedules([]);
+    }
+  };
 
   const {
     matchData,
@@ -45,30 +68,35 @@ export default function BadmintonTableMarquagePage() {
     stopChrono,
     addPoint,
     subPoint,
-    addYellowCard,
-    subYellowCard,
-    addRedCard,
-    subRedCard,
     setTeamName,
     setTeamLogo,
     setMatchType: setMatchTypeMeta,
     swapSides,
     court,
+    handleEnd,
+    changeService
   } = useBadmintonMatch(matchId);
 
   // Synchroniser les données du match avec les states locaux
   useEffect(() => {
+    console.log('[Badminton Scoreboard] Match data changed:', matchData);
+    console.log('[Badminton Scoreboard] Court:', court);
+    
     if (matchData.teamA.name && matchData.teamA.name !== "Team A") {
       setTeamA(matchData.teamA.name);
+      console.log('[Badminton Scoreboard] Set Team A to:', matchData.teamA.name);
     }
     if (matchData.teamB.name && matchData.teamB.name !== "Team B") {
       setTeamB(matchData.teamB.name);
+      console.log('[Badminton Scoreboard] Set Team B to:', matchData.teamB.name);
     }
     if (matchData.matchType) {
       setMatchType(matchData.matchType);
+      console.log('[Badminton Scoreboard] Set Match Type to:', matchData.matchType);
     }
     if (court) {
       setMatchGround(court);
+      console.log('[Badminton Scoreboard] Set Court to:', court);
     }
   }, [matchData, court]);
 
@@ -153,55 +181,116 @@ export default function BadmintonTableMarquagePage() {
   };
 
   return (
-    <main>
+    <main className="badminton-root">
       <header className="mb-10 text-center">
         <h1 className="text-3xl font-bold text-black mb-2">
           Badminton - Table de marquage
         </h1>
       </header>
 
-      <div className="gauche">
+<div className="gauche">
         <div className="parametres-match mb-6">
           <label htmlFor="teamA">Équipe A :</label>
-          <select name="teamA" value={teamA} onChange={handleTeamAChange} disabled={loadingTeams || !!matchId}>
-            <option value="">{loadingTeams ? "Chargement..." : "Sélectionner"}</option>
-            {teams.map((team) => (
+            {matchId ? (
+            <input
+              type="text"
+              value={matchData.teamA.name}
+              disabled
+              className="w-full text-center rounded-md border-none mb-2.5 bg-white text-black cursor-not-allowed p-2"
+            />
+            ) : (
+            <select name="teamA" value={teamA} onChange={handleTeamAChange} disabled={loadingTeams}>
+              <option value="">{loadingTeams ? "Chargement..." : "Sélectionner"}</option>
+              {teams.map((team) => (
               <option key={team.id} value={team.id}>
                 {team.name}
               </option>
-            ))}
-          </select>
+              ))}
+            </select>
+            )}
 
           <label htmlFor="teamB">Équipe B :</label>
-          <select id="teamB" name="teamB" value={teamB} onChange={handleTeamBChange} disabled={loadingTeams || !!matchId}>
-            <option value="">{loadingTeams ? "Chargement..." : "Sélectionner"}</option>
-            {teams.map((team) => (
-              <option key={team.id} value={team.id}>
-                {team.name}
-              </option>
-            ))}
-          </select>
+          {matchId ? (
+            <input
+              type="text"
+              value={matchData.teamB.name}
+              disabled
+              className="w-full text-center rounded-md border-none mb-2.5 bg-white text-black cursor-not-allowed p-2"
+            />
+          ) : (
+            <select id="teamB" name="teamB" value={teamB} onChange={handleTeamBChange} disabled={loadingTeams}>
+              <option value="">{loadingTeams ? "Chargement..." : "Sélectionner"}</option>
+              {teams.map((team) => (
+                <option key={team.id} value={team.id}>
+                  {team.name}
+                </option>
+              ))}
+            </select>
+          )}
 
           <label htmlFor="matchType">Type de match :</label>
-          <select id="matchTypeSelector" value={matchType} onChange={handleMatchTypeChange} disabled={!!matchId}>
-            <option value="">Sélectionner</option>
-            <option value="Qualification">Qualification</option>
-            <option value="Poule">Poule</option>
-            <option value="Quart de finale">Quart de finale</option>
-            <option value="Demi-finale">Demi-finale</option>
-            <option value="Petite Finale">Petite Finale</option>
-            <option value="Finale">Finale</option>
-          </select>
+          {matchId ? (
+            <input
+              type="text"
+              value={matchData.matchType}
+              disabled
+              className="w-full text-center rounded-md border-none mb-2.5 bg-white text-black cursor-not-allowed p-2"
+            />
+          ) : (
+            <select id="matchTypeSelector" value={matchType} onChange={handleMatchTypeChange}>
+              <option value="">Sélectionner</option>
+              <option value="Qualification">Qualification</option>
+              <option value="Poule">Poule</option>
+              <option value="Quart de finale">Quart de finale</option>
+              <option value="Demi-finale">Demi-finale</option>
+              <option value="Petite Finale">Petite Finale</option>
+              <option value="Finale">Finale</option>
+            </select>
+          )}
 
           <label htmlFor="matchGround">Terrain :</label>
-          <select id="matchGroundSelector" value={matchGround} onChange={(e) => setMatchGround(e.target.value)} disabled={loadingCourts || !!matchId}>
-            <option value="">{loadingCourts ? "Chargement..." : "Sélectionner"}</option>
-            {courts.map((court) => (
-              <option key={court.id} value={court.id}>
-                {court.name}
-              </option>
-            ))}
-          </select>
+          {matchId ? (
+            <input
+              type="text"
+              value={
+                // Affiche toujours le nom du terrain si possible
+                courts.find(c => c.id === matchData.court?.toString())?.name
+                || courts.find(c => c.name === matchData.court)?.name
+                || courts.find(c => c.id === court?.toString())?.name
+                || courts.find(c => c.name === court)?.name
+                || courts.find(c => c.id === matchGround)?.name
+                || matchData.court
+                || court
+                || (matchGround !== "Terrain" ? courts.find(c => c.id === matchGround)?.name : "Terrain")
+              }
+              disabled
+              className="w-full text-center rounded-md border-none mb-2.5 bg-white text-black cursor-not-allowed p-2"
+            />
+          ) : (
+            <>
+              {/* Sélection du terrain avec désactivation des terrains occupés */}
+              <select
+                id="matchGroundSelector"
+                value={matchGround}
+                onChange={(e) => setMatchGround(e.target.value)}
+                disabled={loadingCourts}
+              >
+                <option value="">{loadingCourts ? "Chargement..." : "Sélectionner"}</option>
+                {getAvailableCourts(courts, courtSchedules, selectedDateTime).map((court: any) => (
+                  <option key={court.id} value={court.id} disabled={court.isOccupied}>
+                    {court.name} {court.isOccupied ? "(occupé)" : ""}
+                  </option>
+                ))}
+              </select>
+              {/* Sélecteur de date/heure pour la planification (exemple simple) */}
+              <input
+                type="datetime-local"
+                value={selectedDateTime}
+                onChange={e => setSelectedDateTime(e.target.value)}
+                className="border border-gray-300 rounded px-2 py-1 mt-2"
+              />
+            </>
+          )}
         </div>
 
         <div className="bouton_pied_page">
@@ -209,71 +298,84 @@ export default function BadmintonTableMarquagePage() {
             <button onClick={() => router.back()}>Retour</button>
           </div>
             <div className="button-row2">
-            <button onClick={() => window.open("/badminton/spectators", "_blank")}>Spectateurs</button>
+            <button onClick={() => window.open("./badminton/spectators", "_blank")}>Spectateurs</button>
             </div>
         </div>
       </div>
 
       {/* Tableau de marquage */}
       <div className="droite">
-        <div className="scoreboard">
+        <div className="scoreboard gap-8">
           <div className="score-display">
-            <div className="score-line">
-              <span>{teamA != "" ? teams.find((c: Team) => c.id === teamA)?.name : "Team A"} {matchData.teamA.score} - {matchData.teamB.score} {teamB != "" ? teams.find((c: Team) => c.id === teamB)?.name : "Team B"}</span>
+            <div className="teams-line mb-4">
+              <span>{matchData.teamA.name !== "Team A" ? matchData.teamA.name : (teamA != "" ? teams.find((c: Team) => c.id === teamA)?.name : "Team A")}</span>
+              <span>{matchData.teamB.name !== "Team B" ? matchData.teamB.name : (teamB != "" ? teams.find((c: Team) => c.id === teamB)?.name : "Team B")}</span>
+            </div>
+            <div className="score-line flex flex-row justify-center items-center gap-8 mb-6">
+              <div>
+                {matchData.serviceTeam === "A" && (
+                  <Image src={logoService} alt="Logo Service" width={CONST_SIZE} height={CONST_SIZE} className="service-logo" />
+                )}
+              </div>
+              <div>{matchData.teamA.score} - {matchData.teamB.score}</div>
+              <div>
+                {matchData.serviceTeam === "B" && (
+                  <Image src={logoService} alt="Logo Service" width={CONST_SIZE} height={CONST_SIZE} className="service-logo" />
+                )}
+              </div>
             </div>
             <div className="info-line">
-              <p>{matchType !== "Type de match" ? matchType : "Type de match"} - {matchGround !== "Terrain" ? courts.find(c => c.id === matchGround)?.name : "Terrain"}</p>
+              <p>{matchData.matchType || (matchType !== "Type de match" ? matchType : "Type de match")} - {
+                // Affiche toujours le nom du terrain si possible
+                courts.find(c => c.id === matchData.court?.toString())?.name
+                || courts.find(c => c.name === matchData.court)?.name
+                || courts.find(c => c.id === court?.toString())?.name
+                || courts.find(c => c.name === court)?.name
+                || courts.find(c => c.id === matchGround)?.name
+                || matchData.court
+                || court
+                || (matchGround !== "Terrain" ? courts.find(c => c.id === matchGround)?.name : "Terrain")
+              }</p>
             </div>
           </div>
 
           <div className="points-section">
             <div className="flex items-center gap-2">
-              <p>Buts : {matchData.teamA.score}</p>
+              <p>Points : {matchData.teamA.score}</p>
               <button onClick={() => subPoint("A")}>-</button>
               <button onClick={() => addPoint("A")}>+</button>
             </div>
             <div className="timer">{formattedTime}</div>
             <div className="flex items-center gap-2">
-              <p>Buts : {matchData.teamB.score}</p>
+              <p>Points : {matchData.teamB.score}</p>
               <button onClick={() => subPoint("B")}>-</button>
               <button onClick={() => addPoint("B")}>+</button>
-            </div>
-          </div>
-
-          <div className="cards-section grid grid-cols-2 gap-4 mb-4">
-            {/* Cartons Équipe A */}
-            <div className="flex flex-col items-center gap-4">
-              <div className="flex items-center gap-2">
-                <p>Cartons Jaunes : {matchData.teamA.yellowCards != 0 ? matchData.teamA.yellowCards : 0}</p>
-                <button style={{ backgroundColor: 'var(--bg-yellow-900)' }} onClick={() => subYellowCard("A")}>-</button>
-                <button style={{ backgroundColor: 'var(--bg-yellow-900)' }} onClick={() => addYellowCard("A")}>+</button>
-              </div>
-              <div className="flex items-center gap-2">
-                <p>Cartons Rouges : {matchData.teamA.redCards != 0 ? matchData.teamA.redCards : 0}</p>
-                <button style={{ backgroundColor: 'var(--bg-red-900)' }} onClick={() => subRedCard("A")}>-</button>
-                <button style={{ backgroundColor: 'var(--bg-red-900)' }} onClick={() => addRedCard("A")}>+</button>
-              </div>
-            </div>
-            {/* Cartons Équipe B */}
-            <div className="flex flex-col items-center gap-4">
-              <div className="flex items-center gap-2">
-                <p>Cartons Jaunes : {matchData.teamB.yellowCards != 0 ? matchData.teamB.yellowCards : 0}</p>
-                <button style={{ backgroundColor: 'var(--bg-yellow-900)' }} onClick={() => subYellowCard("B")}>-</button>
-                <button style={{ backgroundColor: 'var(--bg-yellow-900)' }} onClick={() => addYellowCard("B")}>+</button>
-              </div>
-              <div className="flex items-center gap-2">
-                <p>Cartons Rouges : {matchData.teamB.redCards != 0 ? matchData.teamB.redCards : 0}</p>
-                <button style={{ backgroundColor: 'var(--bg-red-900)' }} onClick={() => subRedCard("B")}>-</button>
-                <button style={{ backgroundColor: 'var(--bg-red-900)' }} onClick={() => addRedCard("B")}>+</button>
-              </div>
             </div>
           </div>
 
           <div className="bottom-controls">
             <button onClick={startChrono}>Start</button>
             <button onClick={stopChrono}>Stop</button>
+            <button onClick={changeService}>Service</button>
             <button onClick={handleSwipe}>Swipe</button>
-            <button>End</button>
+              <button
+                className="btnAction text-white"
+                onClick={() => {
+                  handleEnd();
+                  const tournamentId = matchData.tournamentId;
+                  console.log('[Badminton] MatchData complet:', matchData);
+                  console.log('[Badminton] TournamentId from matchData:', tournamentId);
+                  console.log('[Badminton] MatchId:', matchId);
+                  if (!tournamentId) {
+                    alert("Impossible de retrouver l'ID du tournoi pour la redirection.");
+                    return;
+                  }
+                  console.log('[Badminton] Redirecting to tournament:', tournamentId);
+                  window.location.href = `/choix-sport/tournaments/${tournamentId}`;
+                }}
+              >
+                End
+              </button>
           </div>
         </div>
       </div>

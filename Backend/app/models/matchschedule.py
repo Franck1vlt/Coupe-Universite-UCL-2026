@@ -14,8 +14,10 @@ class MatchSchedule(Base):
 
     __tablename__ = "MatchSchedule"
 
+    
     match_id = Column(Integer, ForeignKey("Match.id"), primary_key=True)  # Primary Key, FK → Match.id
     court_id = Column(Integer, ForeignKey("Court.id"), nullable=True)     # FK → Court.id
+    tournament_id = Column(Integer, ForeignKey("Tournament.id"), nullable=False, index=True)  # FK → Tournament.id
     scheduled_datetime = Column(DateTime, nullable=True)                  # Date et heure prévues
     actual_start_datetime = Column(DateTime, nullable=True)               # Heure de début réelle
     actual_end_datetime = Column(DateTime, nullable=True)                 # Heure de fin réelle
@@ -30,10 +32,12 @@ class MatchSchedule(Base):
     # Relations (optionnelles, selon besoin)
     match = relationship("Match", backref="schedule", uselist=False)
     court = relationship("Court", backref="schedules")
+    tournament = relationship("Tournament", backref="match_schedules")
 
     def __repr__(self):
         return (
             f"<MatchSchedule(match_id={self.match_id}, court_id={self.court_id}, "
+            f"tournament_id={self.tournament_id}, "
             f"scheduled_datetime={self.scheduled_datetime}, "
             f"actual_start_datetime={self.actual_start_datetime}, "
             f"actual_end_datetime={self.actual_end_datetime}, "

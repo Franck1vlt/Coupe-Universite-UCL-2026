@@ -24,7 +24,7 @@ export default function FootballTableMarquagePage() {
   const params = useSearchParams();
   const matchId = params.get("matchId");
   const router = useRouter();
-
+  const [tournamentId, setTournamentId] = useState<string | null>(null);
   const [teamA, setTeamA] = useState("");
   const [teamB, setTeamB] = useState("");
   const [matchType, setMatchType] = useState("Type de match");
@@ -41,6 +41,30 @@ export default function FootballTableMarquagePage() {
     fetchCourts();
     fetchCourtSchedules();
   }, []);
+
+  // Récupérer le tournamentId via la chaîne match -> phase -> tournament
+  useEffect(() => {
+    async function fetchTournamentId() {
+      if (!matchId) return;
+      try {
+        // 1. Récupérer le match pour obtenir phase_id
+        const matchRes = await fetch(`http://localhost:8000/matches/${matchId}`);
+        if (!matchRes.ok) throw new Error('Match not found');
+        const matchData = await matchRes.json();
+        
+        // 2. Récupérer la phase pour obtenir tournament_id
+        const phaseRes = await fetch(`http://localhost:8000/tournament-phases/${matchData.data.phase_id}`);
+        if (!phaseRes.ok) throw new Error('Phase not found');
+        const phaseData = await phaseRes.json();
+        
+        setTournamentId(phaseData.data.tournament_id.toString());
+      } catch (err) {
+        console.error("Erreur récupération tournamentId:", err);
+      }
+    }
+    fetchTournamentId();
+  }, [matchId]);
+
   // Récupérer les plannings de tous les terrains (pour filtrer les dispos)
   const fetchCourtSchedules = async () => {
     try {
@@ -370,7 +394,18 @@ export default function FootballTableMarquagePage() {
             <button onClick={startChrono}>Start</button>
             <button onClick={stopChrono}>Stop</button>
             <button onClick={handleSwipe}>Swipe</button>
-            <button onClick={handleEnd}>End</button>
+            <button
+              onClick={() => {
+                handleEnd();
+                if (!tournamentId) {
+                  alert("Impossible de retrouver l'ID du tournoi pour la redirection.");
+                  return;
+                }
+                window.location.href = `/choix-sport/tournaments/${tournamentId}`;
+              }}
+            >
+              END
+            </button>
           </div>
         </div>
       </div>

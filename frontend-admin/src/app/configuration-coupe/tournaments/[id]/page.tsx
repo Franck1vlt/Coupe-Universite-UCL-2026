@@ -354,11 +354,13 @@ export default function TournamentsPage() {
       // Calculer estimated_duration_minutes
       const estimatedDurationMinutes = duration;
 
+
       const payload = {
         match_id: parseInt(matchId, 10),
         court_id: parseInt(court.id, 10),
         scheduled_datetime: scheduledDatetime,
-        estimated_duration_minutes: estimatedDurationMinutes
+        estimated_duration_minutes: estimatedDurationMinutes,
+        tournament_id: tournamentId // Ajout de tournament_id
       };
 
       console.log(`📅 Envoi match schedule pour match ${matchId}:`, payload);
@@ -1382,6 +1384,8 @@ export default function TournamentsPage() {
             bracketMatchType: "demi",
             winnerCode: `WSF${i}`,
             winnerDestination: "F",
+            loserCode: `LSF${i}`,
+            loserDestination: enabledRounds.includes("petite-finale") ? "PF" : undefined,
           }));
         }
       }
@@ -1393,6 +1397,16 @@ export default function TournamentsPage() {
           type: "phase-finale",
           bracketMatchType: "finale",
           winnerCode: "WF",
+        }));
+      }
+
+      if (enabledRounds.includes("petite-finale")) {
+        newMatches.push(getPersistentMatch("petite-finale", "WPF", {
+          teamA: enabledRounds.includes("demi") ? "LSF1" : "",
+          teamB: enabledRounds.includes("demi") ? "LSF2" : "",
+          type: "phase-finale",
+          bracketMatchType: "petite-finale",
+          winnerCode: "WPF",
         }));
       }
 
@@ -1737,6 +1751,18 @@ export default function TournamentsPage() {
 
   // 2. Fonction de sauvegarde
   const handleSaveLayout = async () => {
+            // Vérification : tous les matchs doivent avoir une date et une heure
+            const allMatches = [
+              ...matches,
+              ...pools.flatMap(p => p.matches),
+              ...brackets.flatMap(b => b.matches),
+              ...loserBrackets.flatMap(lb => lb.matches),
+            ];
+            const missingDateTime = allMatches.filter(m => !m.date || !m.time);
+            if (missingDateTime.length > 0) {
+              alert("Tous les matchs doivent avoir une date et une heure !");
+              return;
+            }
       const rawSportId = params.id;
       const sportIdStr = Array.isArray(rawSportId) ? rawSportId[0] : rawSportId;
 
@@ -1766,7 +1792,16 @@ export default function TournamentsPage() {
               label: m.label || m.winnerCode || null,
               status: mapStatus(m.status),
               court: m.court || null,
-              scheduled_datetime: m.date && m.time ? `${m.date}T${m.time}:00` : null,
+              scheduled_datetime: (m.date && m.time)
+                ? `${m.date}T${m.time}:00`
+                : (() => {
+                    // Valeur par défaut : aujourd'hui à 09:00
+                    const now = new Date();
+                    const yyyy = now.getFullYear();
+                    const mm = String(now.getMonth() + 1).padStart(2, '0');
+                    const dd = String(now.getDate()).padStart(2, '0');
+                    return `${yyyy}-${mm}-${dd}T09:00:00`;
+                  })(),
               duration: m.duration || 90,
               team_a_source: m.teamA || null,
               team_b_source: m.teamB || null,
@@ -1782,7 +1817,15 @@ export default function TournamentsPage() {
               label: m.label || m.winnerCode || null,
               status: mapStatus(m.status),
               court: m.court || null,
-              scheduled_datetime: m.date && m.time ? `${m.date}T${m.time}:00` : null,
+              scheduled_datetime: (m.date && m.time)
+                ? `${m.date}T${m.time}:00`
+                : (() => {
+                    const now = new Date();
+                    const yyyy = now.getFullYear();
+                    const mm = String(now.getMonth() + 1).padStart(2, '0');
+                    const dd = String(now.getDate()).padStart(2, '0');
+                    return `${yyyy}-${mm}-${dd}T09:00:00`;
+                  })(),
               duration: m.duration || 90,
               team_a_source: m.teamA || null,
               team_b_source: m.teamB || null,
@@ -1799,7 +1842,15 @@ export default function TournamentsPage() {
               label: m.label || m.winnerCode,
               status: mapStatus(m.status),
               court: m.court || null,
-              scheduled_datetime: m.date && m.time ? `${m.date}T${m.time}:00` : null,
+              scheduled_datetime: (m.date && m.time)
+                ? `${m.date}T${m.time}:00`
+                : (() => {
+                    const now = new Date();
+                    const yyyy = now.getFullYear();
+                    const mm = String(now.getMonth() + 1).padStart(2, '0');
+                    const dd = String(now.getDate()).padStart(2, '0');
+                    return `${yyyy}-${mm}-${dd}T09:00:00`;
+                  })(),
               duration: m.duration || 90,
               team_a_source: m.teamA || null,
               team_b_source: m.teamB || null,
@@ -1816,7 +1867,15 @@ export default function TournamentsPage() {
               label: m.label || m.winnerCode,
               status: mapStatus(m.status),
               court: m.court || null,
-              scheduled_datetime: m.date && m.time ? `${m.date}T${m.time}:00` : null,
+              scheduled_datetime: (m.date && m.time)
+                ? `${m.date}T${m.time}:00`
+                : (() => {
+                    const now = new Date();
+                    const yyyy = now.getFullYear();
+                    const mm = String(now.getMonth() + 1).padStart(2, '0');
+                    const dd = String(now.getDate()).padStart(2, '0');
+                    return `${yyyy}-${mm}-${dd}T09:00:00`;
+                  })(),
               duration: m.duration || 90,
               team_a_source: m.teamA || null,
               team_b_source: m.teamB || null,
@@ -1824,11 +1883,25 @@ export default function TournamentsPage() {
           })),
         };
 
+        const sportName = sport?.name || "Tournoi";
+        const tournamentName = `${sportName} - ${new Date().getFullYear()}`;
+
         const url = tournamentId 
-          ? `http://localhost:8000/tournament_structure/${tournamentId}/structure` 
+          ? `http://localhost:8000/tournaments/${tournamentId}/structure` 
           : `http://localhost:8000/tournaments`;
 
-        const payload = tournamentId ? structure : { sport_id: parseInt(sportIdStr), ...structure };
+        const payload = tournamentId 
+          ? structure 
+          : { 
+              // ✅ Champs obligatoires ajoutés
+              name: tournamentName,
+              sport_id: parseInt(sportIdStr),
+              created_by_user_id: 1, // ⚠️ TODO: Remplacer par le vrai user ID
+              tournament_type: "qualifications",
+              status: "scheduled",
+              // Structure optionnelle
+              ...structure 
+            };
 
         const response = await fetch(url, {
           method: "POST",
