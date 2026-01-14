@@ -60,30 +60,9 @@ export default function TableMarquagePage({ params }: PageProps) {
         if (!res.ok) throw new Error('Match not found');
         const match = await res.json();
         setMatchData(match.data); // Stocke toutes les infos du match
-        const currentStatus = match?.data?.status;
-        console.log("Status actuel du match:", currentStatus);
-        if (currentStatus === 'in_progress' || currentStatus === 'completed') {
-          console.log("Déjà en cours ou terminé, pas de PATCH");
-          return;
-        }
-        // PATCH pour passer le match en "in_progress"
-        console.log("Envoi PATCH pour passer en in_progress");
-        return fetch(`http://localhost:8000/matches/${matchId}` , {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            "Accept": "application/json"
-          },
-          body: JSON.stringify({ status: "in_progress" })
-        });
-      })
-      .then((patchRes) => {
-        if (patchRes) {
-          console.log("Réponse PATCH:", patchRes.status);
-        }
       })
       .catch((err) => {
-        console.error("Erreur lors du passage en 'en-cours':", err);
+        console.error("Erreur lors du chargement du match:", err);
       });
   }, [isNumeric, matchId]);
   

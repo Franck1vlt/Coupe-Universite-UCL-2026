@@ -8,6 +8,7 @@ interface MatchData {
     team1?: string;
     team2?: string;
     matchType?: string;
+    court?: string;
     score1?: number;
     score2?: number;
     yellowCards1?: number;
@@ -93,7 +94,7 @@ export default function FootballTableSpectatorPage() {
     // Charger les données initiales depuis localStorage
     function loadInitialData() {
         try {
-            const liveData = localStorage.getItem('liveMatchData');
+            const liveData = localStorage.getItem('liveFootballMatch');
             if (liveData) {
                 setMatchData(JSON.parse(liveData));
             }
@@ -141,7 +142,7 @@ return (
 
                 {/* Infos Match */}
                 <div className="match-type-label">
-                    {matchData.matchType || 'Match'}
+                    {matchData.court || 'Terrain'} - {matchData.matchType || 'Match'}
                 </div>
 
                 {/* Cartons */}

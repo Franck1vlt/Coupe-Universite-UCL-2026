@@ -210,7 +210,7 @@ export default function FootballTableMarquagePage() {
         </h1>
       </header>
 
-<div className="gauche">
+      <div className="gauche">
         <div className="parametres-match mb-6">
           <label htmlFor="teamA">Équipe A :</label>
             {matchId ? (
@@ -327,7 +327,7 @@ export default function FootballTableMarquagePage() {
 
       {/* Tableau de marquage */}
       <div className="droite">
-        <div className="scoreboard">
+        <div className="scoreboard grid grid-cols-1 gap-2">
           <div className="score-display">
             <div className="score-line">
               <span>{matchData.teamA.name !== "Team A" ? matchData.teamA.name : (teamA != "" ? teams.find((c: Team) => c.id === teamA)?.name : "Team A")} {matchData.teamA.score} - {matchData.teamB.score} {matchData.teamB.name !== "Team B" ? matchData.teamB.name : (teamB != "" ? teams.find((c: Team) => c.id === teamB)?.name : "Team B")}</span>
@@ -395,12 +395,12 @@ export default function FootballTableMarquagePage() {
             <button onClick={stopChrono}>Stop</button>
             <button onClick={handleSwipe}>Swipe</button>
             <button
-              onClick={() => {
-                handleEnd();
+              onClick={async () => {
                 if (!tournamentId) {
                   alert("Impossible de retrouver l'ID du tournoi pour la redirection.");
                   return;
                 }
+                await handleEnd();
                 window.location.href = `/choix-sport/tournaments/${tournamentId}`;
               }}
             >

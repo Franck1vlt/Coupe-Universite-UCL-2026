@@ -1,16 +1,21 @@
 import { useState, useRef, useEffect } from "react";
 import { MatchData } from "./types";
 
+type MatchDataWithTournament = MatchData & { tournamentId?: string | number; court?: string };
+type TournamentMatchStatus = "planifié" | "en-cours" | "terminé" | "annulé";
+
+
 export function useBasketballMatch(initialMatchId: string | null) {
     const HALF_TIME_DURATION = 9 * 60; // 9 minutes en secondes
     
-    const [matchData, setMatchData] = useState<MatchData>({
+    const [matchData, setMatchData] = useState<MatchDataWithTournament>({
         matchId: initialMatchId || "",
         teamA: { name: "Team A", logo_url: "", score: 0, yellowCards: 0, redCards: 0, penalties: 0, technicalFouls: 0 },
         teamB: { name: "Team B", logo_url: "", score: 0, yellowCards: 0, redCards: 0, penalties: 0, technicalFouls: 0 },
         chrono: { time: HALF_TIME_DURATION, running: false, interval: null },
         hasPenalties: false,
-        matchType: ""
+        matchType: "",
+        tournamentId: undefined
     });
 
     const intervalRef = useRef<number | null>(null);
@@ -22,17 +27,39 @@ export function useBasketballMatch(initialMatchId: string | null) {
         
         async function fetchMatchData() {
             try {
+                console.log('[Basketball Hook] 📝 Fetching match data for matchId:', initialMatchId);
+                
                 const matchResponse = await fetch(`http://localhost:8000/matches/${initialMatchId}`);
                 if (!matchResponse.ok) throw new Error('Match not found');
                 const matchResult = await matchResponse.json();
                 const match = matchResult.data;
+                
+                console.log('[Basketball Hook] 📝 Match data:', match);
 
                 let teamAName = "Team A";
                 let teamALogo = "";
                 let teamBName = "Team B";
                 let teamBLogo = "";
 
+                // ⭐ NOUVEAU: Récupérer le tournamentId via phase_id
+                let tournamentId: number | undefined = undefined;
+                if (match.phase_id) {
+                    try {
+                        console.log('[Basketball Hook] 📝 Fetching tournament ID via phase_id:', match.phase_id);
+                        const phaseResponse = await fetch(`http://localhost:8000/tournament-phases/${match.phase_id}`);
+                        if (phaseResponse.ok) {
+                            const phaseData = await phaseResponse.json();
+                            tournamentId = phaseData.data.tournament_id;
+                            console.log('[Basketball Hook] ✅ Tournament ID found:', tournamentId);
+                        }
+                    } catch (err) {
+                        console.error('[Basketball Hook] ❌ Erreur récupération tournamentId:', err);
+                    }
+                }
+
+                // Équipe A
                 if (match.team_sport_a_id) {
+                    console.log('[Basketball Hook] 📝 Fetching team A, team_sport_id:', match.team_sport_a_id);
                     const teamSportAResponse = await fetch(`http://localhost:8000/team-sports/${match.team_sport_a_id}`);
                     if (teamSportAResponse.ok) {
                         const teamSportAData = await teamSportAResponse.json();
@@ -41,11 +68,17 @@ export function useBasketballMatch(initialMatchId: string | null) {
                             const teamAData = await teamAResponse.json();
                             teamAName = teamAData.data.name;
                             teamALogo = teamAData.data.logo_url || "";
+                            console.log('[Basketball Hook] ✅ Team A:', teamAName);
                         }
                     }
+                } else if (match.team_a_source) {
+                    teamAName = match.team_a_source;
+                    console.log('[Basketball Hook] 📝 Team A (source):', teamAName);
                 }
 
+                // Équipe B
                 if (match.team_sport_b_id) {
+                    console.log('[Basketball Hook] 📝 Fetching team B, team_sport_id:', match.team_sport_b_id);
                     const teamSportBResponse = await fetch(`http://localhost:8000/team-sports/${match.team_sport_b_id}`);
                     if (teamSportBResponse.ok) {
                         const teamSportBData = await teamSportBResponse.json();
@@ -54,8 +87,12 @@ export function useBasketballMatch(initialMatchId: string | null) {
                             const teamBData = await teamBResponse.json();
                             teamBName = teamBData.data.name;
                             teamBLogo = teamBData.data.logo_url || "";
+                            console.log('[Basketball Hook] ✅ Team B:', teamBName);
                         }
                     }
+                } else if (match.team_b_source) {
+                    teamBName = match.team_b_source;
+                    console.log('[Basketball Hook] 📝 Team B (source):', teamBName);
                 }
 
                 const scheduleResponse = await fetch(`http://localhost:8000/matches/${initialMatchId}/schedule`);
@@ -66,6 +103,7 @@ export function useBasketballMatch(initialMatchId: string | null) {
                         if (courtResponse.ok) {
                             const courtData = await courtResponse.json();
                             setCourt(courtData.data.name || "");
+                            console.log('[Basketball Hook] 📝 Court:', courtData.data.name);
                         }
                     }
                 }
@@ -85,15 +123,19 @@ export function useBasketballMatch(initialMatchId: string | null) {
                     matchType = match.label || "Repêchage";
                 }
 
+                // ⭐ MODIFICATION: Ajouter tournamentId dans le state
                 setMatchData(prev => ({
                     ...prev,
                     teamA: { ...prev.teamA, name: teamAName, logo_url: teamALogo },
                     teamB: { ...prev.teamB, name: teamBName, logo_url: teamBLogo },
-                    matchType: matchType
+                    matchType: matchType,
+                    tournamentId: tournamentId  // ⭐ NOUVEAU
                 }));
+                
+                console.log('[Basketball Hook] ✅ Match data loaded successfully');
 
             } catch (error) {
-                console.error('Error fetching match data:', error);
+                console.error('[Basketball Hook] ❌ Error fetching match data:', error);
             }
         }
 
@@ -139,10 +181,11 @@ export function useBasketballMatch(initialMatchId: string | null) {
         // évite les doublons d'interval
         if (intervalRef.current !== null) return;
 
+        // Chrono principal: décrément toutes les 1000ms (1 seconde)
         intervalRef.current = window.setInterval(() => {
             setMatchData((p) => {
                 const newTime = Math.max(0, p.chrono.time - 1);
-                
+
                 // Buzzer automatique à zéro du chrono global
                 if (newTime === 0 && p.chrono.time > 0) {
                     buzzer.play();
@@ -163,6 +206,10 @@ export function useBasketballMatch(initialMatchId: string | null) {
                             window.clearInterval(intervalRef.current);
                             intervalRef.current = null;
                         }
+                        if (shotClockIntervalRef.current !== null) {
+                            window.clearInterval(shotClockIntervalRef.current);
+                            shotClockIntervalRef.current = null;
+                        }
                         shotClockRunningRef.current = false;
                     }
                     return {
@@ -170,14 +217,16 @@ export function useBasketballMatch(initialMatchId: string | null) {
                         chrono: { ...p.chrono, time: 0, running: false },
                     };
                 }
-                
+
                 return {
                     ...p,
                     chrono: { ...p.chrono, time: newTime },
                 };
             });
+        }, 1000);
 
-            // Décrément du shot clock si actif - toutes les 100ms (dixièmes de seconde)
+        // Shot clock: décrément toutes les 100ms (dixièmes de seconde)
+        shotClockIntervalRef.current = window.setInterval(() => {
             if (shotClockRunningRef.current) {
                 setShotClockState((prev) => {
                     const next = Math.max(0, prev - 1);
@@ -194,7 +243,7 @@ export function useBasketballMatch(initialMatchId: string | null) {
 
         // Démarre aussi le shot clock
         shotClockRunningRef.current = true;
-        
+
         // met juste le flag running à true
         setMatchData((prev) => ({
             ...prev,
@@ -207,9 +256,13 @@ export function useBasketballMatch(initialMatchId: string | null) {
             window.clearInterval(intervalRef.current);
             intervalRef.current = null;
         }
+        if (shotClockIntervalRef.current !== null) {
+            window.clearInterval(shotClockIntervalRef.current);
+            shotClockIntervalRef.current = null;
+        }
         // Arrêt automatique du shot clock quand le chrono global s'arrête
         shotClockRunningRef.current = false;
-        
+
         setMatchData((prev) => ({
             ...prev,
             chrono: { ...prev.chrono, running: false },
@@ -263,6 +316,10 @@ export function useBasketballMatch(initialMatchId: string | null) {
             window.clearInterval(intervalRef.current);
             intervalRef.current = null;
         }
+        if (shotClockIntervalRef.current !== null) {
+            window.clearInterval(shotClockIntervalRef.current);
+            shotClockIntervalRef.current = null;
+        }
         shotClockRunningRef.current = false;
         setShotClockState(240); // 24.0s
         setPeriod("MT1");
@@ -315,6 +372,10 @@ export function useBasketballMatch(initialMatchId: string | null) {
             window.clearInterval(intervalRef.current);
             intervalRef.current = null;
         }
+        if (shotClockIntervalRef.current !== null) {
+            window.clearInterval(shotClockIntervalRef.current);
+            shotClockIntervalRef.current = null;
+        }
         shotClockRunningRef.current = false;
         setShotClockState(240); // 24.0s
     };
@@ -361,6 +422,108 @@ export function useBasketballMatch(initialMatchId: string | null) {
                 [k]: { ...p[k], technicalFouls: Math.max(0, p[k].technicalFouls - 1) },
             };
         });
+
+    /** ---------- STATUS ---------- */
+    const updateMatchStatus = async (status: 'scheduled' | 'in_progress' | 'completed') => {
+        if (!initialMatchId) return;
+        try {
+            await fetch(`http://localhost:8000/matches/${initialMatchId}/status`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status }),
+            });
+            console.log(`[Football Hook] Statut du match mis à jour: ${status}`);
+        } catch (e) {
+            console.error(`[Football Hook] Erreur lors de la mise à jour du statut du match (${status}) :`, e);
+        }
+    };
+
+    /** ---------- SUBMIT RESULT ---------- */
+    const submitMatchResult = async () => {
+        if (!initialMatchId) return;
+        try {
+            console.log('[Basketball Hook] 📝 Submitting match result...');
+            
+            // Récupérer les données du match pour obtenir les team_sport_id
+            const matchResponse = await fetch(`http://localhost:8000/matches/${initialMatchId}`);
+            if (!matchResponse.ok) throw new Error('Impossible de récupérer les données du match');
+            const matchDataApi = await matchResponse.json();
+            const match = matchDataApi.data;
+
+            console.log('[Basketball Hook] 📝 Match data from API:', match);
+            console.log('[Basketball Hook] 📝 team_sport_a_id:', match.team_sport_a_id);
+            console.log('[Basketball Hook] 📝 team_sport_b_id:', match.team_sport_b_id);
+
+            // Vérifier que les équipes sont assignées
+            if (!match.team_sport_a_id || !match.team_sport_b_id) {
+                console.error('[Basketball Hook] ❌ Les équipes ne sont pas assignées');
+                alert('Erreur : Les équipes ne sont pas assignées à ce match. Impossible de terminer le match.');
+                return;
+            }
+
+            const payload = {
+                score_a: matchData.teamA.score,
+                score_b: matchData.teamB.score,
+                status: 'completed',  // ⭐ IMPORTANT: Le statut est bien envoyé ici
+                team_sport_a_id: match.team_sport_a_id,
+                team_sport_b_id: match.team_sport_b_id
+            };
+
+            console.log('[Basketball Hook] 📝 Sending payload:', payload);
+
+            const response = await fetch(`http://localhost:8000/matches/${initialMatchId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('[Basketball Hook] ❌ Error response:', errorText);
+                throw new Error('Erreur lors de la soumission du résultat');
+            }
+
+            console.log('[Basketball Hook] ✅ Match result submitted successfully');
+
+            // ⭐ MODIFICATION: Utiliser matchData.tournamentId au lieu de match.tournament_id
+            if (matchData.tournamentId) {
+                console.log('[Basketball Hook] 📝 Starting propagation for tournament:', matchData.tournamentId);
+                
+                const propagateResponse = await fetch(`http://localhost:8000/tournaments/${matchData.tournamentId}/propagate-results`, {
+                    method: 'POST'
+                });
+                
+                if (propagateResponse.ok) {
+                    const propagateData = await propagateResponse.json();
+                    console.log('[Basketball Hook] ✅ Propagation response:', propagateData);
+                    
+                    const propagatedCount = propagateData.data?.propagated_matches || 0;
+                    if (propagatedCount > 0) {
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                        alert(`Match terminé !\n${propagatedCount} match(s) propagé(s).`);
+                    } else {
+                        alert('Match terminé ! (Aucune propagation nécessaire)');
+                    }
+                } else {
+                    const errorText = await propagateResponse.text();
+                    console.error('[Basketball Hook] ❌ Propagation failed:', errorText);
+                    alert('Match terminé, mais la propagation a échoué.');
+                }
+            } else {
+                console.log('[Basketball Hook] ℹ️ No tournament ID, skipping propagation');
+                alert('Match terminé !');
+            }
+        } catch (e) {
+            console.error('[Basketball Hook] ❌ Error in submitMatchResult:', e);
+            alert('Erreur lors de la fin du match : ' + String(e));
+        }
+    };
+
+    /** ---------- END MATCH ---------- */
+    const handleEnd = async () => {
+        stopChrono();
+        await submitMatchResult();
+    };
 
     /** ---------- SYNC SHOT CLOCK WITH GAME TIME ---------- */
     useEffect(() => {
@@ -438,6 +601,10 @@ export function useBasketballMatch(initialMatchId: string | null) {
                 window.clearInterval(intervalRef.current);
                 intervalRef.current = null;
             }
+            if (shotClockIntervalRef.current !== null) {
+                window.clearInterval(shotClockIntervalRef.current);
+                shotClockIntervalRef.current = null;
+            }
         };
     }, []);
 
@@ -480,6 +647,9 @@ export function useBasketballMatch(initialMatchId: string | null) {
         swapSides,
         addTechnicalFoul,
         subTechnicalFoul,
-        court
+        court,
+        updateMatchStatus,
+        submitMatchResult,
+        handleEnd
     };
 }

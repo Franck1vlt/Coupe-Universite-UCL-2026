@@ -30,7 +30,7 @@
 }
 
 /* Scoped root container to avoid global overrides */
-.flechettes-root {
+.petanque-root {
     display: flex;
     flex-direction: row;
     justify-content: center;
@@ -42,7 +42,7 @@
     padding-top: 15vh; /* espace pour le header fixe */
 }
 
-.flechettes-root header {
+.petanque-root header {
     position: fixed;
     top: 0;
     left: 0;
@@ -75,7 +75,7 @@ button:hover {
 }
 
 /* Page Table de Marquage */
-.flechettes-root .gauche {
+.petanque-root .gauche {
     background-color: #5c5c5c;
     width: 220px;
     height: 72vh;
@@ -85,7 +85,7 @@ button:hover {
     border-radius: 10px;
     box-shadow: 0 0 15px rgba(0, 0, 0, 0.2);
 }
-.flechettes-root .droite {
+.petanque-root .droite {
     background-color: #222;
     width: 62vw;
     height: 72vh;
@@ -176,23 +176,32 @@ button:hover {
     margin-right: 10px;
 }
 
-.flechettes-root .scoreboard {
+.petanque-root .scoreboard {
     text-align: center;
     padding: 20px;
     height: auto;
     color: #fff;
-    margin: 5vh auto;
+    padding: 20px;
+    text-align: center;
+    margin: 50px auto;
     transform: scale(0.88);
     transform-origin: top center;
-    gap: 3vh;
 }
 
 .scoreboard span {
     font-size: 1em;
 }
 
-.flechettes-root .score-line {
+.petanque-root .teams-line {
+    display: flex;
+    justify-content: space-evenly;
     font-size: 2rem;
+    font-weight: bold;
+    margin-bottom: 20px;
+}
+
+.petanque-root .score-line {
+    font-size: 3rem;
     font-weight: bold;
     margin-bottom: 10px;
 }
@@ -206,7 +215,7 @@ button:hover {
     font-size: 24px;
 }
 
-.flechettes-root .points-section {
+.petanque-root .points-section {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -239,8 +248,6 @@ button:hover {
 
 .cards-section {
     margin: 20px 0;
-    display: flex;
-    justify-content: space-evenly;
 }
 
 .team-cards {
@@ -544,78 +551,3 @@ button:hover {
     vertical-align: super;
 }
 
-/* Switch mi-temps */
-.slider.round {
-border-radius: 34px;
-}
-
-.slider.round:before {
-border-radius: 50%;
-}
-
-.period-switch {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-}
-
-.period-switch span {
-    font-size: 1rem;
-    color: #fff;
-}
-
-.switch {
-    position: relative;
-    display: inline-block;
-    width: 60px;
-    height: 34px;
-}
-
-.switch input {
-    opacity: 0;
-    width: 0;
-    height: 0;
-}
-
-.slider {
-    position: absolute;
-    cursor: pointer;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background-color: #ccc;
-    transition: .4s;
-}
-
-.slider:before {
-    position: absolute;
-    content: "";
-    height: 26px;
-    width: 26px;
-    left: 4px;
-    bottom: 4px;
-    background-color: white;
-    transition: .4s;
-}
-
-input:checked + .slider {
-    background-color: #2196F3;
-}
-
-input:focus + .slider {
-    box-shadow: 0 0 1px #2196F3;
-}
-
-input:checked + .slider:before {
-    transform: translateX(26px);
-}
-
-.slider.round {
-    border-radius: 34px;
-}
-
-.slider.round:before {
-    border-radius: 50%;
-}

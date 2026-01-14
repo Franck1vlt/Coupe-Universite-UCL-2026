@@ -143,7 +143,6 @@ button:hover {
     display: flex;
     flex-direction: row;
     align-items: center;
-    margin: 20px 0;
     justify-content: center;
 }
 
@@ -162,7 +161,6 @@ button:hover {
     display: flex;
     justify-content: center;
     flex-wrap: wrap;
-    margin: 2vh 0;
     gap: 10px;
 }
 

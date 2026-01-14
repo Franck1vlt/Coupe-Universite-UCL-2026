@@ -2029,6 +2029,61 @@ async def update_match(
         message="Match mis à jour avec succès"
     )
 
+@app.post("/matches/{match_id}/status", response_model=dict, tags=["Matches"])
+async def update_match_status(
+    match_id: int,
+    status: str = Body(..., embed=True),
+    db: Session = Depends(get_db)
+):  
+    """Met à jour uniquement le statut d'un match"""
+    match = db.query(Match).filter(Match.id == match_id).first()
+    if not match:
+        raise NotFoundError(f"Match with id {match_id} not found")
+    
+    match.status = status
+    db.commit()
+    db.refresh(match)
+    
+    return create_success_response(
+        data=MatchResponse.model_validate(match).model_dump(mode="json"),
+        message="Statut du match mis à jour avec succès"
+    )
+
+@app.patch("/matches/{match_id}/status", response_model=dict, tags=["Matches"])
+async def patch_match_status(
+    match_id: int,
+    status: str = Body(..., embed=True),
+    db: Session = Depends(get_db)
+):  
+    """Met à jour partiellement le statut d'un match"""
+    match = db.query(Match).filter(Match.id == match_id).first()
+    if not match:
+        raise NotFoundError(f"Match with id {match_id} not found")
+    
+    match.status = status
+    db.commit()
+    db.refresh(match)
+    
+    return create_success_response(
+        data=MatchResponse.model_validate(match).model_dump(mode="json"),
+        message="Statut du match mis à jour avec succès"
+    )
+
+@app.get("/matches/{match_id}/status", response_model=dict, tags=["Matches"])
+async def get_match_status(
+    match_id: int,
+    db: Session = Depends(get_db)
+):  
+    """Récupère uniquement le statut d'un match"""
+    match = db.query(Match).filter(Match.id == match_id).first()
+    if not match:
+        raise NotFoundError(f"Match with id {match_id} not found")
+    
+    return create_success_response(
+        data={"match_id": match.id, "status": match.status},
+        message="Statut du match récupéré avec succès"
+    )
+
 # --- Planification de matchs ---
 
 from app.models.matchschedule import MatchSchedule
@@ -2208,6 +2263,9 @@ async def get_tournament_structure(
             "bracket_matches": [],
             "loser_bracket_matches": []
         })
+    
+    # Forcer le refresh des données depuis la BDD (évite les problèmes de cache de session)
+    db.expire_all()
     
     # Récupérer tous les matchs
     all_matches = db.query(Match).filter(Match.phase_id == phase.id).all()
@@ -2396,12 +2454,14 @@ async def propagate_tournament_results(
             return None
         
         # Codes de type "WQ1" = Winner of Qualification 1
-        if source_code.startswith("WQ"):
+        if source_code.startswith("WQ") and not source_code.startswith("WQF"):
             try:
-                match_num = int(source_code[2:])
+                # Chercher par label (ex: "WQ1") OU par match_order
+                match_label = source_code  # "WQ1"
+                match_num = int(source_code[2:]) if source_code[2:].isdigit() else None
                 qual_match = next((m for m in all_matches 
                                   if m.match_type == "qualification" 
-                                  and m.match_order == match_num
+                                  and (m.label == match_label or m.match_order == match_num)
                                   and m.status == "completed"), None)
                 if qual_match and qual_match.score_a is not None and qual_match.score_b is not None:
                     return qual_match.team_sport_a_id if qual_match.score_a > qual_match.score_b else qual_match.team_sport_b_id
@@ -2409,12 +2469,14 @@ async def propagate_tournament_results(
                 pass
         
         # Codes de type "LQ1" = Loser of Qualification 1
-        elif source_code.startswith("LQ"):
+        elif source_code.startswith("LQ") and not source_code.startswith("LQF"):
             try:
-                match_num = int(source_code[2:])
+                # Construire le label du match source (WQ1 pour LQ1)
+                match_label = "WQ" + source_code[2:]
+                match_num = int(source_code[2:]) if source_code[2:].isdigit() else None
                 qual_match = next((m for m in all_matches 
                                   if m.match_type == "qualification" 
-                                  and m.match_order == match_num
+                                  and (m.label == match_label or m.match_order == match_num)
                                   and m.status == "completed"), None)
                 if qual_match and qual_match.score_a is not None and qual_match.score_b is not None:
                     return qual_match.team_sport_b_id if qual_match.score_a > qual_match.score_b else qual_match.team_sport_a_id
@@ -2424,10 +2486,10 @@ async def propagate_tournament_results(
         # Codes de type "WQF1" = Winner of Quarterfinal 1
         elif source_code.startswith("WQF"):
             try:
-                match_num = int(source_code[3:])
+                match_num = int(source_code[3:]) if source_code[3:].isdigit() else None
                 qf_match = next((m for m in all_matches 
                                if m.bracket_type == "quarterfinal" 
-                               and m.match_order == match_num
+                               and (m.match_order == match_num or (match_num and m.label and str(match_num) in m.label))
                                and m.status == "completed"), None)
                 if qf_match and qf_match.score_a is not None and qf_match.score_b is not None:
                     return qf_match.team_sport_a_id if qf_match.score_a > qf_match.score_b else qf_match.team_sport_b_id
@@ -2437,10 +2499,11 @@ async def propagate_tournament_results(
         # Codes de type "WSF1" = Winner of Semifinal 1
         elif source_code.startswith("WSF"):
             try:
-                match_num = int(source_code[3:])
+                match_num = int(source_code[3:]) if source_code[3:].isdigit() else None
+                # Chercher par label "WSF1" ou par match_order
                 sf_match = next((m for m in all_matches 
                                if m.bracket_type == "semifinal" 
-                               and m.match_order == match_num
+                               and (m.label == source_code or m.match_order == match_num)
                                and m.status == "completed"), None)
                 if sf_match and sf_match.score_a is not None and sf_match.score_b is not None:
                     return sf_match.team_sport_a_id if sf_match.score_a > sf_match.score_b else sf_match.team_sport_b_id
@@ -2450,10 +2513,12 @@ async def propagate_tournament_results(
         # Codes de type "LSF1" = Loser of Semifinal 1
         elif source_code.startswith("LSF"):
             try:
-                match_num = int(source_code[3:])
+                match_num = int(source_code[3:]) if source_code[3:].isdigit() else None
+                # Chercher la demi-finale correspondante (WSF1 pour LSF1)
+                sf_label = "WSF" + source_code[3:]
                 sf_match = next((m for m in all_matches 
                                if m.bracket_type == "semifinal" 
-                               and m.match_order == match_num
+                               and (m.label == sf_label or m.match_order == match_num)
                                and m.status == "completed"), None)
                 if sf_match and sf_match.score_a is not None and sf_match.score_b is not None:
                     return sf_match.team_sport_b_id if sf_match.score_a > sf_match.score_b else sf_match.team_sport_a_id
@@ -2611,4 +2676,3 @@ def get_matches_by_tournament(
         "success": True,
         "data": [match_to_dict(m) for m in matches]
     }
-

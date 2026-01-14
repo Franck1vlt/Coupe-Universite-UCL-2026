@@ -42,6 +42,10 @@ type TournamentMatch = {
   estimatedDurationMinutes?: number;
   scoreA?: number;
   scoreB?: number;
+  winnerDestinationMatchId?: string | number | null;
+  loserDestinationMatchId?: string | number | null;
+  winnerDestinationSlot?: "A" | "B" | null;
+  loserDestinationSlot?: "A" | "B" | null;
 };
 
 type Pool = {
@@ -272,117 +276,193 @@ export default function TournamentViewPage() {
       if (typeof id !== "string") return;
 
       const loadTournamentMatches = async () => {
-        try {
-          // 1. Récupérer le tournoi spécifique au sport via le filtre backend
-          // Cela évite de charger tous les tournois de la base
-          const tournamentsResponse = await fetch(`http://localhost:8000/tournaments?sport_id=${id}`);
-          if (!tournamentsResponse.ok) throw new Error("Impossible de charger le tournoi");
-          
-          const tournamentsData = await tournamentsResponse.json();
-          const items = tournamentsData.data?.items || [];
-          
-          // Comme on filtre par sport_id, on prend le premier résultat
-          const tournament = items.length > 0 ? items[0] : null;
+              try {
+                // 1. Récupérer le tournoi spécifique
+                const tournamentsResponse = await fetch(`http://localhost:8000/tournaments?sport_id=${id}`);
+                if (!tournamentsResponse.ok) throw new Error("Impossible de charger le tournoi");
+                
+                const tournamentsData = await tournamentsResponse.json();
+                const items = tournamentsData.data?.items || [];
+                const tournament = items.length > 0 ? items[0] : null;
 
-          if (!tournament) throw new Error("Aucun tournoi trouvé pour ce sport. Veuillez le configurer d'abord.");
+                if (!tournament) throw new Error("Aucun tournoi trouvé pour ce sport.");
 
-          // 2. Charger la STRUCTURE du tournoi (c'est là que sont vos matchs configurés)
-          // On utilise la route définie dans tournament_structure.py
-          const response = await fetch(`http://localhost:8000/tournaments/${tournament.id}/structure`);
-          if (!response.ok) throw new Error("Impossible de charger la structure du tournoi");
-          
-          const structureData = await response.json();
-          const data = structureData.data || structureData; // Adaptation selon le format de réponse (create_success_response ou direct)
+                // 2. Charger la STRUCTURE du tournoi
+                const response = await fetch(`http://localhost:8000/tournaments/${tournament.id}/structure`);
+                if (!response.ok) throw new Error("Impossible de charger la structure");
+                
+                const structureData = await response.json();
+                const data = structureData.data || structureData;
 
-          // 3. Aplatir la structure (Qualifs + Poules + Brackets) en une liste unique de matchs
-          const collected: TournamentMatch[] = [];
+                // Helper de mapping
+                const mapMatch = (m: any, forcedType?: TournamentMatchType): TournamentMatch => {
+                  let type: TournamentMatchType = forcedType || "qualifications";
+                  if (!forcedType) {
+                      if (m.match_type === "qualification") type = "qualifications";
+                      else if (m.bracket_type === "loser") type = "loser-bracket";
+                      else if (m.match_type === "bracket") {
+                        if (m.bracket_type === "quarterfinal") type = "quarts";
+                        else if (m.bracket_type === "semifinal") type = "demi-finale";
+                        else if (m.bracket_type === "final") type = "finale";
+                        else if (m.bracket_type === "third_place") type = "petite-finale";
+                        else type = "quarts";
+                      }
+                  }
 
-          // Fonction helper pour mapper le format Backend vers Frontend
-          const mapMatch = (m: any, forcedType?: TournamentMatchType): TournamentMatch => {
-            let type: TournamentMatchType = forcedType || "qualifications";
-            
-            // Détection du type si pas forcé
-            if (!forcedType) {
-              if (m.match_type === "qualification") type = "qualifications";
-              else if (m.bracket_type === "loser") type = "loser-bracket"; // Gestion spécifique loser bracket
-              else if (m.match_type === "bracket") {
-                if (m.bracket_type === "quarterfinal") type = "quarts"; // Mapping explicite si nécessaire
-                else if (m.bracket_type === "semifinal") type = "demi-finale";
-                else if (m.bracket_type === "final") type = "finale";
-                else if (m.bracket_type === "third_place") type = "petite-finale";
-                else type = "quarts"; // Par défaut pour les brackets classiques
+                  return {
+                    id: m.id?.toString() || "",
+                    label: m.label || `Match ${m.match_order || ""}`,
+                    teamA: m.team_sport_a_id ? m.team_sport_a_id.toString() : (m.team_a_source || "À définir"),
+                    teamB: m.team_sport_b_id ? m.team_sport_b_id.toString() : (m.team_b_source || "À définir"),
+                    type: type,
+                    status: m.status === "upcoming" ? "planifié" : m.status === "in_progress" ? "en-cours" : m.status === "completed" ? "terminé" : "planifié",
+                    scoreA: m.score_a,
+                    scoreB: m.score_b,
+                    winnerDestinationMatchId: m.winner_destination_match_id,
+                    winnerDestinationSlot: m.winner_destination_slot,
+                    loserDestinationMatchId: m.loser_destination_match_id,
+                    loserDestinationSlot: m.loser_destination_slot,
+                  };
+                };
+
+                const collected: TournamentMatch[] = [];
+                if (data.qualification_matches) data.qualification_matches.forEach((m: any) => collected.push(mapMatch(m, "qualifications")));
+                if (data.pools) data.pools.forEach((p: any) => p.matches?.forEach((m: any) => collected.push(mapMatch(m, "poule"))));
+                if (data.bracket_matches) data.bracket_matches.forEach((m: any) => collected.push(mapMatch(m)));
+                if (data.loser_bracket_matches) data.loser_bracket_matches.forEach((m: any) => collected.push(mapMatch(m, "loser-bracket")));
+
+                setMatches(collected);
+
+                // --- INSERTION DE LA LOGIQUE DE PROPAGATION AUTOMATIQUE ---
+                // Si au moins un match est terminé, on demande au backend de mettre à jour les suivants
+                const hasCompletedMatches = collected.some(m => m.status === "terminé");
+                
+                if (hasCompletedMatches) {
+                  console.log("🔄 Propagation automatique des résultats...");
+                  const propagateRes = await fetch(`http://localhost:8000/tournaments/${tournament.id}/propagate-results`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                  });
+
+                  if (propagateRes.ok) {
+                    const propData = await propagateRes.json();
+                    // Si des matchs ont effectivement été modifiés, on recharge la structure
+                    if (propData.data?.propagated_matches > 0) {
+                      console.log(`✅ ${propData.data.propagated_matches} matchs mis à jour. Rechargement...`);
+                      
+                      const refreshRes = await fetch(`http://localhost:8000/tournaments/${tournament.id}/structure`);
+                      const refreshData = await refreshRes.json();
+                      const newData = refreshData.data || refreshData;
+                      
+                      const refreshed: TournamentMatch[] = [];
+                      if (newData.qualification_matches) newData.qualification_matches.forEach((m: any) => refreshed.push(mapMatch(m, "qualifications")));
+                      if (newData.pools) newData.pools.forEach((p: any) => p.matches?.forEach((m: any) => refreshed.push(mapMatch(m, "poule"))));
+                      if (newData.bracket_matches) newData.bracket_matches.forEach((m: any) => refreshed.push(mapMatch(m)));
+                      if (newData.loser_bracket_matches) newData.loser_bracket_matches.forEach((m: any) => refreshed.push(mapMatch(m, "loser-bracket")));
+                      
+                      setMatches(refreshed);
+                      setTournamentMatches(refreshed as unknown as TournamentLogicMatch[]);
+                    }
+                  }
+                } else {
+                  setTournamentMatches(collected as unknown as TournamentLogicMatch[]);
+                }
+                // --- FIN DE LA LOGIQUE DE PROPAGATION ---
+
+              } catch (err) {
+                console.error("❌ Erreur:", err);
+                setError("Erreur de chargement.");
               }
-            }
-
-            return {
-              id: m.id?.toString() || "",
-              label: m.label || `Match ${m.match_order || ""}`,
-              teamA: m.team_a_source || (m.team_sport_a_id ? m.team_sport_a_id.toString() : "Équipe A"),
-              teamB: m.team_b_source || (m.team_sport_b_id ? m.team_sport_b_id.toString() : "Équipe B"),
-              type: type,
-              status: m.status === "upcoming" ? "planifié" : 
-                    m.status === "in_progress" ? "en-cours" :
-                    m.status === "completed" ? "terminé" : "planifié",
-              court: m.court ? m.court.trim() : (m.court_id ? `Terrain #${m.court_id}` : ""),
-              courtId: m.court_id,
-              scheduledDatetime: m.scheduled_datetime,
-              estimatedDurationMinutes: m.estimated_duration_minutes,
-              scoreA: m.score_a,
-              scoreB: m.score_b,
-              date: m.date,
-              time: m.time,
             };
-          };
+            
+            loadTournamentMatches();
+          }, [params, teamSportIdToName]);
 
-          // A. Ajout des qualifications
-          if (data.qualification_matches) {
-            data.qualification_matches.forEach((m: any) => collected.push(mapMatch(m, "qualifications")));
-          }
-
-          // B. Ajout des matchs de poules
-          if (data.pools) {
-            data.pools.forEach((pool: any) => {
-              if (pool.matches) {
-                pool.matches.forEach((m: any) => collected.push(mapMatch(m, "poule")));
-              }
-            });
-            // On met aussi à jour l'état des poules pour les classements
-            setPools(data.pools.map((p: any) => ({
-              id: p.id.toString(),
-              name: p.name,
-              teams: p.teams || [], // Il faudra peut-être adapter si teams n'est pas rempli
-              qualifiedToFinals: p.qualified_to_finals,
-              qualifiedToLoserBracket: p.qualified_to_loser_bracket
-            })));
-          }
-
-          // C. Ajout des brackets (Winner)
-          if (data.bracket_matches) {
-            data.bracket_matches.forEach((m: any) => collected.push(mapMatch(m)));
-          }
-
-          // D. Ajout des brackets (Loser)
-          if (data.loser_bracket_matches) {
-            data.loser_bracket_matches.forEach((m: any) => collected.push(mapMatch(m, "loser-bracket")));
-          }
-
-          // Trier les matchs : terminés en bas, planifiés en haut (optionnel)
-          // collected.sort((a, b) => ... );
-
-          setMatches(collected);
-          
-          // Mise à jour des données brutes pour la logique de tournoi (calculs JS)
-          setTournamentMatches(collected as unknown as TournamentLogicMatch[]); // Adaptation de type simple
-          // Note: Pour une logique JS parfaite, il faudrait aussi mapper vers TournamentLogicPool, etc.
-          
-        } catch (err) {
-          console.error("❌ Impossible de charger les matchs du tournoi:", err);
-          setError("Impossible de charger les matchs. Vérifiez que la structure est bien générée.");
-        }
-      };
+  useEffect(() => {
+    // Auto-assigner les équipes aux matchs de qualification si nécessaire
+    const autoAssignQualificationTeams = async () => {
+      if (!params.id || typeof params.id !== 'string') return;
+      if (Object.keys(teamSportIdToName).length === 0) return;
       
-      loadTournamentMatches();
-    }, [params, teamSportIdToName]);
+      try {
+        // Récupérer le tournoi
+        const tournamentsResponse = await fetch(`http://localhost:8000/tournaments?sport_id=${params.id}`);
+        const tournamentsData = await tournamentsResponse.json();
+        const items = tournamentsData.data?.items || [];
+        const tournament = items.length > 0 ? items[0] : null;
+        
+        if (!tournament) return;
+        
+        // Récupérer la structure
+        const structureResponse = await fetch(`http://localhost:8000/tournaments/${tournament.id}/structure`);
+        const structureData = await structureResponse.json();
+        const data = structureData.data || structureData;
+        
+        // Vérifier s'il y a des matchs de qualification sans équipes
+        const qualificationMatches = data.qualification_matches || [];
+        const matchesNeedingTeams = qualificationMatches.filter(
+          (m: any) => !m.team_sport_a_id || !m.team_sport_b_id
+        );
+        
+        if (matchesNeedingTeams.length === 0) {
+          // Tous les matchs ont déjà des équipes, rien à faire
+          return;
+        }
+        
+        console.log(`🔧 Auto-assignation: ${matchesNeedingTeams.length} matchs ont besoin d'équipes`);
+        
+        // Récupérer les team-sports disponibles
+        const teamSportsResponse = await fetch(`http://localhost:8000/sports/${params.id}/team-sports`);
+        const teamSportsData = await teamSportsResponse.json();
+        const teamSports = teamSportsData.data || [];
+        
+        if (teamSports.length < matchesNeedingTeams.length * 2) {
+          console.warn(`⚠️ Pas assez d'équipes : ${teamSports.length} disponibles, ${matchesNeedingTeams.length * 2} nécessaires`);
+          return;
+        }
+        
+        // Assigner automatiquement
+        let teamIndex = 0;
+        let assignedCount = 0;
+        
+        for (const match of matchesNeedingTeams) {
+          const teamA = teamSports[teamIndex];
+          const teamB = teamSports[teamIndex + 1];
+          
+          const response = await fetch(`http://localhost:8000/matches/${match.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              team_sport_a_id: teamA.id,
+              team_sport_b_id: teamB.id
+            }),
+          });
+          
+          if (response.ok) {
+            console.log(`✅ Match ${match.id} auto-assigné`);
+            assignedCount++;
+          }
+          
+          teamIndex += 2;
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        
+        if (assignedCount > 0) {
+          console.log(`🎉 Auto-assignation terminée: ${assignedCount} matchs`);
+          // Recharger pour afficher les équipes assignées
+          window.location.reload();
+        }
+        
+      } catch (err) {
+        console.error('Erreur lors de l\'auto-assignation:', err);
+        // Ne pas bloquer l'application en cas d'erreur
+      }
+    };
+    
+    // Lancer l'auto-assignation
+    autoAssignQualificationTeams();
+  }, [params.id, teamSportIdToName]);
+
 
   // Générer le classement des poules avec les vrais résultats
   const generatePoolRankings = async (): Promise<Map<string, RankingEntry[]>> => {
@@ -492,93 +572,299 @@ export default function TournamentViewPage() {
     setFinalRanking(ranking);
   }, [tournamentMatches, tournamentPools, tournamentBrackets, tournamentLoserBrackets]);
 
-  const handleResetAllMatches = () => {
+  const handleResetAllMatches = async () => {
     if (!params.id || typeof params.id !== 'string') return;
     
     if (window.confirm('Êtes-vous sûr de vouloir réinitialiser tous les matchs ? Cette action est irréversible.')) {
-      // D'abord, trouver l'ID du tournoi pour ce sport
-      fetch(`http://localhost:8000/tournaments`)
-        .then(res => res.json())
-        .then(data => {
-          const tournaments = Array.isArray(data.data.items) 
-            ? data.data.items 
-            : Array.isArray(data.data) 
-            ? data.data 
-            : [];
-          const tournament = tournaments.find((t: any) => t.sport_id === parseInt(params.id as string));
+      try {
+        // 1. Trouver le tournoi
+        const tournamentsResponse = await fetch(`http://localhost:8000/tournaments?sport_id=${params.id}`);
+        if (!tournamentsResponse.ok) {
+          throw new Error("Impossible de charger le tournoi");
+        }
+        
+        const tournamentsData = await tournamentsResponse.json();
+        const items = tournamentsData.data?.items || [];
+        const tournament = items.length > 0 ? items[0] : null;
+        
+        if (!tournament) {
+          throw new Error("Aucun tournoi trouvé pour ce sport");
+        }
+        
+        console.log('📝 Tournoi trouvé:', tournament.id);
+        
+        // 2. Récupérer TOUS les matchs du tournoi
+        const structureResponse = await fetch(`http://localhost:8000/tournaments/${tournament.id}/structure`);
+        if (!structureResponse.ok) {
+          throw new Error("Impossible de charger la structure du tournoi");
+        }
+        
+        const structureData = await structureResponse.json();
+        const data = structureData.data || structureData;
+        
+        // Collecter tous les matchs avec leurs détails
+        const allMatches: any[] = [];
+        
+        if (data.qualification_matches) {
+          allMatches.push(...data.qualification_matches);
+        }
+        
+        if (data.pools) {
+          data.pools.forEach((p: any) => {
+            if (p.matches) {
+              allMatches.push(...p.matches);
+            }
+          });
+        }
+        
+        if (data.bracket_matches) {
+          allMatches.push(...data.bracket_matches);
+        }
+        
+        if (data.loser_bracket_matches) {
+          allMatches.push(...data.loser_bracket_matches);
+        }
+        
+        console.log(`🔄 ${allMatches.length} matchs à réinitialiser`);
+        
+        // 3. Réinitialiser chaque match (dans l'ordre inverse pour éviter les dépendances)
+        let successCount = 0;
+        let errorCount = 0;
+        
+        // Trier par ordre décroissant de match_order pour réinitialiser d'abord les matchs finaux
+        const sortedMatches = [...allMatches].sort((a, b) => (b.match_order || 0) - (a.match_order || 0));
+        
+        for (const match of sortedMatches) {
+          if (!match.id) continue;
           
-          if (!tournament) {
-            throw new Error("Tournoi introuvable");
+          try {
+            // Préparer le payload de réinitialisation
+            const resetPayload: any = {
+              score_a: null,
+              score_b: null,
+              status: 'upcoming'
+            };
+            
+            // Si le match avait des équipes assignées dynamiquement (depuis la propagation),
+            // les remettre à null pour forcer la réinitialisation
+            if (match.winner_destination_match_id || match.loser_destination_match_id) {
+              // Ce match reçoit des équipes d'autres matchs, donc on remet les équipes à null
+              resetPayload.team_sport_a_id = null;
+              resetPayload.team_sport_b_id = null;
+            }
+            
+            const resetResponse = await fetch(`http://localhost:8000/matches/${match.id}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(resetPayload),
+            });
+            
+            if (resetResponse.ok) {
+              successCount++;
+              console.log(`✅ Match ${match.id} (${match.label || 'sans label'}) réinitialisé`);
+            } else {
+              const errorText = await resetResponse.text();
+              errorCount++;
+              console.error(`❌ Erreur pour le match ${match.id}:`, errorText);
+            }
+            
+            // Petit délai pour éviter de surcharger le serveur
+            await new Promise(resolve => setTimeout(resolve, 50));
+            
+          } catch (err) {
+            errorCount++;
+            console.error(`❌ Erreur pour le match ${match.id}:`, err);
           }
-          
-          // Appeler l'API pour réinitialiser les matchs
-          return fetch(`http://localhost:8000/tournaments/${tournament.id}/reset-matches`, {
+        }
+        
+        console.log(`📊 Réinitialisation terminée: ${successCount} réussis, ${errorCount} erreurs`);
+        
+        // 4. Appeler l'endpoint de réinitialisation du backend s'il existe
+        try {
+          const backendResetResponse = await fetch(`http://localhost:8000/tournaments/${tournament.id}/reset-matches`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
               "Accept": "application/json",
             },
           });
-        })
-        .then(res => {
-          if (!res.ok) throw new Error("Erreur lors de la réinitialisation");
-          return res.json();
-        })
-        .then(data => {
-          console.log("✅ Réinitialisation réussie:", data);
-          alert("Tous les matchs ont été réinitialisés !");
+          
+          if (backendResetResponse.ok) {
+            const backendData = await backendResetResponse.json();
+            console.log("✅ Endpoint backend de réinitialisation appelé:", backendData);
+          }
+        } catch (err) {
+          console.warn("⚠️ L'endpoint backend de réinitialisation n'est pas disponible ou a échoué");
+        }
+        
+        if (successCount > 0) {
+          alert(`Réinitialisation terminée !\n✅ ${successCount} match(s) réinitialisé(s)${errorCount > 0 ? '\n❌ ' + errorCount + ' erreur(s)' : ''}`);
           // Recharger la page pour afficher les changements
           window.location.reload();
-        })
-        .catch(err => {
-          console.error("❌ Erreur:", err);
-          alert("Erreur lors de la réinitialisation: " + err.message);
-        });
+        } else {
+          alert(`Erreur : Aucun match n'a pu être réinitialisé.\nVérifiez la console pour plus de détails.`);
+        }
+        
+      } catch (err: any) {
+        console.error("❌ Erreur globale lors de la réinitialisation:", err);
+        alert("Erreur lors de la réinitialisation: " + (err.message || "Erreur inconnue"));
+      }
     }
     setShowMenu(false);
   };
 
-  const handlePropagateResults = () => {
+  const fixTournamentDestinations = async () => {
     if (!params.id || typeof params.id !== 'string') return;
     
-    // Trouver l'ID du tournoi pour ce sport
-    fetch(`http://localhost:8000/tournaments`)
-      .then(res => res.json())
-      .then(data => {
-        const tournaments = Array.isArray(data.data.items) 
-          ? data.data.items 
-          : Array.isArray(data.data) 
-          ? data.data 
-          : [];
-        const tournament = tournaments.find((t: any) => t.sport_id === parseInt(params.id as string));
+    console.log('🔧 === DÉBUT DE LA CORRECTION DES DESTINATIONS ===');
+    
+    try {
+      // 1. Récupérer le tournoi
+      const tournamentsResponse = await fetch(`http://localhost:8000/tournaments?sport_id=${params.id}`);
+      const tournamentsData = await tournamentsResponse.json();
+      const tournament = tournamentsData.data?.items[0];
+      
+      if (!tournament) {
+        throw new Error("Tournoi introuvable");
+      }
+      
+      console.log('📝 Tournoi:', tournament.id);
+      
+      // 2. Récupérer la structure
+      const structureResponse = await fetch(`http://localhost:8000/tournaments/${tournament.id}/structure`);
+      const structureData = await structureResponse.json();
+      const data = structureData.data || structureData;
+      
+      // 3. Collecter tous les matchs
+      const allMatches: any[] = [];
+      
+      if (data.qualification_matches) {
+        allMatches.push(...data.qualification_matches.map((m: any) => ({ ...m, source: 'qualification' })));
+      }
+      
+      if (data.pools) {
+        data.pools.forEach((p: any) => {
+          if (p.matches) {
+            allMatches.push(...p.matches.map((m: any) => ({ ...m, source: 'pool' })));
+          }
+        });
+      }
+      
+      if (data.bracket_matches) {
+        allMatches.push(...data.bracket_matches.map((m: any) => ({ ...m, source: 'bracket' })));
+      }
+      
+      if (data.loser_bracket_matches) {
+        allMatches.push(...data.loser_bracket_matches.map((m: any) => ({ ...m, source: 'loser_bracket' })));
+      }
+      
+      console.log(`📝 ${allMatches.length} matchs trouvés`);
+      
+      // 4. Vérifier et corriger les destinations
+      let issuesFound = 0;
+      let issuesFixed = 0;
+      
+      for (const match of allMatches) {
+        const issues: string[] = [];
         
-        if (!tournament) {
-          throw new Error("Tournoi introuvable");
+        // Vérifier winner_destination
+        if (match.winner_destination_match_id && !match.winner_destination_slot) {
+          issues.push(`winner_destination_slot manquant`);
         }
         
-        // Appeler l'API pour propager les résultats
-        return fetch(`http://localhost:8000/tournaments/${tournament.id}/propagate-results`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-          },
-        });
-      })
-      .then(res => {
-        if (!res.ok) throw new Error("Erreur lors de la propagation");
-        return res.json();
-      })
-      .then(data => {
-        console.log("✅ Propagation réussie:", data);
-        alert(`${data.data.propagated_matches} match(s) propagé(s) avec succès !`);
+        // Vérifier loser_destination
+        if (match.loser_destination_match_id && !match.loser_destination_slot) {
+          issues.push(`loser_destination_slot manquant`);
+        }
+        
+        if (issues.length > 0) {
+          issuesFound++;
+          console.log(`\n❌ Match ${match.id} (${match.label}):`);
+          issues.forEach(issue => console.log(`   - ${issue}`));
+          
+          // Proposition de correction automatique
+          console.log(`   💡 Correction suggérée:`);
+          
+          if (match.winner_destination_match_id && !match.winner_destination_slot) {
+            // Deviner le slot en fonction du label ou de la position
+            const suggestedSlot = match.label?.includes('1') ? 'A' : 'B';
+            console.log(`   - winner_destination_slot: '${suggestedSlot}'`);
+          }
+          
+          if (match.loser_destination_match_id && !match.loser_destination_slot) {
+            const suggestedSlot = match.label?.includes('1') ? 'A' : 'B';
+            console.log(`   - loser_destination_slot: '${suggestedSlot}'`);
+          }
+        }
+      }
+      
+      console.log(`\n📊 Résumé:`);
+      console.log(`   - ${issuesFound} match(s) avec des problèmes de configuration`);
+      
+      if (issuesFound > 0) {
+        alert(`⚠️ ${issuesFound} match(s) ont des problèmes de configuration.\n\nVérifiez la console pour les détails.\n\nCes problèmes doivent être corrigés dans la configuration du tournoi (backend).`);
+      } else {
+        alert(`✅ Tous les matchs sont correctement configurés !`);
+      }
+      
+      console.log('🔧 === FIN DE LA VÉRIFICATION ===');
+      
+    } catch (err: any) {
+      console.error("❌ Erreur:", err);
+      alert("Erreur: " + err.message);
+    }
+  };
+
+  const handlePropagateResults = async () => {
+    if (!params.id || typeof params.id !== 'string') return;
+    
+    try {
+      // Utiliser l'endpoint avec le sport_id directement
+      const tournamentsResponse = await fetch(`http://localhost:8000/tournaments?sport_id=${params.id}`);
+      if (!tournamentsResponse.ok) {
+        throw new Error("Impossible de charger le tournoi");
+      }
+      
+      const tournamentsData = await tournamentsResponse.json();
+      const items = tournamentsData.data?.items || [];
+      const tournament = items.length > 0 ? items[0] : null;
+      
+      if (!tournament) {
+        throw new Error("Aucun tournoi trouvé pour ce sport");
+      }
+      
+      console.log('📝 Tournoi trouvé:', tournament.id);
+      
+      // Appeler l'API pour propager les résultats
+      const propagateResponse = await fetch(`http://localhost:8000/tournaments/${tournament.id}/propagate-results`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+        },
+      });
+      
+      if (!propagateResponse.ok) {
+        const errorData = await propagateResponse.json();
+        throw new Error(errorData.message || "Erreur lors de la propagation");
+      }
+      
+      const data = await propagateResponse.json();
+      console.log("✅ Propagation réussie:", data);
+      
+      const propagatedCount = data.data?.propagated_matches || 0;
+      if (propagatedCount > 0) {
+        alert(`${propagatedCount} match(s) propagé(s) avec succès !`);
         // Recharger la page pour afficher les changements
         window.location.reload();
-      })
-      .catch(err => {
-        console.error("❌ Erreur:", err);
-        alert("Erreur lors de la propagation: " + err.message);
-      });
+      } else {
+        alert("Aucun match à propager. Tous les matchs sont déjà à jour.");
+      }
+      
+    } catch (err: any) {
+      console.error("❌ Erreur lors de la propagation:", err);
+      alert("Erreur lors de la propagation: " + (err.message || "Erreur inconnue"));
+    }
     
     setShowMenu(false);
   };
@@ -590,7 +876,7 @@ export default function TournamentViewPage() {
         <div className="flex items-center justify-between">
           {/* Bouton retour */}
           <button
-            onClick={() => router.back()}
+            onClick={() => router.push("/choix-sport")}
             className="flex items-center gap-2 bg-white rounded-full shadow px-4 py-2 hover:bg-blue-50 transition focus:outline-none focus:ring-2 focus:ring-blue-400"
             aria-label="Retour"
           >
@@ -788,15 +1074,23 @@ export default function TournamentViewPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {matches.map((match) => (
+          {matches.map((match) => {
+            const isTermine = match.status === "terminé";
+            return (
             <button
             key={match.id}
-            onClick={() =>
-            sportCode && router.push(
-            `/choix-sport/tournaments/table-marquage/${sportCode}?matchId=${match.id}`
-            )
-            }
-            className="text-left bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-all flex flex-col gap-2"
+            onClick={() => {
+              if (isTermine) return; // Double sécurité
+              if (sportCode) {
+                router.push(`/choix-sport/tournaments/table-marquage/${sportCode}?matchId=${match.id}`);
+              }
+            }}
+            disabled={isTermine}
+            className={`text-left border rounded-xl p-4 shadow-sm flex flex-col gap-2 transition-all ${
+              isTermine 
+                ? "bg-gray-100 border-gray-300 cursor-not-allowed opacity-75" 
+                : "bg-gray-50 hover:bg-gray-100 border-gray-200 hover:shadow-md"
+            }`}
             >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -879,10 +1173,15 @@ export default function TournamentViewPage() {
             </div>
 
             <div className="mt-1 text-[11px] text-gray-500 flex items-center gap-1">
-              <span>Cliquer pour ouvrir la table de marquage</span>
+              {isTermine ? (
+                <span className="text-green-600 font-medium">✓ Match terminé - Résultat final</span>
+              ) : (
+                <span>Cliquer pour ouvrir la table de marquage</span>
+              )}
             </div>
             </button>
-                ))}
+            );
+          })}
                 </div>
             )}
             </div>

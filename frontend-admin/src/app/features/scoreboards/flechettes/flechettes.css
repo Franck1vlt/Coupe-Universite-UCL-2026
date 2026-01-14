@@ -198,7 +198,6 @@ button:hover {
     padding: 20px;
     height: auto;
     color: #fff;
-    margin: 5vh auto;
     transform: scale(0.88);
     transform-origin: top center;
     gap: 10vh;

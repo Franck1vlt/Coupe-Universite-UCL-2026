@@ -55,9 +55,7 @@
 }
 
 /* Infos et Cartons */
-.match-infos {
-    display: flex; 
-    gap: clamp(1rem, 2vw, 1.8rem);
+.match-type-label {
     margin-top: 2rem;
     font-size: clamp(1rem, 2vw, 1.8rem);
     font-weight: 700;

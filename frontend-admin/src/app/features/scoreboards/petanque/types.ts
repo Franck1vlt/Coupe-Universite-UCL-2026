@@ -1,23 +1,14 @@
-export interface TeamData {
-  name?: string;
-  logo_url?: string;
-  score: number;
-  yellowCards: number;
-  redCards: number;
-  penalties: number;
-}
-
-export interface ChronoData {
-  running: boolean;
-  time: number;
-  interval: NodeJS.Timeout | null;
+export interface PetanqueTeamData {
+  name: string;
+  logo_url: string;
+  score: number;      // Score actuel de l'équipe (points marqués, commence à 0)
 }
 
 export interface MatchData {
-  teamA: TeamData;
-  teamB: TeamData;
-  chrono: ChronoData;
-  matchId: string | null;
-  hasPenalties: boolean;
-  matchType?: string;
+  matchId: string;
+  teamA: PetanqueTeamData;
+  teamB: PetanqueTeamData;
+  matchType: string;
+  cochonnetOwner: "A" | "B";  // Équipe qui lance le cochonnet
+  currentMene: number;         // Numéro de la mène en cours
 }

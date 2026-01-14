@@ -2,9 +2,9 @@
 
 import { useState, useEffect } from "react";
 import { getAvailableCourts } from "./courtUtils";
-import "./flechettes.css";
+import "./petanque.css";
 import { useSearchParams } from "next/navigation";
-import { useFlechettesMatch } from "./useFlechettesMatch";
+import { usePetanqueMatch } from "./usePetanqueMatch";
 import { useRouter } from "next/navigation";
 
 type Team = {
@@ -18,13 +18,15 @@ type Court = {
   name: string;
 };
 
-export default function FlechettesTableMarquagePage() {
+export default function PetanqueTableMarquagePage() {
   const [loadingTeams, setLoadingTeams] = useState(true);
   const [teams, setTeams] = useState<Team[]>([]);
   const params = useSearchParams();
   const matchId = params.get("matchId");
   const router = useRouter();
-
+  const logoService = "/img/cochonet.png";
+  const CONST_SIZE = 30;
+  const [tournamentId, setTournamentId] = useState<string | null>(null);
   const [teamA, setTeamA] = useState("");
   const [teamB, setTeamB] = useState("");
   const [matchType, setMatchType] = useState("Type de match");
@@ -41,6 +43,30 @@ export default function FlechettesTableMarquagePage() {
     fetchCourts();
     fetchCourtSchedules();
   }, []);
+
+  // Récupérer le tournamentId via la chaîne match -> phase -> tournament
+  useEffect(() => {
+    async function fetchTournamentId() {
+      if (!matchId) return;
+      try {
+        // 1. Récupérer le match pour obtenir phase_id
+        const matchRes = await fetch(`http://localhost:8000/matches/${matchId}`);
+        if (!matchRes.ok) throw new Error('Match not found');
+        const matchData = await matchRes.json();
+
+        // 2. Récupérer la phase pour obtenir tournament_id
+        const phaseRes = await fetch(`http://localhost:8000/tournament-phases/${matchData.data.phase_id}`);
+        if (!phaseRes.ok) throw new Error('Phase not found');
+        const phaseData = await phaseRes.json();
+
+        setTournamentId(phaseData.data.tournament_id.toString());
+      } catch (err) {
+        console.error("Erreur récupération tournamentId:", err);
+      }
+    }
+    fetchTournamentId();
+  }, [matchId]);
+
   // Récupérer les plannings de tous les terrains (pour filtrer les dispos)
   const fetchCourtSchedules = async () => {
     try {
@@ -61,44 +87,37 @@ export default function FlechettesTableMarquagePage() {
     formattedTime,
     startChrono,
     stopChrono,
-    addSecond,
     addPoint,
     subPoint,
-    addYellowCard,
-    subYellowCard,
-    addRedCard,
-    subRedCard,
     setTeamName,
     setTeamLogo,
     setMatchType: setMatchTypeMeta,
     swapSides,
     court,
     handleEnd,
-    togglePeriod,
-    periodSwitchChecked,
-    period
-  } = useFlechettesMatch(matchId);
+    changeCochonnet
+  } = usePetanqueMatch(matchId);
 
   // Synchroniser les données du match avec les states locaux
   useEffect(() => {
-    console.log('[Flechettes Scoreboard] Match data changed:', matchData);
-    console.log('[Flechettes Scoreboard] Court:', court);
-    
+    console.log('[Petanque Scoreboard] Match data changed:', matchData);
+    console.log('[Petanque Scoreboard] Court:', court);
+
     if (matchData.teamA.name && matchData.teamA.name !== "Team A") {
       setTeamA(matchData.teamA.name);
-      console.log('[Flechettes Scoreboard] Set Team A to:', matchData.teamA.name);
+      console.log('[Petanque Scoreboard] Set Team A to:', matchData.teamA.name);
     }
     if (matchData.teamB.name && matchData.teamB.name !== "Team B") {
       setTeamB(matchData.teamB.name);
-      console.log('[Flechettes Scoreboard] Set Team B to:', matchData.teamB.name);
+      console.log('[Petanque Scoreboard] Set Team B to:', matchData.teamB.name);
     }
     if (matchData.matchType) {
       setMatchType(matchData.matchType);
-      console.log('[Flechettes Scoreboard] Set Match Type to:', matchData.matchType);
+      console.log('[Petanque Scoreboard] Set Match Type to:', matchData.matchType);
     }
     if (court) {
       setMatchGround(court);
-      console.log('[Flechettes Scoreboard] Set Court to:', court);
+      console.log('[Petanque Scoreboard] Set Court to:', court);
     }
   }, [matchData, court]);
 
@@ -183,14 +202,14 @@ export default function FlechettesTableMarquagePage() {
   };
 
   return (
-    <main className="handball-root">
+    <main className="petanque-root">
       <header className="mb-10 text-center">
         <h1 className="text-3xl font-bold text-black mb-2">
-          Flechettes - Table de marquage
+          Petanque - Table de marquage
         </h1>
       </header>
 
-<div className="gauche">
+    <div className="gauche">
         <div className="parametres-match mb-6">
           <label htmlFor="teamA">Équipe A :</label>
             {matchId ? (
@@ -300,20 +319,34 @@ export default function FlechettesTableMarquagePage() {
             <button onClick={() => router.back()}>Retour</button>
           </div>
             <div className="button-row2">
-            <button onClick={() => window.open("./handball/spectators", "_blank")}>Spectateurs</button>
+            <button onClick={() => window.open("./petanque/spectators", "_blank")}>Spectateurs</button>
             </div>
         </div>
       </div>
 
       {/* Tableau de marquage */}
       <div className="droite">
-        <div className="scoreboard">
+        <div className="scoreboard gap-8">
           <div className="score-display">
-            <div className="score-line">
-              <span>{matchData.teamA.name !== "Team A" ? matchData.teamA.name : (teamA != "" ? teams.find((c: Team) => c.id === teamA)?.name : "Team A")} {matchData.teamA.score} - {matchData.teamB.score} {matchData.teamB.name !== "Team B" ? matchData.teamB.name : (teamB != "" ? teams.find((c: Team) => c.id === teamB)?.name : "Team B")}</span>
+            <div className="teams-line mb-4">
+              <span>{matchData.teamA.name !== "Team A" ? matchData.teamA.name : (teamA != "" ? teams.find((c: Team) => c.id === teamA)?.name : "Team A")}</span>
+              <span>{matchData.teamB.name !== "Team B" ? matchData.teamB.name : (teamB != "" ? teams.find((c: Team) => c.id === teamB)?.name : "Team B")}</span>
+            </div>
+            <div className="score-line flex flex-row justify-center items-center gap-8 mb-6">
+              <div>
+                {matchData.cochonnetOwner === "A" && (
+                  <img src={logoService} alt="Logo Cochonnet" width={CONST_SIZE} height={CONST_SIZE} className="service-logo" />
+                )}
+              </div>
+              <div>{matchData.teamA.score} - {matchData.teamB.score}</div>
+              <div>
+                {matchData.cochonnetOwner === "B" && (
+                  <img src={logoService} alt="Logo Cochonnet" width={CONST_SIZE} height={CONST_SIZE} className="service-logo" />
+                )}
+              </div>
             </div>
             <div className="info-line">
-              <p>{matchData.matchType || (matchType !== "Type de match" ? matchType : "Type de match")} - {period !== "MT1" ? period : "MT1"} - {
+              <p>{matchData.matchType || (matchType !== "Type de match" ? matchType : "Type de match")} - {
                 // Affiche toujours le nom du terrain si possible
                 courts.find(c => c.id === matchData.court?.toString())?.name
                 || courts.find(c => c.name === matchData.court)?.name
@@ -329,73 +362,32 @@ export default function FlechettesTableMarquagePage() {
 
           <div className="points-section">
             <div className="flex items-center gap-2">
-              <p>Buts : {matchData.teamA.score}</p>
+              <p>Points : {matchData.teamA.score}</p>
               <button onClick={() => subPoint("A")}>-</button>
               <button onClick={() => addPoint("A")}>+</button>
             </div>
             <div className="timer">{formattedTime}</div>
             <div className="flex items-center gap-2">
-              <p>Buts : {matchData.teamB.score}</p>
+              <p>Points : {matchData.teamB.score}</p>
               <button onClick={() => subPoint("B")}>-</button>
               <button onClick={() => addPoint("B")}>+</button>
             </div>
           </div>
 
-          <div className="cards-section">
-            {/* Cartons Équipe A */}
-            <div className="flex flex-col items-center gap-4 space-x-4">
-              <div className="flex items-center gap-2">
-                <p>Cartons Jaunes : {matchData.teamA.yellowCards != 0 ? matchData.teamA.yellowCards : 0}</p>
-                <button style={{ backgroundColor: 'var(--bg-yellow-900)' }} onClick={() => subYellowCard("A")}>-</button>
-                <button style={{ backgroundColor: 'var(--bg-yellow-900)' }} onClick={() => addYellowCard("A")}>+</button>
-              </div>
-              <div className="flex items-center gap-2">
-                <p>Cartons Rouges : {matchData.teamA.redCards != 0 ? matchData.teamA.redCards : 0}</p>
-                <button style={{ backgroundColor: 'var(--bg-red-900)' }} onClick={() => subRedCard("A")}>-</button>
-                <button style={{ backgroundColor: 'var(--bg-red-900)' }} onClick={() => addRedCard("A")}>+</button>
-              </div>
-            </div>
-            <div className="period-switch text-lg">
-              <span>MT1</span>
-              <label className="switch">
-                  <input 
-                    type="checkbox" 
-                    id="periodToggle" 
-                    checked={periodSwitchChecked}  // 👈 Ajoutez cette ligne
-                    onChange={togglePeriod} 
-                  />
-                  <span className="slider round"></span>
-              </label>
-              <span>MT2</span>
-            </div>
-            {/* Cartons Équipe B */}
-            <div className="flex flex-col items-center gap-4">
-              <div className="flex items-center gap-2">
-                <p>Cartons Jaunes : {matchData.teamB.yellowCards != 0 ? matchData.teamB.yellowCards : 0}</p>
-                <button style={{ backgroundColor: 'var(--bg-yellow-900)' }} onClick={() => subYellowCard("B")}>-</button>
-                <button style={{ backgroundColor: 'var(--bg-yellow-900)' }} onClick={() => addYellowCard("B")}>+</button>
-              </div>
-              <div className="flex items-center gap-2">
-                <p>Cartons Rouges : {matchData.teamB.redCards != 0 ? matchData.teamB.redCards : 0}</p>
-                <button style={{ backgroundColor: 'var(--bg-red-900)' }} onClick={() => subRedCard("B")}>-</button>
-                <button style={{ backgroundColor: 'var(--bg-red-900)' }} onClick={() => addRedCard("B")}>+</button>
-              </div>
-            </div>
-          </div>
 
-          <div className="bottom-controls">
+          {/* Boutons de contrôle généraux */}
+          <div className="bottom-controls grid grid-cols-2 gap-4 mt-8">
             <button onClick={startChrono}>Start</button>
             <button onClick={stopChrono}>Stop</button>
-            <button onClick={addSecond}>+1s</button>
+            <button onClick={changeCochonnet}>Cochonnet</button>
             <button onClick={handleSwipe}>Swipe</button>
             <button
-              onClick={() => {
-                handleEnd();
-                const tournamentId = matchData.tournamentId || matchId;
-                if (!tournamentId || tournamentId === "undefined") {
+              onClick={async () => {
+                if (!tournamentId) {
                   alert("Impossible de retrouver l'ID du tournoi pour la redirection.");
                   return;
                 }
+                await handleEnd();
                 window.location.href = `/choix-sport/tournaments/${tournamentId}`;
               }}
             >

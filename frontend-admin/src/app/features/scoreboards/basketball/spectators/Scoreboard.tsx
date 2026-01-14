@@ -56,12 +56,12 @@ export default function BasketballTableSpectatorPage() {
                     setOldScoreB(newData.score2 || 0);
                 }
                 
-                // Mettre à jour les noms d'équipe uniquement s'ils changent
-                if (teamAName !== newData.team1) {
-                    setTeamAName(newData.team1 || "");
+                // Mettre à jour les noms d'équipe uniquement s'ils changent ET ne sont pas vides
+                if (newData.team1 && teamAName !== newData.team1) {
+                    setTeamAName(newData.team1);
                 }
-                if (teamBName !== newData.team2) {
-                    setTeamBName(newData.team2 || "");
+                if (newData.team2 && teamBName !== newData.team2) {
+                    setTeamBName(newData.team2);
                 }
                 
                 setMatchData(newData);
@@ -125,8 +125,8 @@ export default function BasketballTableSpectatorPage() {
     // Calculer si le shot clock doit être visible
     const gameTimerStr = matchData.chrono || '09:00';
     const shotClockStr = matchData.shotClock || '24.0';
-    
-    // Convertir en secondes
+
+    // Convertir en secondes pour la comparaison
     let gameTimerSeconds = 0;
     if (gameTimerStr.includes(':')) {
         const parts = gameTimerStr.split(':');
@@ -136,15 +136,12 @@ export default function BasketballTableSpectatorPage() {
     } else {
         gameTimerSeconds = parseFloat(gameTimerStr) || 0;
     }
-    
+
     const shotClockSeconds = parseFloat(shotClockStr) || 0;
     const shouldShowShotClock = gameTimerSeconds > shotClockSeconds;
-    
-    // Formater le game timer (en dessous de 60s, afficher SS.s)
-    let displayGameTimer = gameTimerStr;
-    if (gameTimerSeconds < 60 && gameTimerStr.includes(':')) {
-        displayGameTimer = gameTimerSeconds.toFixed(1);
-    }
+
+    // Utiliser directement gameTimerStr sans conversion
+    const displayGameTimer = gameTimerStr;
 
     return (
         <main>
@@ -208,6 +205,7 @@ export default function BasketballTableSpectatorPage() {
                     {/* Match info ensuite */}
                     <div className="match-info">
                         <span className="match-type" id="matchType">{matchData.matchType || 'Match'}</span>
+                        <span style={{ color: '#666', fontWeight: 400 }}>-</span>
                         <span className="period" id="period">{matchData.period || 'MT1'}</span>
                     </div>
                 </div>

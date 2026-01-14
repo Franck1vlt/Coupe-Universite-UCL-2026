@@ -352,6 +352,10 @@ def create_tournament_structure(
             match.court = get_val(m_data, 'court', match.court)
             match.duration = get_val(m_data, 'duration', match.duration)
             match.updated_at = datetime.utcnow()
+            match.winner_destination_match_id = get_val(m_data, 'winner_destination_match_id', match.winner_destination_match_id)
+            match.loser_destination_match_id = get_val(m_data, 'loser_destination_match_id', match.loser_destination_match_id)
+            match.winner_destination_slot = get_val(m_data, 'winner_destination_slot', match.winner_destination_slot)
+            match.loser_destination_slot = get_val(m_data, 'loser_destination_slot', match.loser_destination_slot)
         else:
             # --- CREATE ---
             final_uuid = m_uuid if isinstance(m_uuid, str) and m_uuid.strip() else str(uuid.uuid4())
@@ -364,6 +368,10 @@ def create_tournament_structure(
                 bracket_type=get_val(m_data, 'bracket_type'),
                 team_a_source=get_val(m_data, 'team_a_source'),
                 team_b_source=get_val(m_data, 'team_b_source'),
+                winner_destination_match_id=get_val(m_data, 'winner_destination_match_id'),
+                loser_destination_match_id=get_val(m_data, 'loser_destination_match_id'),
+                winner_destination_slot=get_val(m_data, 'winner_destination_slot'),
+                loser_destination_slot=get_val(m_data, 'loser_destination_slot'),
                 label=get_val(m_data, 'label'),
                 status=get_val(m_data, 'status', "upcoming"),
                 date=d,
@@ -404,7 +412,7 @@ def create_tournament_structure(
             ms.court_id = court_id
             ms.scheduled_datetime = scheduled_dt
             ms.estimated_duration_minutes = estimated_duration
-            ms.tournament_id = tournament_id
+            ms.tournament_id
         else:
             ms = MatchSchedule(
                 match_id=match.id,
@@ -475,56 +483,84 @@ def create_tournament_structure(
 # --- 2. GET : RÉCUPÉRATION ---
 @router.get("/tournaments/{tournament_id}/structure")
 def get_tournament_structure(
-    tournament_id: int,
+    tournament_id: int = Path(..., description="ID du tournoi"),
     db: Session = Depends(get_db)
 ):
-    phases = db.query(TournamentPhase).filter(
-        TournamentPhase.tournament_id == tournament_id
-    ).all()
-    phase_ids = [p.id for p in phases]
+    tournament = db.query(Tournament).filter(Tournament.id == tournament_id).first()
+    if not tournament:
+        raise NotFoundError(f"Tournament {tournament_id} not found")
 
-    all_matches = (
-        db.query(Match)
-        .filter(Match.phase_id.in_(phase_ids))
-        .all()
-        if phase_ids else []
-    )
+    # Force le rafraîchissement pour voir les scores en temps réel
+    db.expire_all()
 
-    all_pools = (
-        db.query(Pool)
-        .filter(Pool.phase_id.in_(phase_ids))
-        .all()
-        if phase_ids else []
-    )
+    phases = db.query(TournamentPhase).filter(TournamentPhase.tournament_id == tournament_id).all()
+    
+    qualification_matches = []
+    pools_data = []
+    bracket_matches = []
+    loser_bracket_matches = []
+
+    def match_to_dict_internal(m):
+        return {
+            "id": m.id,
+            "uuid": getattr(m, 'uuid', None),
+            "match_type": m.match_type,
+            "bracket_type": m.bracket_type,
+            "team_a_source": m.team_a_source,
+            "team_b_source": m.team_b_source,
+            
+            # --- AJOUT DES DESTINATIONS ---
+            "winner_destination_match_id": m.winner_destination_match_id,
+            "loser_destination_match_id": m.loser_destination_match_id,
+            # ------------------------------
+            
+            "label": m.label,
+            "status": m.status,
+            "score_a": m.score_a if m.score_a is not None else 0,
+            "score_b": m.score_b if m.score_b is not None else 0,
+            "court": m.court if m.court else "Terrain",
+            "date": str(m.date) if m.date else None,
+            "time": str(m.time) if m.time else None,
+            "court_id": getattr(m, 'court_id', 1) or 1,
+            "duration": getattr(m, 'duration', 90),
+            "scheduled_datetime": getattr(m, 'scheduled_datetime', None),
+            "estimated_duration_minutes": getattr(m, 'estimated_duration_minutes', 90)
+        }
+
+    for phase in phases:
+        # Récupération de tous les matchs de la phase
+        matches = db.query(Match).filter(Match.phase_id == phase.id).all()
+        # Normalisation du type pour éviter les erreurs de frappe (Qualif vs qualification)
+        p_type = phase.phase_type.lower() if phase.phase_type else ""
+        
+        # 1. Gestion des Qualifications
+        if "qualif" in p_type:
+            qualification_matches.extend([match_to_dict_internal(m) for m in matches])
+            
+        # 2. Gestion des Poules
+        elif "poule" in p_type:
+            pools = db.query(Pool).filter(Pool.phase_id == phase.id).all()
+            for pool in pools:
+                pool_matches = [m for m in matches if m.pool_id == pool.id]
+                pools_data.append({
+                    "id": pool.id,
+                    "name": pool.name,
+                    "matches": [match_to_dict_internal(m) for m in pool_matches]
+                })
+                
+        # 3. Gestion des Brackets (élimination, finale, etc.)
+        else:
+            for m in matches:
+                if m.match_type == "loser_bracket":
+                    loser_bracket_matches.append(match_to_dict_internal(m))
+                else:
+                    bracket_matches.append(match_to_dict_internal(m))
 
     return create_success_response({
-        "qualification_matches": [
-            match_to_dict(m)
-            for m in all_matches
-            if m.match_type == "qualification"
-        ],
-        "pools": [
-            {
-                "id": p.id,
-                "name": p.name,
-                "matches": [
-                    match_to_dict(m)
-                    for m in all_matches
-                    if m.pool_id == p.id
-                ]
-            }
-            for p in all_pools
-        ],
-        "bracket_matches": [
-            match_to_dict(m)
-            for m in all_matches
-            if m.match_type == "bracket" and m.bracket_type != "loser"
-        ],
-        "loser_bracket_matches": [
-            match_to_dict(m)
-            for m in all_matches
-            if m.match_type == "bracket" and m.bracket_type == "loser"
-        ],
+        "qualification_matches": qualification_matches,
+        "pools": pools_data,
+        "bracket_matches": bracket_matches,
+        "loser_bracket_matches": loser_bracket_matches
     })
 
 

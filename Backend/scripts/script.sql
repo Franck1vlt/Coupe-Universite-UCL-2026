@@ -71,3 +71,8 @@ ADD COLUMN tournament_id INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE "MatchSchedule"
 ADD CONSTRAINT fk_matchschedule_tournament
 FOREIGN KEY (tournament_id) REFERENCES "Tournament"(id);
+
+ALTER TABLE Match ADD COLUMN winner_destination_slot VARCHAR(1);
+ALTER TABLE Match ADD COLUMN loser_destination_slot VARCHAR(1);
+
+SELECT * FROM Match WHERE tournament_id	= 1;
