@@ -54,6 +54,10 @@ class Match(Base):
     score_a = Column(Integer, nullable=True)
     score_b = Column(Integer, nullable=True)
 
+    # Points personnalisés pour le vainqueur et le perdant
+    winner_points = Column(Integer, nullable=True, default=0, server_default="0")
+    loser_points = Column(Integer, nullable=True, default=0, server_default="0")
+
     status = Column(
         String(20),
         nullable=False,
@@ -152,6 +156,8 @@ class Match(Base):
             f"match_order={self.match_order}, "
             f"score_a={self.score_a}, "
             f"score_b={self.score_b}, "
+            f"winner_points={self.winner_points}, "
+            f"loser_points={self.loser_points}, "
             f"status={self.status}, "
             f"referee_user_id={self.referee_user_id}, "
             f"created_by_user_id={self.created_by_user_id}, "

@@ -277,22 +277,29 @@ class MatchService(BaseService[Match]):
             team_pool_b.goals_against += score_a
             
             # Déterminer le résultat et mettre à jour les points et stats
+            # Utiliser winner_points et loser_points si définis, sinon utiliser le système 3-1-0
+            winner_points = match.winner_points if match.winner_points is not None else 3
+            loser_points = match.loser_points if match.loser_points is not None else 0
+            draw_points = 1  # Points en cas de match nul (toujours 1)
+
             if score_a > score_b:
                 # Équipe A gagne
                 team_pool_a.wins += 1
-                team_pool_a.points += 3
+                team_pool_a.points += winner_points
                 team_pool_b.losses += 1
+                team_pool_b.points += loser_points
             elif score_b > score_a:
                 # Équipe B gagne
                 team_pool_b.wins += 1
-                team_pool_b.points += 3
+                team_pool_b.points += winner_points
                 team_pool_a.losses += 1
+                team_pool_a.points += loser_points
             else:
                 # Match nul
                 team_pool_a.draws += 1
-                team_pool_a.points += 1
+                team_pool_a.points += draw_points
                 team_pool_b.draws += 1
-                team_pool_b.points += 1
+                team_pool_b.points += draw_points
         
         # Calculer la différence de buts et le classement
         team_pools_list = []

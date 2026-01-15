@@ -16,13 +16,37 @@ type TeamRankingData = {
   team: Team;
   total_points: number;
   tournaments_participated: number;
+  tournaments_won: number;
+  tournaments_second: number;
+  tournaments_third: number;
+  matches_played: number;
+  wins: number;
+  draws: number;
+  losses: number;
+  goal_difference: number;
   position: number;
+};
+
+type Sport = {
+  id: number;
+  name: string;
+  code: string;
+};
+
+type Tournament = {
+  id: number;
+  name: string;
+  sport_id: number;
+  sport_name?: string;
 };
 
 export default function TableauScoresPage() {
   const [rankings, setRankings] = useState<TeamRankingData[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [tournaments, setTournaments] = useState<Tournament[]>([]);
+  const [selectedTournamentId, setSelectedTournamentId] = useState<number | null>(null);
+  const [teams, setTeams] = useState<Team[]>([]);
   const router = useRouter();
 
   // Fonction pour récupérer les équipes
@@ -40,38 +64,148 @@ export default function TableauScoresPage() {
     }
   };
 
-  // Fonction simulée pour récupérer le classement final
-  const simulateFinalRanking = (teams: Team[]): TeamRankingData[] => {
-    return teams.map((team) => {
-      const tournamentsParticipated = Math.floor(Math.random() * 8) + 1;
-      const tournamentsWon = Math.floor(Math.random() * (tournamentsParticipated / 2));
-      const tournamentsSecond = Math.floor(Math.random() * (tournamentsParticipated - tournamentsWon));
-      const tournamentsThird = Math.floor(Math.random() * (tournamentsParticipated - tournamentsWon - tournamentsSecond));
-      
-      const totalPoints = (tournamentsWon * 100) + (tournamentsSecond * 70) + (tournamentsThird * 40) + 
-                         (Math.max(0, tournamentsParticipated - tournamentsWon - tournamentsSecond - tournamentsThird) * 10);
+  // Fonction pour récupérer tous les tournois
+  const fetchTournaments = async (): Promise<Tournament[]> => {
+    try {
+      const response = await fetch('http://localhost:8000/tournaments');
+      if (!response.ok) {
+        throw new Error('Erreur lors de la récupération des tournois');
+      }
+      const data = await response.json();
+      const tournamentsData = data.success ? data.data.items : [];
 
-      return {
-        team,
-        total_points: totalPoints,
-        tournaments_participated: tournamentsParticipated,
-        position: 0,
-      };
-    }).sort((a, b) => b.total_points - a.total_points)
-      .map((item, index) => ({ ...item, position: index + 1 }));
+      // Récupérer les sports pour avoir les noms
+      const sportsResponse = await fetch('http://localhost:8000/sports');
+      const sportsData = await sportsResponse.json();
+      const sports = sportsData.success ? sportsData.data.items : [];
+
+      // Enrichir les tournois avec le nom du sport
+      return tournamentsData.map((t: any) => {
+        const sport = sports.find((s: any) => s.id === t.sport_id);
+        return {
+          ...t,
+          sport_name: sport ? sport.name : `Sport ${t.sport_id}`
+        };
+      });
+    } catch (err) {
+      console.error('Erreur fetch tournaments:', err);
+      return [];
+    }
   };
 
-  // Chargement des données
+  // Fonction pour récupérer le classement final global
+  const fetchGlobalRanking = async (): Promise<TeamRankingData[]> => {
+    try {
+      const response = await fetch('http://localhost:8000/final-ranking');
+      if (!response.ok) {
+        throw new Error('Erreur lors de la récupération du classement final');
+      }
+      const data = await response.json();
+      const rankingData = data.success ? data.data : [];
+
+      // Mapper les données de l'API vers notre format avec les objets Team
+      return rankingData.map((entry: any) => {
+        const team = teams.find(t => t.id === entry.team_id) || {
+          id: entry.team_id,
+          name: entry.team_name,
+        };
+
+        return {
+          team,
+          total_points: entry.total_points,
+          tournaments_participated: entry.tournaments_played,
+          tournaments_won: entry.tournaments_won,
+          tournaments_second: entry.tournaments_second,
+          tournaments_third: entry.tournaments_third,
+          matches_played: entry.matches_played,
+          wins: entry.wins,
+          draws: entry.draws,
+          losses: entry.losses,
+          goal_difference: entry.goal_difference,
+          position: entry.position,
+        };
+      });
+    } catch (err) {
+      console.error('Erreur fetch global ranking:', err);
+      return [];
+    }
+  };
+
+  // Fonction pour récupérer le classement d'un tournoi spécifique
+  const fetchTournamentRanking = async (tournamentId: number): Promise<TeamRankingData[]> => {
+    try {
+      const response = await fetch(`http://localhost:8000/tournaments/${tournamentId}/final-ranking`);
+      if (!response.ok) {
+        throw new Error('Erreur lors de la récupération du classement du tournoi');
+      }
+      const data = await response.json();
+      const rankingData = data.success ? data.data : [];
+
+      // Mapper les données de l'API vers notre format
+      return rankingData.map((entry: any) => {
+        const team = teams.find(t => t.id === entry.team_id) || {
+          id: entry.team_id,
+          name: entry.team_name,
+        };
+
+        return {
+          team,
+          total_points: entry.total_points,
+          tournaments_participated: 1,
+          tournaments_won: entry.position === 1 ? 1 : 0,
+          tournaments_second: entry.position === 2 ? 1 : 0,
+          tournaments_third: entry.position === 3 ? 1 : 0,
+          matches_played: entry.matches_played,
+          wins: entry.wins,
+          draws: entry.draws,
+          losses: entry.losses,
+          goal_difference: entry.goal_difference,
+          position: entry.position,
+        };
+      });
+    } catch (err) {
+      console.error('Erreur fetch tournament ranking:', err);
+      return [];
+    }
+  };
+
+  // Chargement initial des équipes et tournois
   useEffect(() => {
-    const loadData = async () => {
+    const loadInitialData = async () => {
+      try {
+        const [teamsData, tournamentsData] = await Promise.all([
+          fetchTeams(),
+          fetchTournaments()
+        ]);
+
+        setTeams(teamsData);
+        setTournaments(tournamentsData);
+      } catch (err) {
+        console.error('Erreur lors du chargement initial:', err);
+      }
+    };
+
+    loadInitialData();
+  }, []);
+
+  // Chargement du classement (global ou par tournoi)
+  useEffect(() => {
+    const loadRanking = async () => {
+      if (teams.length === 0) return;
+
       setLoading(true);
       try {
-        const teamsData = await fetchTeams();
-        
-        // Simulation du classement final
-        const rankingData = simulateFinalRanking(teamsData);
+        let rankingData: TeamRankingData[];
+
+        if (selectedTournamentId === null) {
+          // Classement final global
+          rankingData = await fetchGlobalRanking();
+        } else {
+          // Classement d'un tournoi spécifique
+          rankingData = await fetchTournamentRanking(selectedTournamentId);
+        }
+
         setRankings(rankingData);
-        
         setError(null);
       } catch (err) {
         setError('Erreur lors du chargement des données');
@@ -81,8 +215,8 @@ export default function TableauScoresPage() {
       }
     };
 
-    loadData();
-  }, []);
+    loadRanking();
+  }, [selectedTournamentId, teams]);
 
   // Fonction pour obtenir la couleur de badge selon la position
   const getPositionBadgeColor = (position: number) => {
@@ -156,12 +290,31 @@ export default function TableauScoresPage() {
         />
         <h1 className="text-4xl font-bold text-gray-800 mb-2">🏆 Tableau de Classement</h1>
         <p className="text-gray-600 text-lg">
-          Classement général des équipes
+          {selectedTournamentId === null
+            ? "Classement général de tous les tournois"
+            : `Classement du tournoi ${tournaments.find(t => t.id === selectedTournamentId)?.sport_name || ""}`
+          }
         </p>
       </header>
 
       <section className="w-full max-w-4xl">
         <div className="bg-white rounded-2xl shadow-lg border-2 border-transparent p-8">
+          {/* Filtre par tournoi */}
+          <div className="mb-6 flex items-center gap-3">
+            <label className="text-sm font-medium text-gray-700">Filtrer par tournoi :</label>
+            <select
+              value={selectedTournamentId === null ? "" : selectedTournamentId}
+              onChange={(e) => setSelectedTournamentId(e.target.value === "" ? null : parseInt(e.target.value))}
+              className="px-4 py-2 text-black border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">Classement général (tous les tournois)</option>
+              {tournaments.map((tournament) => (
+                <option key={tournament.id} value={tournament.id}>
+                  {tournament.sport_name}
+                </option>
+              ))}
+            </select>
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
@@ -173,11 +326,30 @@ export default function TableauScoresPage() {
                     Équipe
                   </th>
                   <th className="px-6 py-4 text-center text-lg font-semibold text-gray-800">
-                    Points Totaux
+                    Points
                   </th>
-                  <th className="px-6 py-4 text-center text-lg font-semibold text-gray-800">
-                    Tournois
+                  <th className="px-6 py-4 text-center text-xs font-semibold text-gray-800">
+                    Matchs
                   </th>
+                  <th className="px-6 py-4 text-center text-xs font-semibold text-gray-800">
+                    V
+                  </th>
+                  <th className="px-6 py-4 text-center text-xs font-semibold text-gray-800">
+                    Diff
+                  </th>
+                  {selectedTournamentId === null && (
+                    <>
+                      <th className="px-6 py-4 text-center text-xs font-semibold text-gray-800">
+                        🥇
+                      </th>
+                      <th className="px-6 py-4 text-center text-xs font-semibold text-gray-800">
+                        🥈
+                      </th>
+                      <th className="px-6 py-4 text-center text-xs font-semibold text-gray-800">
+                        🥉
+                      </th>
+                    </>
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -229,12 +401,47 @@ export default function TableauScoresPage() {
                       </div>
                     </td>
 
-                    {/* Tournois participés */}
+                    {/* Matchs joués */}
                     <td className="px-6 py-4 text-center">
-                      <div className="text-lg text-gray-900">
-                        {item.tournaments_participated}
+                      <div className="text-sm text-gray-900">
+                        {item.matches_played}
                       </div>
                     </td>
+
+                    {/* Victoires */}
+                    <td className="px-6 py-4 text-center">
+                      <div className="text-sm font-semibold text-green-600">
+                        {item.wins}
+                      </div>
+                    </td>
+
+                    {/* Différence de buts */}
+                    <td className="px-6 py-4 text-center">
+                      <div className="text-sm text-gray-900">
+                        {item.goal_difference > 0 ? `+${item.goal_difference}` : item.goal_difference}
+                      </div>
+                    </td>
+
+                    {/* Podiums (uniquement pour le classement général) */}
+                    {selectedTournamentId === null && (
+                      <>
+                        <td className="px-6 py-4 text-center">
+                          <div className="text-sm font-semibold text-yellow-600">
+                            {item.tournaments_won}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 text-center">
+                          <div className="text-sm font-semibold text-gray-500">
+                            {item.tournaments_second}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 text-center">
+                          <div className="text-sm font-semibold text-amber-600">
+                            {item.tournaments_third}
+                          </div>
+                        </td>
+                      </>
+                    )}
                   </tr>
                 ))}
               </tbody>

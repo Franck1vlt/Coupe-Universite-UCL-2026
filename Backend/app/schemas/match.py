@@ -75,6 +75,7 @@ class MatchUpdate(BaseModel):
 class MatchResponse(MatchBase):
     """Schéma pour la réponse Match"""
     id: int
+    tournament_id: int = Field(..., description="ID du tournoi")
     created_by_user_id: int
     updated_by_user_id: Optional[int] = None
     created_at: datetime

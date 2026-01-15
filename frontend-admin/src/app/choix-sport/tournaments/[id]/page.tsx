@@ -2,10 +2,9 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { 
-  resolveTeamName, 
+import {
+  resolveTeamName,
   calculatePoolStandings,
-  calculateFinalRankings,
   type Match as TournamentLogicMatch,
   type Pool as TournamentLogicPool,
   type Bracket as TournamentLogicBracket,
@@ -161,7 +160,12 @@ const formatTeamName = (
     };
     
     for (const [code, label] of Object.entries(codePatterns)) {
-      if (teamName.startsWith(code)) {
+      // On crée une expression régulière pour vérifier que le code est soit :
+      // 1. Suivi d'un chiffre (ex: P1)
+      // 2. Le nom exact (ex: P)
+      const regex = new RegExp(`^${code}(\\d+|$)`);
+      
+      if (regex.test(teamName)) {
         const number = teamName.replace(code, "").replace(/[^0-9-]/g, "");
         return number ? `${label} ${number}` : label;
       }
@@ -219,7 +223,8 @@ export default function TournamentViewPage() {
           }
           
           setTeamSportIdToName(mapping);
-          console.log("✅ Mapping team_sport_id → team_name chargé:", mapping);
+          console.log("✅ Mapping team_sport_id → team_name chargé:");
+          console.table(mapping);
         }
       } catch (err) {
         console.warn("⚠️ Erreur lors du chargement du mapping d'équipes:", err);
@@ -309,11 +314,39 @@ export default function TournamentViewPage() {
                       }
                   }
 
+                  // ✅ FIX COMPLET: Résolution robuste des noms d'équipes
+                  const resolveTeamName = (teamSportId: number | null | undefined, teamSource: string | null | undefined): string => {
+                    // 1. Si team_sport_id existe, récupérer le nom depuis le mapping
+                    if (teamSportId) {
+                      const mappedName = teamSportIdToName[teamSportId];
+                      if (mappedName) {
+                        console.log(`✅ Resolved team_sport_id ${teamSportId} → ${mappedName}`);
+                        return mappedName;
+                      } else {
+                        console.warn(`⚠️ team_sport_id ${teamSportId} not found in mapping, fallback to ID`);
+                        return teamSportId.toString();
+                      }
+                    }
+
+                    // 2. Sinon, utiliser team_source (qui peut être un nom ou un code comme "WQ1")
+                    if (teamSource) {
+                      console.log(`📝 Using team_source: ${teamSource}`);
+                      return teamSource;
+                    }
+
+                    // 3. Dernier recours
+                    console.warn(`⚠️ No team_sport_id or team_source for match ${m.id}`);
+                    return "À définir";
+                  };
+
+                  const teamAValue = resolveTeamName(m.team_sport_a_id, m.team_a_source);
+                  const teamBValue = resolveTeamName(m.team_sport_b_id, m.team_b_source);
+
                   return {
                     id: m.id?.toString() || "",
                     label: m.label || `Match ${m.match_order || ""}`,
-                    teamA: m.team_sport_a_id ? m.team_sport_a_id.toString() : (m.team_a_source || "À définir"),
-                    teamB: m.team_sport_b_id ? m.team_sport_b_id.toString() : (m.team_b_source || "À définir"),
+                    teamA: teamAValue,
+                    teamB: teamBValue,
                     type: type,
                     status: m.status === "upcoming" ? "planifié" : m.status === "in_progress" ? "en-cours" : m.status === "completed" ? "terminé" : "planifié",
                     scoreA: m.score_a,
@@ -327,7 +360,24 @@ export default function TournamentViewPage() {
 
                 const collected: TournamentMatch[] = [];
                 if (data.qualification_matches) data.qualification_matches.forEach((m: any) => collected.push(mapMatch(m, "qualifications")));
-                if (data.pools) data.pools.forEach((p: any) => p.matches?.forEach((m: any) => collected.push(mapMatch(m, "poule"))));
+
+                // ✅ Charger aussi les informations des poules
+                const poolsData: Pool[] = [];
+                if (data.pools) {
+                  data.pools.forEach((p: any) => {
+                    p.matches?.forEach((m: any) => collected.push(mapMatch(m, "poule")));
+
+                    // Ajouter la poule à la liste
+                    poolsData.push({
+                      id: p.id?.toString() || "",
+                      name: p.name || "",
+                      teams: [], // Les équipes seront récupérées via l'API standings
+                      qualifiedToFinals: p.qualified_to_finals || 2,
+                      qualifiedToLoserBracket: p.qualified_to_loser_bracket || 0,
+                    });
+                  });
+                }
+                setPools(poolsData);
                 if (data.bracket_matches) data.bracket_matches.forEach((m: any) => collected.push(mapMatch(m)));
                 if (data.loser_bracket_matches) data.loser_bracket_matches.forEach((m: any) => collected.push(mapMatch(m, "loser-bracket")));
 
@@ -353,13 +403,58 @@ export default function TournamentViewPage() {
                       const refreshRes = await fetch(`http://localhost:8000/tournaments/${tournament.id}/structure`);
                       const refreshData = await refreshRes.json();
                       const newData = refreshData.data || refreshData;
-                      
+
+                      // Créer une nouvelle fonction mapMatch avec le mapping mis à jour
+                      const mapMatchRefresh = (m: any, forcedType?: TournamentMatchType): TournamentMatch => {
+                        let type: TournamentMatchType = forcedType || "qualifications";
+                        if (!forcedType) {
+                          if (m.match_type === "qualification") type = "qualifications";
+                          else if (m.bracket_type === "loser") type = "loser-bracket";
+                          else if (m.match_type === "bracket") {
+                            if (m.bracket_type === "quarterfinal") type = "quarts";
+                            else if (m.bracket_type === "semifinal") type = "demi-finale";
+                            else if (m.bracket_type === "final") type = "finale";
+                            else if (m.bracket_type === "third_place") type = "petite-finale";
+                            else type = "quarts";
+                          }
+                        }
+
+                        // Même logique de résolution que mapMatch
+                        const resolveTeamNameRefresh = (teamSportId: number | null | undefined, teamSource: string | null | undefined): string => {
+                          if (teamSportId) {
+                            const mappedName = teamSportIdToName[teamSportId];
+                            if (mappedName) return mappedName;
+                            return teamSportId.toString();
+                          }
+                          if (teamSource) return teamSource;
+                          return "À définir";
+                        };
+
+                        const teamAValue = resolveTeamNameRefresh(m.team_sport_a_id, m.team_a_source);
+                        const teamBValue = resolveTeamNameRefresh(m.team_sport_b_id, m.team_b_source);
+
+                        return {
+                          id: m.id?.toString() || "",
+                          label: m.label || `Match ${m.match_order || ""}`,
+                          teamA: teamAValue,
+                          teamB: teamBValue,
+                          type: type,
+                          status: m.status === "upcoming" ? "planifié" : m.status === "in_progress" ? "en-cours" : m.status === "completed" ? "terminé" : "planifié",
+                          scoreA: m.score_a,
+                          scoreB: m.score_b,
+                          winnerDestinationMatchId: m.winner_destination_match_id,
+                          winnerDestinationSlot: m.winner_destination_slot,
+                          loserDestinationMatchId: m.loser_destination_match_id,
+                          loserDestinationSlot: m.loser_destination_slot,
+                        };
+                      };
+
                       const refreshed: TournamentMatch[] = [];
-                      if (newData.qualification_matches) newData.qualification_matches.forEach((m: any) => refreshed.push(mapMatch(m, "qualifications")));
-                      if (newData.pools) newData.pools.forEach((p: any) => p.matches?.forEach((m: any) => refreshed.push(mapMatch(m, "poule"))));
-                      if (newData.bracket_matches) newData.bracket_matches.forEach((m: any) => refreshed.push(mapMatch(m)));
-                      if (newData.loser_bracket_matches) newData.loser_bracket_matches.forEach((m: any) => refreshed.push(mapMatch(m, "loser-bracket")));
-                      
+                      if (newData.qualification_matches) newData.qualification_matches.forEach((m: any) => refreshed.push(mapMatchRefresh(m, "qualifications")));
+                      if (newData.pools) newData.pools.forEach((p: any) => p.matches?.forEach((m: any) => refreshed.push(mapMatchRefresh(m, "poule"))));
+                      if (newData.bracket_matches) newData.bracket_matches.forEach((m: any) => refreshed.push(mapMatchRefresh(m)));
+                      if (newData.loser_bracket_matches) newData.loser_bracket_matches.forEach((m: any) => refreshed.push(mapMatchRefresh(m, "loser-bracket")));
+
                       setMatches(refreshed);
                       setTournamentMatches(refreshed as unknown as TournamentLogicMatch[]);
                     }
@@ -548,29 +643,50 @@ export default function TournamentViewPage() {
     loadPoolRankings();
   }, [pools]);
 
-  // Charger le classement final
+  // Charger le classement final depuis l'API
   useEffect(() => {
-    const finalRankings = calculateFinalRankings(
-      tournamentMatches,
-      tournamentPools,
-      tournamentBrackets,
-      tournamentLoserBrackets
-    );
-    
-    const ranking = Array.from(finalRankings.entries())
-      .sort((a, b) => b[1] - a[1])
-      .map(([team, points], index) => ({
-        position: index + 1,
-        team: resolveTeamName(team, tournamentMatches, tournamentPools, tournamentBrackets, tournamentLoserBrackets),
-        played: 0, // À calculer si nécessaire
-        won: 0,
-        drawn: 0,
-        lost: 0,
-        points: points,
-      }));
-    
-    setFinalRanking(ranking);
-  }, [tournamentMatches, tournamentPools, tournamentBrackets, tournamentLoserBrackets]);
+    const loadFinalRanking = async () => {
+      if (!params.id || typeof params.id !== 'string') return;
+
+      try {
+        // Récupérer le tournoi
+        const tournamentsResponse = await fetch(`http://localhost:8000/tournaments?sport_id=${params.id}`);
+        const tournamentsData = await tournamentsResponse.json();
+        const items = tournamentsData.data?.items || [];
+        const tournament = items.length > 0 ? items[0] : null;
+
+        if (!tournament) return;
+
+        // Récupérer le classement final depuis l'API
+        const rankingResponse = await fetch(`http://localhost:8000/tournaments/${tournament.id}/final-ranking`);
+        if (!rankingResponse.ok) {
+          console.warn('Impossible de charger le classement final');
+          return;
+        }
+
+        const rankingData = await rankingResponse.json();
+        const apiRanking = rankingData.data || [];
+
+        // Convertir au format attendu par le frontend
+        const ranking = apiRanking.map((entry: any) => ({
+          position: entry.position,
+          team: entry.team_name,
+          played: entry.matches_played,
+          won: entry.wins,
+          drawn: entry.draws,
+          lost: entry.losses,
+          points: entry.total_points,
+          scoreDiff: entry.goal_difference,
+        }));
+
+        setFinalRanking(ranking);
+      } catch (err) {
+        console.error('Erreur lors du chargement du classement final:', err);
+      }
+    };
+
+    loadFinalRanking();
+  }, [params.id, matches]);
 
   const handleResetAllMatches = async () => {
     if (!params.id || typeof params.id !== 'string') return;
@@ -1341,7 +1457,22 @@ export default function TournamentViewPage() {
                             Équipe
                             </th>
                             <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider">
-                            Points Totaux
+                            J
+                            </th>
+                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider">
+                            G
+                            </th>
+                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider">
+                            N
+                            </th>
+                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider">
+                            P
+                            </th>
+                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider">
+                            Diff
+                            </th>
+                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider">
+                            Points
                             </th>
                         </tr>
                         </thead>
@@ -1365,6 +1496,21 @@ export default function TournamentViewPage() {
                             <td className="px-4 py-3 text-sm text-black font-medium">
                                 {entry.team}
                             </td>
+                            <td className="px-4 py-3 text-sm text-center text-black">
+                                {entry.played}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-center text-green-600">
+                                {entry.won}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-center text-black">
+                                {entry.drawn}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-center text-red-600">
+                                {entry.lost}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-center text-black">
+                                {entry.scoreDiff !== undefined ? (entry.scoreDiff > 0 ? `+${entry.scoreDiff}` : entry.scoreDiff) : '-'}
+                            </td>
                             <td className="px-4 py-3 text-sm text-center font-bold text-blue-600 text-lg">
                                 {entry.points}
                             </td>
@@ -1372,7 +1518,7 @@ export default function TournamentViewPage() {
                           ))
                         ) : (
                           <tr>
-                            <td colSpan={3} className="px-4 py-8 text-center text-black">
+                            <td colSpan={8} className="px-4 py-8 text-center text-black">
                               Aucun résultat pour le moment.<br/>
                               <span className="text-xs text-gray-500">Les points apparaîtront quand les matchs seront terminés.</span>
                             </td>

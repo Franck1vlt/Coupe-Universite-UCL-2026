@@ -67,6 +67,8 @@ type Pool = {
   position: { x: number; y: number };
   qualifiedToFinals: number;
   qualifiedToLoserBracket: number;
+  useStandingPoints?: boolean; 
+  standingPoints?: Record<number, number>;
 };
 
 type Bracket = {
@@ -290,6 +292,13 @@ export default function TournamentsPage() {
   const [nextMatchId, setNextMatchId] = useState(1); // Compteur pour les IDs de matchs
   
   const qualificationMatchesCount = matches.filter(m => m.type === "qualifications").length;
+
+  const allAvailableMatches = [
+    ...matches, 
+    ...pools.flatMap(p => p.matches || []), 
+    ...brackets.flatMap(b => b.matches || []), 
+    ...loserBrackets.flatMap(lb => lb.matches || [])
+  ];
 
   // Récupérer les équipes depuis l'API
   const fetchTeams = async () => {
@@ -656,13 +665,15 @@ export default function TournamentsPage() {
                 date: m.scheduled_datetime ? m.scheduled_datetime.split('T')[0] : (m.date ?? ""),
                 time: m.scheduled_datetime ? (m.scheduled_datetime.split('T')[1]?.slice(0,5) ?? "") : (m.time ?? ""),
                 court: m.court ?? "",
-                status: m.status === "upcoming" ? "planifié" : 
+                status: m.status === "upcoming" ? "planifié" :
                   m.status === "in_progress" ? "en-cours" :
                   m.status === "completed" ? "terminé" : "planifié",
                 duration: m.duration || 90,
                 type: "qualifications" as MatchType,
                 scoreA: m.score_a,
                 scoreB: m.score_b,
+                winnerPoints: m.winner_points ?? 0,
+                loserPoints: m.loser_points ?? 0,
                 winnerCode: m.label,
                 position: { x: 100, y: 100 + (m.match_order || 0) * 100 },
               }));
@@ -1697,7 +1708,7 @@ export default function TournamentsPage() {
       if (tournamentId) {
         console.log(`🗑️ Suppression de la structure du tournoi ${tournamentId}...`);
         
-        const response = await fetch(`http://localhost:8000/tournament_structure/${tournamentId}/matches`, {
+        const response = await fetch(`http://localhost:8000/tournaments/${tournamentId}/structure`, {
           method: 'DELETE',
           headers: { 'Accept': 'application/json' }
         });
@@ -1785,122 +1796,154 @@ export default function TournamentsPage() {
         return map[s] || "upcoming";
       };
 
+      // Fonction pour convertir un code de destination (ex: "SF1", "F") en ID de match SQL
+      const resolveDestinationToMatchId = (destinationCode: string | undefined, allMatches: Match[]): number | null => {
+        if (!destinationCode) return null;
+
+        // Trouver le match correspondant au code
+        const match = allMatches.find(m =>
+          m.winnerCode === destinationCode ||
+          m.label === destinationCode ||
+          m.id === destinationCode
+        );
+
+        // Si on trouve un match avec un ID numérique SQL, le retourner
+        if (match && match.id && /^\d+$/.test(match.id)) {
+          return parseInt(match.id);
+        }
+
+        return null;
+      };
+
       try {
         // Construction du payload SANS générer de nouveaux UUIDs
+
+        // Collecter tous les matchs pour pouvoir résoudre les destinations
+        const allMatches = [
+          ...matches,
+          ...pools.flatMap(p => p.matches),
+          ...brackets.flatMap(b => b.matches),
+          ...loserBrackets.flatMap(lb => lb.matches),
+        ];
         const structure = {
           qualification_matches: matches
             .filter((m) => m.type === "qualifications")
-            .map((m) => ({
-              uuid: m.uuid, // Utilise strictement l'UUID du state
-              id: (m.id && /^\d+$/.test(m.id)) ? parseInt(m.id) : null, // ID SQL si dispo
-              match_type: "qualification",
-              label: m.label || m.winnerCode || null,
-              status: mapStatus(m.status),
-              court: m.court || null,
-              scheduled_datetime: (m.date && m.time)
-                ? `${m.date}T${m.time}:00`
-                : (() => {
-                    // Valeur par défaut : aujourd'hui à 09:00
-                    const now = new Date();
-                    const yyyy = now.getFullYear();
-                    const mm = String(now.getMonth() + 1).padStart(2, '0');
-                    const dd = String(now.getDate()).padStart(2, '0');
-                    return `${yyyy}-${mm}-${dd}T09:00:00`;
-                  })(),
-              duration: m.duration || 90,
-              team_a_source: m.teamA || null,
-              team_b_source: m.teamB || null,
-              winner_destination_match_id: m.winner_destination_match_id || null,
-              loser_destination_match_id: m.loser_destination_match_id || null,
-              winner_destination_slot: m.winner_destination_slot || null,
-              loser_destination_slot: m.loser_destination_slot || null,
-            })),
+            .map((m) => {
+              const match = {
+                uuid: m.uuid, // Utilise strictement l'UUID du state
+                id: (m.id && /^\d+$/.test(m.id)) ? parseInt(m.id) : null, // ID SQL si dispo
+                match_type: "qualification",
+                label: m.label || m.winnerCode || null,
+                status: mapStatus(m.status),
+                court: m.court || null,
+                scheduled_datetime: (m.date && m.time)
+                  ? `${m.date}T${m.time}:00`
+                  : (() => {
+                      // Valeur par défaut : aujourd'hui à 09:00
+                      const now = new Date();
+                      const yyyy = now.getFullYear();
+                      const mm = String(now.getMonth() + 1).padStart(2, '0');
+                      const dd = String(now.getDate()).padStart(2, '0');
+                      return `${yyyy}-${mm}-${dd}T09:00:00`;
+                    })(),
+                duration: m.duration || 90,
+                team_a_source: m.teamA || null,
+                team_b_source: m.teamB || null,
+                winner_destination_match_id: m.winner_destination_match_id ? parseInt(m.winner_destination_match_id.toString()) : null,
+                loser_destination_match_id: m.loser_destination_match_id ? parseInt(m.loser_destination_match_id.toString()) : null,
+                winner_destination_slot: m.winner_destination_slot || null,
+                loser_destination_slot: m.loser_destination_slot || null,
+                winner_points: m.winnerPoints !== undefined ? m.winnerPoints : 0,
+                loser_points: m.loserPoints !== undefined ? m.loserPoints : 0,
+              };
+              console.log(`📤 Match ${m.id} - winnerPoints: ${m.winnerPoints}, loserPoints: ${m.loserPoints} -> envoi: winner_points=${match.winner_points}, loser_points=${match.loser_points}`);
+              return match;
+            }),
 
           pools: pools.map((pool, pIdx) => ({
             name: pool.name,
             display_order: pIdx + 1,
-            matches: pool.matches.map((m) => ({
-              uuid: m.uuid, // Strict
-              id: (m.id && /^\d+$/.test(m.id)) ? parseInt(m.id) : null,
-              match_type: "pool",
-              label: m.label || m.winnerCode || null,
-              status: mapStatus(m.status),
-              court: m.court || null,
-              scheduled_datetime: (m.date && m.time)
-                ? `${m.date}T${m.time}:00`
-                : (() => {
-                    const now = new Date();
-                    const yyyy = now.getFullYear();
-                    const mm = String(now.getMonth() + 1).padStart(2, '0');
-                    const dd = String(now.getDate()).padStart(2, '0');
-                    return `${yyyy}-${mm}-${dd}T09:00:00`;
-                  })(),
-              duration: m.duration || 90,
-              team_a_source: m.teamA || null,
-              team_b_source: m.teamB || null,
-              winner_destination_match_id: m.winner_destination_match_id || null,
-              loser_destination_match_id: m.loser_destination_match_id || null,
-              winner_destination_slot: m.winner_destination_slot || null,
-              loser_destination_slot: m.loser_destination_slot || null,
-            })),
+            matches: pool.matches.map((m) => {
+              // LOG POUR DEBUGGER LES POULES
+              console.log(`📤 Poule Match ${m.id} - winnerPoints: ${m.winnerPoints}, loserPoints: ${m.loserPoints}`);
+              
+              return {
+                uuid: m.uuid,
+                id: (m.id && /^\d+$/.test(m.id)) ? parseInt(m.id) : null,
+                match_type: "pool",
+                label: m.label || m.winnerCode || null,
+                status: mapStatus(m.status),
+                court: m.court || null,
+                scheduled_datetime: (m.date && m.time) ? `${m.date}T${m.time}:00` : null, // Mettre null si pas de date pour éviter les erreurs
+                duration: m.duration || 90,
+                team_a_source: m.teamA || null,
+                team_b_source: m.teamB || null,
+                winner_destination_match_id: m.winner_destination_match_id ? parseInt(m.winner_destination_match_id.toString()) : null,
+                loser_destination_match_id: m.loser_destination_match_id ? parseInt(m.loser_destination_match_id.toString()) : null,
+                winner_destination_slot: m.winner_destination_slot || null,
+                loser_destination_slot: m.loser_destination_slot || null,
+                winner_points: m.winnerPoints !== undefined ? Number(m.winnerPoints) : 0,
+                loser_points: m.loserPoints !== undefined ? Number(m.loserPoints) : 0,
+              };
+            }),
           })),
 
           brackets: brackets.map((b) => ({
             name: b.name,
-            matches: b.matches.map((m) => ({
-              uuid: m.uuid, // Strict
-              id: (m.id && /^\d+$/.test(m.id)) ? parseInt(m.id) : null,
-              match_type: "bracket",
-              bracket_type: mapBracketTypeToSQL(m.bracketMatchType),
-              label: m.label || m.winnerCode,
-              status: mapStatus(m.status),
-              court: m.court || null,
-              scheduled_datetime: (m.date && m.time)
-                ? `${m.date}T${m.time}:00`
-                : (() => {
-                    const now = new Date();
-                    const yyyy = now.getFullYear();
-                    const mm = String(now.getMonth() + 1).padStart(2, '0');
-                    const dd = String(now.getDate()).padStart(2, '0');
-                    return `${yyyy}-${mm}-${dd}T09:00:00`;
-                  })(),
-              duration: m.duration || 90,
-              team_a_source: m.teamA || null,
-              team_b_source: m.teamB || null,
-              winner_destination_match_id: m.winner_destination_match_id || null,
-              loser_destination_match_id: m.loser_destination_match_id || null,
-              winner_destination_slot: m.winner_destination_slot || null,
-              loser_destination_slot: m.loser_destination_slot || null,
-            })),
-          })),
+            matches: b.matches.map((m) => {
+              // LOG POUR DEBUGGER LES BRACKETS
+              console.log(`📤 Bracket Match ${m.id} - winnerPoints: ${m.winnerPoints}, loserPoints: ${m.loserPoints}`);
 
+              return {
+                uuid: m.uuid,
+                id: (m.id && /^\d+$/.test(m.id)) ? parseInt(m.id) : null,
+                match_type: "bracket",
+                bracket_type: mapBracketTypeToSQL(m.bracketMatchType),
+                label: m.label || m.winnerCode,
+                status: mapStatus(m.status),
+                court: m.court || null,
+                scheduled_datetime: (m.date && m.time) ? `${m.date}T${m.time}:00` : null,
+                duration: m.duration || 90,
+                team_a_source: m.teamA || null,
+                team_b_source: m.teamB || null,
+                winner_destination_match_id: m.winner_destination_match_id ? parseInt(m.winner_destination_match_id.toString()) : null,
+                loser_destination_match_id: m.loser_destination_match_id ? parseInt(m.loser_destination_match_id.toString()) : null,
+                winner_destination_slot: m.winner_destination_slot || null,
+                loser_destination_slot: m.loser_destination_slot || null,
+                winner_points: m.winnerPoints !== undefined ? Number(m.winnerPoints) : 0,
+                loser_points: m.loserPoints !== undefined ? Number(m.loserPoints) : 0,
+              };
+            }),
+          })),
+          
           loserBrackets: loserBrackets.map((lb) => ({
             name: lb.name,
-            matches: lb.matches.map((m) => ({
-              uuid: m.uuid, // Strict
-              id: (m.id && /^\d+$/.test(m.id)) ? parseInt(m.id) : null,
-              match_type: "bracket",
-              bracket_type: mapBracketTypeToSQL(m.bracketMatchType),
-              label: m.label || m.winnerCode,
-              status: mapStatus(m.status),
-              court: m.court || null,
-              scheduled_datetime: (m.date && m.time)
-                ? `${m.date}T${m.time}:00`
-                : (() => {
-                    const now = new Date();
-                    const yyyy = now.getFullYear();
-                    const mm = String(now.getMonth() + 1).padStart(2, '0');
-                    const dd = String(now.getDate()).padStart(2, '0');
-                    return `${yyyy}-${mm}-${dd}T09:00:00`;
-                  })(),
-              duration: m.duration || 90,
-              team_a_source: m.teamA || null,
-              team_b_source: m.teamB || null,
-              winner_destination_match_id: m.winner_destination_match_id || null,
-              loser_destination_match_id: m.loser_destination_match_id || null,
-              winner_destination_slot: m.winner_destination_slot || null,
-              loser_destination_slot: m.loser_destination_slot || null,
-            })),
+            matches: lb.matches.map((m) => {
+              // LOG POUR DEBUGGER LE LOSER BRACKET
+              console.log(`📤 Loser Match ${m.id} - winnerPoints: ${m.winnerPoints}, loserPoints: ${m.loserPoints}`);
+
+              return {
+                uuid: m.uuid,
+                id: (m.id && /^\d+$/.test(m.id)) ? parseInt(m.id) : null,
+                match_type: "bracket", // Note: Le type reste souvent "bracket" ou "loser_bracket" selon votre implémentation SQL
+                bracket_type: mapBracketTypeToSQL(m.bracketMatchType), // Assurez-vous que mapBracketTypeToSQL gère les types loser
+                label: m.label || m.winnerCode,
+                status: mapStatus(m.status),
+                court: m.court || null,
+                scheduled_datetime: (m.date && m.time) ? `${m.date}T${m.time}:00` : null,
+                duration: m.duration || 90,
+                team_a_source: m.teamA || null,
+                team_b_source: m.teamB || null,
+                winner_destination_match_id: m.winner_destination_match_id ? parseInt(m.winner_destination_match_id.toString()) : null,
+                loser_destination_match_id: m.loser_destination_match_id ? parseInt(m.loser_destination_match_id.toString()) : null,
+                winner_destination_slot: m.winner_destination_slot || null,
+                loser_destination_slot: m.loser_destination_slot || null,
+
+                // ENVOI EXPLICITE DES POINTS
+                winner_points: m.winnerPoints !== undefined ? Number(m.winnerPoints) : 0,
+                loser_points: m.loserPoints !== undefined ? Number(m.loserPoints) : 0,
+              };
+            }),
           })),
         };
 
@@ -2795,22 +2838,23 @@ export default function TournamentsPage() {
                 <div>
                   <label className="block text-xs font-bold mb-1" style={{ color: '#16a34a' }}>Destination Vainqueur</label>
                   <select
-                    className="w-full p-2 border border-green-400 rounded-md focus:ring-green-500 focus:border-green-500 text-black bg-green-50"
+                    className="..."
                     value={selectedMatch.winner_destination_match_id || ''}
                     onChange={e => {
-                      const value = e.target.value || null;
+                      const val = e.target.value;
+                      // Si vide -> null, sinon on garde la valeur string
                       updateMatch({
                         ...selectedMatch,
-                        winner_destination_match_id: value,
+                        winner_destination_match_id: val === "" ? null : val,
                       });
                     }}
                   >
                     <option value="">Aucune</option>
-                    {[...matches, ...pools.flatMap(p=>p.matches), ...brackets.flatMap(b=>b.matches), ...loserBrackets.flatMap(lb=>lb.matches)]
-                      .filter(m => m.id !== selectedMatch.id)
+                    {allAvailableMatches
+                      .filter(m => m.id !== selectedMatch.id) // On ne peut pas s'envoyer vers soi-même
                       .map(m => (
                         <option key={m.id} value={m.id}>
-                          {m.label || m.id}
+                          {m.label || `Match #${m.id}`} 
                         </option>
                       ))}
                   </select>
@@ -2818,22 +2862,22 @@ export default function TournamentsPage() {
                 <div>
                   <label className="block text-xs font-bold mb-1" style={{ color: '#dc2626' }}>Destination Perdant</label>
                   <select
-                    className="w-full p-2 border border-red-400 rounded-md focus:ring-red-500 focus:border-red-500 text-black bg-red-50"
+                    className="..."
                     value={selectedMatch.loser_destination_match_id || ''}
                     onChange={e => {
-                      const value = e.target.value || null;
+                      const val = e.target.value;
                       updateMatch({
                         ...selectedMatch,
-                        loser_destination_match_id: value,
+                        loser_destination_match_id: val === "" ? null : val,
                       });
                     }}
                   >
                     <option value="">Aucune</option>
-                    {[...matches, ...pools.flatMap(p=>p.matches), ...brackets.flatMap(b=>b.matches), ...loserBrackets.flatMap(lb=>lb.matches)]
-                      .filter(m => m.id !== selectedMatch.id)
+                    {allAvailableMatches
+                      .filter(m => m.id !== selectedMatch.id) // On ne peut pas s'envoyer vers soi-même
                       .map(m => (
                         <option key={m.id} value={m.id}>
-                          {m.label || m.id}
+                          {m.label || `Match #${m.id}`} 
                         </option>
                       ))}
                   </select>
@@ -2957,6 +3001,42 @@ export default function TournamentsPage() {
                     className="w-full p-2 text-black border border-gray-300 rounded-md focus:ring-purple-500 focus:border-purple-500"
                   />
                 </div>
+              </div>
+
+              {/* Configuration des points par position */}
+              <div className="border-t pt-4 mt-4">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm font-bold text-gray-700">Points par position finale</label>
+                  <input 
+                    type="checkbox" 
+                    checked={selectedPool.useStandingPoints || false}
+                    onChange={(e) => updatePool({...selectedPool, useStandingPoints: e.target.checked})}
+                    className="w-4 h-4 text-purple-600"
+                  />
+                </div>
+                
+                {selectedPool.useStandingPoints && (
+                  <div className="space-y-2 bg-gray-50 p-2 rounded-md">
+                    {selectedPool.teams.map((_, index) => {
+                      const position = index + 1;
+                      return (
+                        <div key={position} className="flex items-center justify-between gap-2">
+                          <span className="text-xs text-gray-600 w-12">{position}er :</span>
+                          <input 
+                            type="number"
+                            value={selectedPool.standingPoints?.[position] || 0}
+                            onChange={(e) => {
+                              const newPoints = { ...(selectedPool.standingPoints || {}), [position]: parseInt(e.target.value) || 0 };
+                              updatePool({...selectedPool, standingPoints: newPoints});
+                            }}
+                            className="flex-1 p-1 text-xs border rounded text-black"
+                            placeholder="Points"
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               {/* Sélection des équipes */}
@@ -3581,6 +3661,35 @@ export default function TournamentsPage() {
                               </>
                             );
                           })()}
+
+                          <div className="mt-6 border-t pt-4">
+                            {selectedPool && selectedPool.useStandingPoints && (
+                              <div className="space-y-3 bg-gray-50 p-4 rounded-xl border border-gray-200">
+                                {selectedPool.teams.map((_, index) => {
+                                  const pos = index + 1;
+                                  return (
+                                    <div key={pos} className="flex items-center justify-between gap-4">
+                                      <label className="text-sm font-medium text-gray-600">{pos}{pos === 1 ? 'er' : 'e'} de poule :</label>
+                                      <input 
+                                        type="number"
+                                        value={selectedPool.standingPoints?.[pos] || 0}
+                                        onChange={(e) => {
+                                          if (!selectedPool) return;
+                                          const newPoints = { ...(selectedPool.standingPoints || {}), [pos]: parseInt(e.target.value) || 0 };
+                                          updatePool({
+                                            ...selectedPool,
+                                            id: selectedPool.id ?? "", // force string
+                                            standingPoints: newPoints
+                                          });
+                                        }}
+                                        className="w-20 p-2 bg-white border border-gray-300 rounded text-sm text-black"
+                                      />
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
 
                           {/* Perdants des poules */}
                           {(() => {
@@ -4541,10 +4650,9 @@ export default function TournamentsPage() {
               </svg>
               </div>
               <div className="text-sm text-gray-700">
-              <div className="font-medium text-xs">Bracket perdants</div>
-              <div className="text-xs text-gray-500 mt-1">LR1 • LR2 • LR3 • LF</div>
+                <div className="font-medium text-xs">Bracket perdants</div>
+                <div className="text-xs text-gray-500 mt-1">Repêchage • 7e place • 5e place</div>
               </div>
-              <div className="text-xs text-gray-500 mt-2">Repêchage</div>
             </div>
           </div>
         </div>

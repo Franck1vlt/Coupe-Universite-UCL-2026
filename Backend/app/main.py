@@ -1136,7 +1136,10 @@ async def update_tournament(
             for match_data in processed_qualif_matches:
                 m_id_raw = match_data.get('id')
                 match_id = int(m_id_raw) if m_id_raw and str(m_id_raw).isdigit() else None
-                
+
+                # LOG: Vérifier les points reçus
+                logger.info(f"📥 Match {match_id} reçu - winner_points: {match_data.get('winner_points')}, loser_points: {match_data.get('loser_points')}")
+
                 if match_id and match_id in existing_map:
                     # Update
                     match = existing_map[match_id]
@@ -1151,6 +1154,8 @@ async def update_tournament(
                     match.score_a = match_data.get('score_a')
                     match.score_b = match_data.get('score_b')
                     match.court = match_data.get('court')
+                    match.winner_points = match_data.get('winner_points')
+                    match.loser_points = match_data.get('loser_points')
                     # scheduled_datetime -> date, time
                     dt = match_data.get('scheduled_datetime')
                     if dt:
@@ -1173,6 +1178,7 @@ async def update_tournament(
                         time_val = match_data.get('time')
                     match = Match(
                         phase_id=phase.id,
+                        tournament_id=tournament_id,
                         match_type="qualification",
                         bracket_type=match_data.get('bracket_type'),
                         team_sport_a_id=match_data.get('team_sport_a_id'),
@@ -1185,6 +1191,8 @@ async def update_tournament(
                         score_a=match_data.get('score_a'),
                         score_b=match_data.get('score_b'),
                         court=match_data.get('court'),
+                        winner_points=match_data.get('winner_points'),
+                        loser_points=match_data.get('loser_points'),
                         date=date_val,
                         time=time_val,
                         created_by_user_id=1,
@@ -1276,11 +1284,14 @@ async def update_tournament(
                         match.status = match_data.get('status', 'upcoming')
                         match.score_a = match_data.get('score_a')
                         match.score_b = match_data.get('score_b')
+                        match.winner_points = match_data.get('winner_points')
+                        match.loser_points = match_data.get('loser_points')
                         match.updated_at = datetime.utcnow()
                         processed_match_ids.add(m_id)
                     else:
                         match = Match(
                             phase_id=phase.id,
+                            tournament_id=tournament_id,
                             pool_id=pool.id,
                             match_type="pool",
                             team_sport_a_id=match_data.get('team_sport_a_id'),
@@ -1292,6 +1303,8 @@ async def update_tournament(
                             status=match_data.get('status', 'upcoming'),
                             score_a=match_data.get('score_a'),
                             score_b=match_data.get('score_b'),
+                            winner_points=match_data.get('winner_points'),
+                            loser_points=match_data.get('loser_points'),
                             created_by_user_id=1,
                             created_at=datetime.utcnow(),
                             updated_at=datetime.utcnow()
@@ -1361,11 +1374,14 @@ async def update_tournament(
                         match.status = match_data.get('status', 'upcoming')
                         match.score_a = match_data.get('score_a')
                         match.score_b = match_data.get('score_b')
+                        match.winner_points = match_data.get('winner_points')
+                        match.loser_points = match_data.get('loser_points')
                         match.updated_at = datetime.utcnow()
                         processed_ids.add(match_id)
                     else:
                         match = Match(
                             phase_id=phase.id,
+                            tournament_id=tournament_id,
                             match_type="bracket",
                             bracket_type=match_data.get('bracket_type'),
                             team_sport_a_id=match_data.get('team_sport_a_id'),
@@ -1377,6 +1393,8 @@ async def update_tournament(
                             status=match_data.get('status', 'upcoming'),
                             score_a=match_data.get('score_a'),
                             score_b=match_data.get('score_b'),
+                            winner_points=match_data.get('winner_points'),
+                            loser_points=match_data.get('loser_points'),
                             created_by_user_id=1,
                             created_at=datetime.utcnow(),
                             updated_at=datetime.utcnow()
@@ -1436,11 +1454,14 @@ async def update_tournament(
                         match.status = match_data.get('status', 'upcoming')
                         match.score_a = match_data.get('score_a')
                         match.score_b = match_data.get('score_b')
+                        match.winner_points = match_data.get('winner_points')
+                        match.loser_points = match_data.get('loser_points')
                         match.updated_at = datetime.utcnow()
                         processed_ids.add(match_id)
                     else:
                         match = Match(
                             phase_id=phase.id,
+                            tournament_id=tournament_id,
                             match_type="loser_bracket",
                             bracket_type=match_data.get('bracket_type'),
                             team_sport_a_id=match_data.get('team_sport_a_id'),
@@ -1452,6 +1473,8 @@ async def update_tournament(
                             status=match_data.get('status', 'upcoming'),
                             score_a=match_data.get('score_a'),
                             score_b=match_data.get('score_b'),
+                            winner_points=match_data.get('winner_points'),
+                            loser_points=match_data.get('loser_points'),
                             created_by_user_id=1,
                             created_at=datetime.utcnow(),
                             updated_at=datetime.utcnow()
@@ -1525,10 +1548,306 @@ async def get_ranking_of_tournament(
     db: Session = Depends(get_db),
 ):
     """Classement final du tournoi"""
-    rankings = db.query(TournamentRanking).filter(TournamentRanking.tournament_id == tournament_id).order_by(TournamentRanking.rank.asc()).all()
+    rankings = db.query(TournamentRanking).filter(TournamentRanking.tournament_id == tournament_id).order_by(TournamentRanking.final_position.asc()).all()
     return create_success_response(
         data=[TournamentRankingResponse.model_validate(r).model_dump(mode="json") for r in rankings],
         message="Classement du tournoi récupéré avec succès"
+    )
+
+@app.get("/tournaments/{tournament_id}/final-ranking", tags=["Tournaments"])
+async def get_tournament_final_ranking(
+    tournament_id: int,
+    db: Session = Depends(get_db),
+):
+    """
+    Calcule le classement final du tournoi basé sur les points des matchs terminés.
+    Retourne le classement de toutes les équipes participantes triées par points.
+    """
+    from app.models.match import Match
+    from app.models.teamsport import TeamSport
+    from app.models.team import Team
+    from collections import defaultdict
+
+    # Récupérer tous les matchs terminés du tournoi
+    completed_matches = db.query(Match).filter(
+        Match.tournament_id == tournament_id,
+        Match.status == "completed"
+    ).all()
+
+    # Dictionnaire pour stocker les points de chaque équipe
+    team_points = defaultdict(lambda: {
+        "team_sport_id": None,
+        "team_id": None,
+        "team_name": "",
+        "total_points": 0,
+        "matches_played": 0,
+        "wins": 0,
+        "draws": 0,
+        "losses": 0,
+        "goals_for": 0,
+        "goals_against": 0
+    })
+
+    # Calculer les points pour chaque équipe
+    for match in completed_matches:
+        if match.team_sport_a_id and match.team_sport_b_id:
+            # Récupérer les informations des équipes
+            team_sport_a = db.query(TeamSport).filter(TeamSport.id == match.team_sport_a_id).first()
+            team_sport_b = db.query(TeamSport).filter(TeamSport.id == match.team_sport_b_id).first()
+
+            if not team_sport_a or not team_sport_b:
+                continue
+
+            # Initialiser les entrées si nécessaire
+            if team_sport_a.team_id not in team_points:
+                team_points[team_sport_a.team_id]["team_sport_id"] = match.team_sport_a_id
+                team_points[team_sport_a.team_id]["team_id"] = team_sport_a.team_id
+                team_points[team_sport_a.team_id]["team_name"] = team_sport_a.team.name if team_sport_a.team else ""
+
+            if team_sport_b.team_id not in team_points:
+                team_points[team_sport_b.team_id]["team_sport_id"] = match.team_sport_b_id
+                team_points[team_sport_b.team_id]["team_id"] = team_sport_b.team_id
+                team_points[team_sport_b.team_id]["team_name"] = team_sport_b.team.name if team_sport_b.team else ""
+
+            # Mettre à jour les statistiques
+            team_points[team_sport_a.team_id]["matches_played"] += 1
+            team_points[team_sport_b.team_id]["matches_played"] += 1
+
+            team_points[team_sport_a.team_id]["goals_for"] += match.score_a or 0
+            team_points[team_sport_a.team_id]["goals_against"] += match.score_b or 0
+            team_points[team_sport_b.team_id]["goals_for"] += match.score_b or 0
+            team_points[team_sport_b.team_id]["goals_against"] += match.score_a or 0
+
+            # Déterminer le vainqueur et attribuer les points
+            winner_points = match.winner_points if match.winner_points is not None else 3
+            loser_points = match.loser_points if match.loser_points is not None else 0
+            draw_points = 1
+
+            if match.score_a > match.score_b:
+                # Équipe A gagne
+                team_points[team_sport_a.team_id]["total_points"] += winner_points
+                team_points[team_sport_a.team_id]["wins"] += 1
+                team_points[team_sport_b.team_id]["total_points"] += loser_points
+                team_points[team_sport_b.team_id]["losses"] += 1
+            elif match.score_b > match.score_a:
+                # Équipe B gagne
+                team_points[team_sport_b.team_id]["total_points"] += winner_points
+                team_points[team_sport_b.team_id]["wins"] += 1
+                team_points[team_sport_a.team_id]["total_points"] += loser_points
+                team_points[team_sport_a.team_id]["losses"] += 1
+            else:
+                # Match nul
+                team_points[team_sport_a.team_id]["total_points"] += draw_points
+                team_points[team_sport_a.team_id]["draws"] += 1
+                team_points[team_sport_b.team_id]["total_points"] += draw_points
+                team_points[team_sport_b.team_id]["draws"] += 1
+
+    # Convertir en liste et trier par points (puis par différence de buts)
+    ranking_list = []
+    for team_id, stats in team_points.items():
+        goal_difference = stats["goals_for"] - stats["goals_against"]
+        ranking_list.append({
+            "team_id": stats["team_id"],
+            "team_name": stats["team_name"],
+            "total_points": stats["total_points"],
+            "matches_played": stats["matches_played"],
+            "wins": stats["wins"],
+            "draws": stats["draws"],
+            "losses": stats["losses"],
+            "goals_for": stats["goals_for"],
+            "goals_against": stats["goals_against"],
+            "goal_difference": goal_difference
+        })
+
+    # Trier par points (desc), différence de buts (desc), buts marqués (desc), nom (asc)
+    ranking_list.sort(
+        key=lambda x: (
+            -x["total_points"],
+            -x["goal_difference"],
+            -x["goals_for"],
+            x["team_name"].lower()
+        )
+    )
+
+    # Ajouter la position
+    for index, team in enumerate(ranking_list, start=1):
+        team["position"] = index
+
+    return create_success_response(
+        data=ranking_list,
+        message="Classement final du tournoi calculé avec succès"
+    )
+
+@app.get("/final-ranking", tags=["Rankings"])
+async def get_global_final_ranking(
+    db: Session = Depends(get_db),
+):
+    """
+    Calcule le classement final global de TOUS les tournois.
+    Agrège les points de tous les tournois pour chaque équipe.
+    """
+    from app.models.match import Match
+    from app.models.teamsport import TeamSport
+    from app.models.team import Team
+    from app.models.tournament import Tournament
+    from collections import defaultdict
+
+    # Dictionnaire pour stocker les points totaux de chaque équipe
+    global_team_points = defaultdict(lambda: {
+        "team_id": None,
+        "team_name": "",
+        "total_points": 0,
+        "tournaments_played": 0,
+        "matches_played": 0,
+        "wins": 0,
+        "draws": 0,
+        "losses": 0,
+        "goals_for": 0,
+        "goals_against": 0,
+        "tournaments_won": 0,
+        "tournaments_second": 0,
+        "tournaments_third": 0,
+    })
+
+    # Récupérer tous les tournois
+    all_tournaments = db.query(Tournament).all()
+
+    for tournament in all_tournaments:
+        # Récupérer tous les matchs terminés de ce tournoi
+        completed_matches = db.query(Match).filter(
+            Match.tournament_id == tournament.id,
+            Match.status == "completed"
+        ).all()
+
+        # Dictionnaire temporaire pour les points de ce tournoi
+        tournament_team_points = defaultdict(lambda: {
+            "team_id": None,
+            "total_points": 0,
+            "matches_played": 0,
+            "wins": 0,
+            "goals_for": 0,
+            "goals_against": 0
+        })
+
+        # Calculer les points pour chaque équipe dans ce tournoi
+        for match in completed_matches:
+            if match.team_sport_a_id and match.team_sport_b_id:
+                team_sport_a = db.query(TeamSport).filter(TeamSport.id == match.team_sport_a_id).first()
+                team_sport_b = db.query(TeamSport).filter(TeamSport.id == match.team_sport_b_id).first()
+
+                if not team_sport_a or not team_sport_b:
+                    continue
+
+                # Initialiser les entrées
+                if team_sport_a.team_id not in tournament_team_points:
+                    tournament_team_points[team_sport_a.team_id]["team_id"] = team_sport_a.team_id
+                if team_sport_b.team_id not in tournament_team_points:
+                    tournament_team_points[team_sport_b.team_id]["team_id"] = team_sport_b.team_id
+
+                # Mettre à jour les statistiques du tournoi
+                tournament_team_points[team_sport_a.team_id]["matches_played"] += 1
+                tournament_team_points[team_sport_b.team_id]["matches_played"] += 1
+
+                tournament_team_points[team_sport_a.team_id]["goals_for"] += match.score_a or 0
+                tournament_team_points[team_sport_a.team_id]["goals_against"] += match.score_b or 0
+                tournament_team_points[team_sport_b.team_id]["goals_for"] += match.score_b or 0
+                tournament_team_points[team_sport_b.team_id]["goals_against"] += match.score_a or 0
+
+                # Attribuer les points
+                winner_points = match.winner_points if match.winner_points is not None else 3
+                loser_points = match.loser_points if match.loser_points is not None else 0
+                draw_points = 1
+
+                if match.score_a > match.score_b:
+                    tournament_team_points[team_sport_a.team_id]["total_points"] += winner_points
+                    tournament_team_points[team_sport_a.team_id]["wins"] += 1
+                    tournament_team_points[team_sport_b.team_id]["total_points"] += loser_points
+                elif match.score_b > match.score_a:
+                    tournament_team_points[team_sport_b.team_id]["total_points"] += winner_points
+                    tournament_team_points[team_sport_b.team_id]["wins"] += 1
+                    tournament_team_points[team_sport_a.team_id]["total_points"] += loser_points
+                else:
+                    tournament_team_points[team_sport_a.team_id]["total_points"] += draw_points
+                    tournament_team_points[team_sport_b.team_id]["total_points"] += draw_points
+
+        # Trier les équipes de ce tournoi pour déterminer les podiums
+        tournament_ranking = sorted(
+            tournament_team_points.items(),
+            key=lambda x: (
+                -x[1]["total_points"],
+                -(x[1]["goals_for"] - x[1]["goals_against"]),
+                -x[1]["goals_for"]
+            )
+        )
+
+        # Agréger les statistiques au classement global
+        for team_id, stats in tournament_team_points.items():
+            team = db.query(Team).filter(Team.id == team_id).first()
+            if not team:
+                continue
+
+            if global_team_points[team_id]["team_id"] is None:
+                global_team_points[team_id]["team_id"] = team_id
+                global_team_points[team_id]["team_name"] = team.name
+
+            global_team_points[team_id]["total_points"] += stats["total_points"]
+            global_team_points[team_id]["matches_played"] += stats["matches_played"]
+            global_team_points[team_id]["wins"] += stats["wins"]
+            global_team_points[team_id]["goals_for"] += stats["goals_for"]
+            global_team_points[team_id]["goals_against"] += stats["goals_against"]
+            global_team_points[team_id]["tournaments_played"] += 1
+
+        # Compter les podiums
+        if len(tournament_ranking) > 0:
+            winner_id = tournament_ranking[0][0]
+            global_team_points[winner_id]["tournaments_won"] += 1
+
+        if len(tournament_ranking) > 1:
+            second_id = tournament_ranking[1][0]
+            global_team_points[second_id]["tournaments_second"] += 1
+
+        if len(tournament_ranking) > 2:
+            third_id = tournament_ranking[2][0]
+            global_team_points[third_id]["tournaments_third"] += 1
+
+    # Convertir en liste et trier
+    ranking_list = []
+    for team_id, stats in global_team_points.items():
+        goal_difference = stats["goals_for"] - stats["goals_against"]
+        ranking_list.append({
+            "team_id": stats["team_id"],
+            "team_name": stats["team_name"],
+            "total_points": stats["total_points"],
+            "tournaments_played": stats["tournaments_played"],
+            "tournaments_won": stats["tournaments_won"],
+            "tournaments_second": stats["tournaments_second"],
+            "tournaments_third": stats["tournaments_third"],
+            "matches_played": stats["matches_played"],
+            "wins": stats["wins"],
+            "draws": stats["draws"],
+            "losses": stats["losses"],
+            "goals_for": stats["goals_for"],
+            "goals_against": stats["goals_against"],
+            "goal_difference": goal_difference
+        })
+
+    # Trier par points totaux (desc), différence de buts (desc), buts marqués (desc)
+    ranking_list.sort(
+        key=lambda x: (
+            -x["total_points"],
+            -x["goal_difference"],
+            -x["goals_for"],
+            x["team_name"].lower()
+        )
+    )
+
+    # Ajouter la position
+    for index, team in enumerate(ranking_list, start=1):
+        team["position"] = index
+
+    return create_success_response(
+        data=ranking_list,
+        message="Classement final global calculé avec succès"
     )
 
 # --- Configuration de tournoi ---
@@ -1972,6 +2291,46 @@ async def update_match(
     # === PROPAGATION AUTOMATIQUE DES ÉQUIPES ===
     # Si le match vient d'être complété avec des scores, propager les équipes
     if match.status == "completed" and match.score_a is not None and match.score_b is not None:
+        # ✅ FIX: Si les team_sport_id sont NULL, essayer de les résoudre depuis team_a_source/team_b_source
+        from app.models.teamsport import TeamSport
+
+        # Récupérer la phase et le tournoi UNE SEULE FOIS
+        phase = db.query(TournamentPhase).filter(TournamentPhase.id == match.phase_id).first()
+        if phase:
+            tournament = db.query(Tournament).filter(Tournament.id == phase.tournament_id).first()
+            sport_id = tournament.sport_id if tournament else None
+
+            if sport_id:
+                # Résoudre team_a_source
+                if match.team_sport_a_id is None and match.team_a_source:
+                    team_sport_a = (
+                        db.query(TeamSport)
+                        .join(Team)
+                        .filter(
+                            Team.name == match.team_a_source,
+                            TeamSport.sport_id == sport_id
+                        )
+                        .first()
+                    )
+                    if team_sport_a:
+                        match.team_sport_a_id = team_sport_a.id
+                        print(f"✅ [Match {match.id}] team_a_source '{match.team_a_source}' → team_sport_id {team_sport_a.id}")
+
+                # Résoudre team_b_source
+                if match.team_sport_b_id is None and match.team_b_source:
+                    team_sport_b = (
+                        db.query(TeamSport)
+                        .join(Team)
+                        .filter(
+                            Team.name == match.team_b_source,
+                            TeamSport.sport_id == sport_id
+                        )
+                        .first()
+                    )
+                    if team_sport_b:
+                        match.team_sport_b_id = team_sport_b.id
+                        print(f"✅ [Match {match.id}] team_b_source '{match.team_b_source}' → team_sport_id {team_sport_b.id}")
+
         # Déterminer le gagnant et le perdant
         if match.team_sport_a_id is not None and match.team_sport_b_id is not None:
             if match.score_a > match.score_b:
@@ -1987,39 +2346,85 @@ async def update_match(
             
             # Propager le gagnant vers le match de destination
             if winner_team_sport_id and match.winner_destination_match_id:
+                print(f"🔄 Propagation du gagnant (team_sport_id={winner_team_sport_id}) du match {match.id} vers match {match.winner_destination_match_id}")
                 winner_dest_match = db.query(Match).filter(
                     Match.id == match.winner_destination_match_id
                 ).first()
-                
+
                 if winner_dest_match:
+                    # Récupérer le nom de l'équipe gagnante
+                    winner_team_sport = db.query(TeamSport).filter(TeamSport.id == winner_team_sport_id).first()
+                    winner_team_name = None
+                    if winner_team_sport:
+                        winner_team = db.query(Team).filter(Team.id == winner_team_sport.team_id).first()
+                        winner_team_name = winner_team.name if winner_team else None
+
+                    print(f"   Match destination trouvé: {winner_dest_match.id} (label={winner_dest_match.label}, team_a_source={winner_dest_match.team_a_source}, team_b_source={winner_dest_match.team_b_source})")
+                    print(f"   Nom de l'équipe gagnante: {winner_team_name}")
+
                     # Déterminer quelle position (A ou B) doit recevoir le gagnant
                     # Stratégie: si team_a_source correspond au label du match actuel, mettre en A
                     # Sinon, chercher la première position libre
                     if winner_dest_match.team_a_source == match.label or winner_dest_match.team_a_source == f"W{match.id}":
                         winner_dest_match.team_sport_a_id = winner_team_sport_id
+                        if winner_team_name:
+                            winner_dest_match.team_a_source = winner_team_name
+                        print(f"   ✅ Assigné à team_sport_a_id et team_a_source={winner_team_name}")
                     elif winner_dest_match.team_b_source == match.label or winner_dest_match.team_b_source == f"W{match.id}":
                         winner_dest_match.team_sport_b_id = winner_team_sport_id
+                        if winner_team_name:
+                            winner_dest_match.team_b_source = winner_team_name
+                        print(f"   ✅ Assigné à team_sport_b_id et team_b_source={winner_team_name}")
                     elif winner_dest_match.team_sport_a_id is None:
                         winner_dest_match.team_sport_a_id = winner_team_sport_id
+                        if winner_team_name:
+                            winner_dest_match.team_a_source = winner_team_name
+                        print(f"   ✅ Assigné à team_sport_a_id et team_a_source={winner_team_name} (slot libre)")
                     elif winner_dest_match.team_sport_b_id is None:
                         winner_dest_match.team_sport_b_id = winner_team_sport_id
+                        if winner_team_name:
+                            winner_dest_match.team_b_source = winner_team_name
+                        print(f"   ✅ Assigné à team_sport_b_id et team_b_source={winner_team_name} (slot libre)")
+                else:
+                    print(f"   ❌ Match destination {match.winner_destination_match_id} introuvable")
             
             # Propager le perdant vers le match de destination (bracket perdants)
             if loser_team_sport_id and match.loser_destination_match_id:
                 loser_dest_match = db.query(Match).filter(
                     Match.id == match.loser_destination_match_id
                 ).first()
-                
+
                 if loser_dest_match:
+                    # Récupérer le nom de l'équipe perdante
+                    loser_team_sport = db.query(TeamSport).filter(TeamSport.id == loser_team_sport_id).first()
+                    loser_team_name = None
+                    if loser_team_sport:
+                        loser_team = db.query(Team).filter(Team.id == loser_team_sport.team_id).first()
+                        loser_team_name = loser_team.name if loser_team else None
+
+                    print(f"🔄 Propagation du perdant (team_sport_id={loser_team_sport_id}, nom={loser_team_name}) vers match {match.loser_destination_match_id}")
+
                     # Même logique pour les perdants
                     if loser_dest_match.team_a_source == match.label or loser_dest_match.team_a_source == f"L{match.id}":
                         loser_dest_match.team_sport_a_id = loser_team_sport_id
+                        if loser_team_name:
+                            loser_dest_match.team_a_source = loser_team_name
+                        print(f"   ✅ Perdant assigné à team_sport_a_id et team_a_source={loser_team_name}")
                     elif loser_dest_match.team_b_source == match.label or loser_dest_match.team_b_source == f"L{match.id}":
                         loser_dest_match.team_sport_b_id = loser_team_sport_id
+                        if loser_team_name:
+                            loser_dest_match.team_b_source = loser_team_name
+                        print(f"   ✅ Perdant assigné à team_sport_b_id et team_b_source={loser_team_name}")
                     elif loser_dest_match.team_sport_a_id is None:
                         loser_dest_match.team_sport_a_id = loser_team_sport_id
+                        if loser_team_name:
+                            loser_dest_match.team_a_source = loser_team_name
+                        print(f"   ✅ Perdant assigné à team_sport_a_id et team_a_source={loser_team_name} (slot libre)")
                     elif loser_dest_match.team_sport_b_id is None:
                         loser_dest_match.team_sport_b_id = loser_team_sport_id
+                        if loser_team_name:
+                            loser_dest_match.team_b_source = loser_team_name
+                        print(f"   ✅ Perdant assigné à team_sport_b_id et team_b_source={loser_team_name} (slot libre)")
             
             db.commit()
     

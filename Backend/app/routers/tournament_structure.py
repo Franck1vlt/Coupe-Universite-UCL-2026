@@ -18,6 +18,7 @@ from app.exceptions import create_success_response, NotFoundError
 from app.utils.serializers import match_to_dict
 from app.models.court import Court
 from app.models.matchschedule import MatchSchedule
+from app.models.matchset import MatchSet
 
 
 router = APIRouter()
@@ -40,6 +41,8 @@ class TournamentMatchCreate(BaseModel):
     court: Optional[str] = None  # Nom du terrain
     scheduled_datetime: Optional[str] = None  # Date/heure prévue
     duration: Optional[int] = 90  # Durée estimée en minutes
+    winner_points: Optional[int] = 0
+    loser_points: Optional[int] = 0
 
 class TournamentPoolCreate(BaseModel):
     """Poule à créer dans le tournoi"""
@@ -78,6 +81,8 @@ class TournamentMatchResponse(BaseModel):
     score_a: Optional[int]
     score_b: Optional[int]
     status: str
+    winner_points: Optional[int]
+    loser_points: Optional[int]
     
     class Config:
         from_attributes = True
@@ -294,6 +299,11 @@ def create_tournament_structure(
         m_uuid = get_val(m_data, 'uuid')   # UUID Frontend (ex: "a1b2...")
         m_label = get_val(m_data, 'label') # Label sémantique (ex: "WQ1", "Finale")
 
+        # LOG POUR DEBUG
+        winner_dest = get_val(m_data, 'winner_destination_match_id')
+        loser_dest = get_val(m_data, 'loser_destination_match_id')
+        print(f"[UPSERT] Match {m_label or m_id} - winner_dest={winner_dest}, loser_dest={loser_dest}")
+
         match = None
 
         # 1. Priorité absolue : ID SQL (s'il est présent et valide)
@@ -352,10 +362,36 @@ def create_tournament_structure(
             match.court = get_val(m_data, 'court', match.court)
             match.duration = get_val(m_data, 'duration', match.duration)
             match.updated_at = datetime.utcnow()
-            match.winner_destination_match_id = get_val(m_data, 'winner_destination_match_id', match.winner_destination_match_id)
-            match.loser_destination_match_id = get_val(m_data, 'loser_destination_match_id', match.loser_destination_match_id)
-            match.winner_destination_slot = get_val(m_data, 'winner_destination_slot', match.winner_destination_slot)
-            match.loser_destination_slot = get_val(m_data, 'loser_destination_slot', match.loser_destination_slot)
+
+            # Pour les destinations, on vérifie si la clé existe dans m_data
+            # Si elle existe (même si None), on met à jour. Sinon on garde l'ancienne valeur
+            if isinstance(m_data, dict):
+                if 'winner_destination_match_id' in m_data:
+                    match.winner_destination_match_id = m_data['winner_destination_match_id']
+                if 'loser_destination_match_id' in m_data:
+                    match.loser_destination_match_id = m_data['loser_destination_match_id']
+                if 'winner_destination_slot' in m_data:
+                    match.winner_destination_slot = m_data['winner_destination_slot']
+                if 'loser_destination_slot' in m_data:
+                    match.loser_destination_slot = m_data['loser_destination_slot']
+                if 'winner_points' in m_data:
+                    match.winner_points = m_data['winner_points']
+                if 'loser_points' in m_data:
+                    match.loser_points = m_data['loser_points']
+            else:
+                # Si c'est un objet Pydantic, on utilise hasattr
+                if hasattr(m_data, 'winner_destination_match_id'):
+                    match.winner_destination_match_id = m_data.winner_destination_match_id
+                if hasattr(m_data, 'loser_destination_match_id'):
+                    match.loser_destination_match_id = m_data.loser_destination_match_id
+                if hasattr(m_data, 'winner_destination_slot'):
+                    match.winner_destination_slot = m_data.winner_destination_slot
+                if hasattr(m_data, 'loser_destination_slot'):
+                    match.loser_destination_slot = m_data.loser_destination_slot
+                if hasattr(m_data, 'winner_points'):
+                    match.winner_points = m_data.winner_points
+                if hasattr(m_data, 'loser_points'):
+                    match.loser_points = m_data.loser_points
         else:
             # --- CREATE ---
             final_uuid = m_uuid if isinstance(m_uuid, str) and m_uuid.strip() else str(uuid.uuid4())
@@ -372,6 +408,8 @@ def create_tournament_structure(
                 loser_destination_match_id=get_val(m_data, 'loser_destination_match_id'),
                 winner_destination_slot=get_val(m_data, 'winner_destination_slot'),
                 loser_destination_slot=get_val(m_data, 'loser_destination_slot'),
+                winner_points=get_val(m_data, 'winner_points', 0),
+                loser_points=get_val(m_data, 'loser_points', 0),
                 label=get_val(m_data, 'label'),
                 status=get_val(m_data, 'status', "upcoming"),
                 date=d,
@@ -512,6 +550,8 @@ def get_tournament_structure(
             # --- AJOUT DES DESTINATIONS ---
             "winner_destination_match_id": m.winner_destination_match_id,
             "loser_destination_match_id": m.loser_destination_match_id,
+            "winner_points": m.winner_points if m.winner_points is not None else 0,
+            "loser_points": m.loser_points if m.loser_points is not None else 0,
             # ------------------------------
             
             "label": m.label,
@@ -564,51 +604,6 @@ def get_tournament_structure(
     })
 
 
-@router.delete("/tournaments/{tournament_id}/structure")
-def reset_tournament_matches(
-    tournament_id: int = Path(..., description="ID du tournoi"),
-    db: Session = Depends(get_db)
-):
-    """
-    Réinitialiser tous les statuts et scores des matchs d'un tournoi
-    """
-    tournament = db.query(Tournament).filter(Tournament.id == tournament_id).first()
-    if not tournament:
-        raise NotFoundError(f"Tournament {tournament_id} not found")
-    
-    reset_count = 0
-    
-    # Récupérer la phase
-    phases = db.query(TournamentPhase).filter(
-        TournamentPhase.tournament_id == tournament_id
-    ).all()
-
-    matches = db.query(Match).filter(
-        Match.phase_id.in_([p.id for p in phases])
-    ).all()
-
-    
-    if phases:
-        # Réinitialiser tous les matchs
-        for match in matches:
-            match.status = "upcoming"
-            match.score_a = None
-            match.score_b = None
-        
-        reset_count = len(matches)
-        db.commit()
-    
-    if not phases:
-        return {"success": True, "reset_count": 0}
-
-
-    return create_success_response(
-        {
-            "tournament_id": tournament_id,
-            "reset_matches": reset_count
-        },
-        message="Tournament matches reset successfully"
-    )
 
 
 @router.post("/tournaments/{tournament_id}/propagate-results")
@@ -822,19 +817,29 @@ def delete_tournament_structure(
     ).all()
     
     for phase in phases:
+        # Récupérer tous les matchs de cette phase
+        matches = db.query(Match).filter(Match.phase_id == phase.id).all()
+
+        # Supprimer les dépendances de chaque match
+        for match in matches:
+            # Supprimer les MatchSchedule
+            db.query(MatchSchedule).filter(MatchSchedule.match_id == match.id).delete()
+            # Supprimer les MatchSet (pour les sports à sets: volleyball, tennis, etc.)
+            db.query(MatchSet).filter(MatchSet.match_id == match.id).delete()
+
         # Supprimer tous les matchs de cette phase
         match_count = db.query(Match).filter(Match.phase_id == phase.id).delete()
         deleted_matches += match_count
-        
+
         # Supprimer les team_pools associées aux poules
         pools = db.query(Pool).filter(Pool.phase_id == phase.id).all()
         for pool in pools:
             db.query(TeamPool).filter(TeamPool.pool_id == pool.id).delete()
-        
+
         # Supprimer toutes les poules de cette phase
         pool_count = db.query(Pool).filter(Pool.phase_id == phase.id).delete()
         deleted_pools += pool_count
-        
+
         # Supprimer la phase elle-même
         db.delete(phase)
         deleted_phases += 1

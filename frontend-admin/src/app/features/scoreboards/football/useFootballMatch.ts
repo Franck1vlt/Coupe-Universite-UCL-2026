@@ -106,34 +106,41 @@ export function useFootballMatch(initialMatchId: string | null) {
             // pour obtenir les team_sport_id
             console.log('[Football Hook] Récupération des données du match avant soumission...');
             const matchResponse = await fetch(`http://localhost:8000/matches/${initialMatchId}`);
-            
+
             if (!matchResponse.ok) {
                 console.error('[Football Hook] Impossible de récupérer le match');
                 throw new Error('Impossible de récupérer les données du match');
             }
-            
-            const matchData = await matchResponse.json();
-            const match = matchData.data;
-            
+
+            const backendMatchData = await matchResponse.json();
+            const match = backendMatchData.data;
+
             console.log('[Football Hook] Données du match:', match);
             console.log('[Football Hook] team_sport_a_id:', match.team_sport_a_id);
             console.log('[Football Hook] team_sport_b_id:', match.team_sport_b_id);
-            
-            // Vérifier que les équipes sont bien assignées
-            if (!match.team_sport_a_id || !match.team_sport_b_id) {
+            console.log('[Football Hook] team_a_source:', match.team_a_source);
+            console.log('[Football Hook] team_b_source:', match.team_b_source);
+
+            // ✅ FIX: Vérifier que les équipes sont bien assignées (soit via ID, soit via source)
+            const hasTeamIds = match.team_sport_a_id && match.team_sport_b_id;
+            const hasTeamSources = match.team_a_source && match.team_b_source;
+
+            if (!hasTeamIds && !hasTeamSources) {
                 console.error('[Football Hook] ❌ ERREUR : Les équipes ne sont pas assignées au match !');
                 alert('Erreur : Les équipes ne sont pas assignées à ce match. Impossible de terminer le match.');
                 return;
             }
-            
-            // Construire le payload avec les team_sport_id
-            const payload = {
+
+            // ✅ FIX: Construire le payload avec les données disponibles
+            const payload: any = {
                 score_a: matchData.teamA.score,
                 score_b: matchData.teamB.score,
-                status: 'completed',
-                team_sport_a_id: match.team_sport_a_id,  // ⚠️ AJOUT CRITIQUE
-                team_sport_b_id: match.team_sport_b_id   // ⚠️ AJOUT CRITIQUE
+                status: 'completed'
             };
+
+            // Inclure les team_sport_id seulement s'ils existent
+            if (match.team_sport_a_id) payload.team_sport_a_id = match.team_sport_a_id;
+            if (match.team_sport_b_id) payload.team_sport_b_id = match.team_sport_b_id;
 
             console.log('[Football Hook] Payload de soumission:', payload);
 
@@ -142,44 +149,63 @@ export function useFootballMatch(initialMatchId: string | null) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload),
             });
-            
+
             if (!response.ok) {
                 console.error('[Football Hook] Erreur lors de la soumission');
                 throw new Error('Erreur lors de la soumission du résultat');
             }
-            
+
             console.log('[Football Hook] Résultat du match soumis avec succès');
-            
-            if (matchData.tournamentId || match.tournament_id) {
-                const tournamentId = matchData.tournamentId || match.tournament_id;
+
+            // ✅ FIX: Récupérer le tournamentId depuis le match ou le state local
+            const tournamentId = match.tournament_id || matchData.tournamentId;
+
+            if (tournamentId) {
                 console.log('[Football Hook] Lancement de la propagation pour le tournoi:', tournamentId);
-                
+
                 const propagateResponse = await fetch(`http://localhost:8000/tournaments/${tournamentId}/propagate-results`, {
                     method: 'POST'
                 });
-                
+
                 if (propagateResponse.ok) {
                     const propagateData = await propagateResponse.json();
                     console.log('[Football Hook] Propagation réussie:', propagateData);
-                    
+
                     const propagatedCount = propagateData.data?.propagated_matches || 0;
-                    
+
                     if (propagatedCount > 0) {
                         console.log(`[Football Hook] ${propagatedCount} match(s) propagé(s)`);
-                        
+
                         // Attendre un peu pour que le backend finalise
                         await new Promise(resolve => setTimeout(resolve, 500));
-                        
+
                         // Rafraîchir les données
                         await refreshMatchData();
-                        
+
                         alert(`Match terminé !\n${propagatedCount} match(s) propagé(s) avec les équipes gagnantes/perdantes.`);
                     } else {
-                        alert('Match terminé ! (Aucune propagation nécessaire)');
+                        alert('Match terminé !');
                     }
                 } else {
                     console.warn('[Football Hook] La propagation a échoué');
                     alert('Match terminé, mais la propagation a échoué. Utilisez le bouton "Propager les résultats" dans le menu.');
+                }
+
+                // ✅ FIX: Recalculer les classements de poule si le match est un match de poule
+                if (match.pool_id) {
+                    console.log('[Football Hook] Recalcul du classement de la poule:', match.pool_id);
+                    try {
+                        const recalcResponse = await fetch(`http://localhost:8000/pools/${match.pool_id}/recalculate-standings`, {
+                            method: 'POST'
+                        });
+                        if (recalcResponse.ok) {
+                            console.log('[Football Hook] Classement de poule recalculé avec succès');
+                        } else {
+                            console.warn('[Football Hook] Échec du recalcul du classement de poule');
+                        }
+                    } catch (err) {
+                        console.error('[Football Hook] Erreur lors du recalcul du classement:', err);
+                    }
                 }
             }
         } catch (e) {
