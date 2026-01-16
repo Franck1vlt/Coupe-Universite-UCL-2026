@@ -303,16 +303,28 @@ export default function TournamentViewPage() {
                 const mapMatch = (m: any, forcedType?: TournamentMatchType): TournamentMatch => {
                   let type: TournamentMatchType = forcedType || "qualifications";
                   if (!forcedType) {
-                      if (m.match_type === "qualification") type = "qualifications";
-                      else if (m.bracket_type === "loser") type = "loser-bracket";
+                      if (m.match_type === "qualification") {
+                        type = "qualifications";
+                      } 
+                      // AJOUTER CETTE CONDITION :
+                      else if (m.match_type === "pool" || m.match_type === "poule") {
+                        type = "poule";
+                      } 
+                      else if (m.bracket_type === "loser") {
+                        type = "loser-bracket";
+                      } 
                       else if (m.match_type === "bracket") {
                         if (m.bracket_type === "quarterfinal") type = "quarts";
                         else if (m.bracket_type === "semifinal") type = "demi-finale";
                         else if (m.bracket_type === "final") type = "finale";
                         else if (m.bracket_type === "third_place") type = "petite-finale";
                         else type = "quarts";
+                      } 
+                      else {
+                        // Valeur par défaut si aucun type n'est reconnu
+                        type = "qualifications";
                       }
-                  }
+                    }
 
                   // ✅ FIX COMPLET: Résolution robuste des noms d'équipes
                   const resolveTeamName = (teamSportId: number | null | undefined, teamSource: string | null | undefined): string => {

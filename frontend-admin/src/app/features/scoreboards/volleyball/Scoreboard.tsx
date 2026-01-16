@@ -30,12 +30,12 @@ export default function VolleyballTableMarquagePage() {
   const router = useRouter();
   const logoService = "/img/volley-ball.png";
   const CONST_SIZE = 30;
-
+  const [tournamentId, setTournamentId] = useState<string | null>(null);
   const [teamA, setTeamA] = useState("");
   const [teamB, setTeamB] = useState("");
   const [matchType, setMatchType] = useState("Type de match");
   const [matchGround, setMatchGround] = useState("Terrain");
-
+  const [numberOfSets, setNumberOfSets] = useState<number | undefined>(undefined);
   const [courts, setCourts] = useState<Court[]>([]);
   const [courtSchedules, setCourtSchedules] = useState<any[]>([]);
   const [loadingCourts, setLoadingCourts] = useState(true);
@@ -75,8 +75,17 @@ export default function VolleyballTableMarquagePage() {
     swapSides,
     court,
     handleEnd,
-    changeService
+    changeService,
+    updateMatchStatus,
+    setNumSets,
+    resetChrono
   } = useVolleyballMatch(matchId);
+
+  // Redéfinir les handlers pour intégrer la gestion du statut
+  const handleStart = () => {
+    updateMatchStatus('in_progress');
+  };
+
 
   // Synchroniser les données du match avec les states locaux
   useEffect(() => {
@@ -98,6 +107,9 @@ export default function VolleyballTableMarquagePage() {
     if (court) {
       setMatchGround(court);
       console.log('[Volleyball Scoreboard] Set Court to:', court);
+    }
+    if (typeof matchData.numberOfSets !== "undefined") {
+      setNumberOfSets(matchData.numberOfSets);
     }
   }, [matchData, court]);
 
@@ -181,6 +193,26 @@ export default function VolleyballTableMarquagePage() {
     swapSides();
   };
 
+    useEffect(() => {
+    async function fetchTournamentId() {
+      if (!matchId) return;
+      try {
+        // 1. Récupérer le match pour obtenir phase_id
+        const matchRes = await fetch(`http://localhost:8000/matches/${matchId}`);
+        if (!matchRes.ok) throw new Error('Match not found');
+        const matchData = await matchRes.json();
+        // 2. Récupérer la phase pour obtenir tournament_id
+        const phaseRes = await fetch(`http://localhost:8000/tournament-phases/${matchData.data.phase_id}`);
+        if (!phaseRes.ok) throw new Error('Phase not found');
+        const phaseData = await phaseRes.json();
+        setTournamentId(phaseData.data.tournament_id.toString());
+      } catch (err) {
+        setTournamentId(null);
+      }
+    }
+    fetchTournamentId();
+  }, [matchId]);
+
   return (
     <main className="volleyball-root">
       <header className="mb-10 text-center">
@@ -189,7 +221,7 @@ export default function VolleyballTableMarquagePage() {
         </h1>
       </header>
 
-<div className="gauche">
+      <div className="gauche">
         <div className="parametres-match mb-6">
           <label htmlFor="teamA">Équipe A :</label>
             {matchId ? (
@@ -292,6 +324,27 @@ export default function VolleyballTableMarquagePage() {
               />
             </>
           )}
+          
+          <label htmlFor="numberOfSets">Nombre de sets :</label>
+          <input
+            id="numberOfSets"
+            type="number"
+            min={1}
+            value={numberOfSets ?? ""}
+            onChange={(e) => {
+              const intValue = parseInt(e.target.value, 10);
+              const newValue = isNaN(intValue) ? undefined : intValue;
+              
+              // 1. Mise à jour de l'état local (pour l'affichage de l'input)
+              setNumberOfSets(newValue);
+              
+              // 2. Mise à jour de l'état global (pour la logique du match)
+              if (newValue) {
+                setNumSets(newValue);
+              }
+            }}
+            className="w-full text-center rounded-md border-none mb-2.5 bg-white text-black p-2"
+          />
         </div>
 
         <div className="bouton_pied_page">
@@ -309,8 +362,12 @@ export default function VolleyballTableMarquagePage() {
         <div className="scoreboard gap-8">
           <div className="score-display">
             <div className="teams-line mb-4">
-              <span>{matchData.teamA.name !== "Team A" ? matchData.teamA.name : (teamA != "" ? teams.find((c: Team) => c.id === teamA)?.name : "Team A")}</span>
-              <span>{matchData.teamB.name !== "Team B" ? matchData.teamB.name : (teamB != "" ? teams.find((c: Team) => c.id === teamB)?.name : "Team B")}</span>
+              <div>{matchData.teamA.name !== "Team A" ? matchData.teamA.name : (teamA != "" ? teams.find((c: Team) => c.id === teamA)?.name : "Team A")}</div>
+              <div>
+                <div className="text-sm">Sets :</div>
+                <div className="Sets">{matchData.teamA.sets} - {matchData.teamB.sets}</div>
+              </div>
+              <div>{matchData.teamB.name !== "Team B" ? matchData.teamB.name : (teamB != "" ? teams.find((c: Team) => c.id === teamB)?.name : "Team B")}</div>
             </div>
             <div className="score-line flex flex-row justify-center items-center gap-8 mb-6">
               <div>
@@ -346,7 +403,10 @@ export default function VolleyballTableMarquagePage() {
               <button onClick={() => subPoint("A")}>-</button>
               <button onClick={() => addPoint("A")}>+</button>
             </div>
-            <div className="timer">{formattedTime}</div>
+            <div>
+              <p>Pause</p> 
+              <div className="timer">{formattedTime}</div>
+            </div>
             <div className="flex items-center gap-2">
               <p>Points : {matchData.teamB.score}</p>
               <button onClick={() => subPoint("B")}>-</button>
@@ -355,27 +415,33 @@ export default function VolleyballTableMarquagePage() {
           </div>
 
           <div className="bottom-controls">
-            <button onClick={startChrono}>Start</button>
+            <button onClick={handleStart}>Start Match</button>
+            <button onClick={startChrono}>Start Timer</button>
             <button onClick={stopChrono}>Stop</button>
+            <button onClick={resetChrono}>Reset</button>
             <button onClick={changeService}>Service</button>
             <button onClick={handleSwipe}>Swipe</button>
-            <button
-              onClick={() => {
-                handleEnd();
-                const tournamentId = matchData.tournamentId;
-                console.log('[Volleyball] MatchData complet:', matchData);
-                console.log('[Volleyball] TournamentId from matchData:', tournamentId);
-                console.log('[Volleyball] MatchId:', matchId);
-                if (!tournamentId) {
-                  alert("Impossible de retrouver l'ID du tournoi pour la redirection.");
-                  return;
-                }
-                console.log('[Volleyball] Redirecting to tournament:', tournamentId);
-                window.location.href = `/choix-sport/tournaments/${tournamentId}`;
-              }}
-            >
-              END
-            </button>
+              <button
+                onClick={async () => {
+                  console.log('🔵 END button clicked');
+                  console.log('🔵 TournamentId:', tournamentId);
+                  
+                  if (!tournamentId) {
+                    alert("Impossible de retrouver l'ID du tournoi pour la redirection.");
+                    console.error('❌ No tournament ID found');
+                    return;
+                  }
+                  
+                  console.log('🔵 Calling handleEnd...');
+                  await handleEnd();  // handleEnd appelle submitMatchResult qui envoie status: 'completed'
+                  
+                  console.log('🔵 Redirecting to tournament:', tournamentId);
+                  router.push(`/choix-sport/tournaments/${tournamentId}`);
+                }}
+                disabled={!teamA || !teamB}
+              >
+                END
+              </button>
           </div>
         </div>
       </div>

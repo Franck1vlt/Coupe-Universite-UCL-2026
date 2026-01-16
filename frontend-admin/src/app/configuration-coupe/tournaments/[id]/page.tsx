@@ -635,67 +635,23 @@ export default function TournamentsPage() {
       // Essayer de charger depuis l'API d'abord
       const loadFromAPI = async () => {
         try {
-          // Charger tous les tournois et trouver celui qui correspond au sport
           const response = await fetch(`http://localhost:8000/tournaments`);
-          if (response.ok) {
-            const data = await response.json();
-            console.log("📥 Données API tournois:", data);
-            if (data.success && data.data && Array.isArray(data.data.items)) {
-              // Chercher le tournoi pour ce sport
-              const tournament = data.data.items.find((t: any) => t.sport_id === parseInt(params.id as string));
+          if (!response.ok) throw new Error("Erreur lors du chargement des tournois");
+          
+          const data = await response.json();
+          if (data.success && data.data && Array.isArray(data.data.items)) {
+            const tournament = data.data.items.find((t: any) => t.sport_id === parseInt(params.id as string));
+            
+            if (tournament) {
+              setTournamentId(tournament.id);
+              const structureResponse = await fetch(`http://localhost:8000/tournaments/${tournament.id}/structure`);
               
-              if (tournament) {
-                console.log("📥 Tournoi trouvé:", tournament);
-                setTournamentId(tournament.id);
-                
-                // Charger la structure du tournoi
-                const structureResponse = await fetch(`http://localhost:8000/tournaments/${tournament.id}/structure`);
-                if (structureResponse.ok) {
-                  const structureData = await structureResponse.json();
-                  if (structureData.success && structureData.data) {
-                    console.log("📥 Chargement depuis l'API:", structureData.data);
-              
-              // Convertir les matchs de qualification
-              const apiQualificationMatches: Match[] = (structureData.data.qualification_matches || []).map((m: any) => ({
-                id: m.id.toString(),
-                uuid: m.uuid,
-                label: m.label,
-                teamA: m.team_a_source ?? "",
-                teamB: m.team_b_source ?? "",
-                date: m.scheduled_datetime ? m.scheduled_datetime.split('T')[0] : (m.date ?? ""),
-                time: m.scheduled_datetime ? (m.scheduled_datetime.split('T')[1]?.slice(0,5) ?? "") : (m.time ?? ""),
-                court: m.court ?? "",
-                status: m.status === "upcoming" ? "planifié" :
-                  m.status === "in_progress" ? "en-cours" :
-                  m.status === "completed" ? "terminé" : "planifié",
-                duration: m.duration || 90,
-                type: "qualifications" as MatchType,
-                scoreA: m.score_a,
-                scoreB: m.score_b,
-                winnerPoints: m.winner_points ?? 0,
-                loserPoints: m.loser_points ?? 0,
-                winnerCode: m.label,
-                position: { x: 100, y: 100 + (m.match_order || 0) * 100 },
-              }));
-
-              console.log("=== MATCHS CHARGÉS DEPUIS LA BDD ===");
-              apiQualificationMatches.forEach((m, idx) => {
-                console.log(`Match ${idx + 1}:`, {
-                  id: m.id,
-                  uuid: m.uuid,
-                  label: m.label,
-                  teamA: m.teamA,
-                  teamB: m.teamB
-                });
-              });
-
-
-              // Convertir les poules
-              const apiPools: Pool[] = (structureData.data.pools || []).map((p: any) => ({
-                id: p.id.toString(),
-                name: p.name,
-                teams: [], // Les équipes seront récupérées séparément si nécessaire
-                matches: (p.matches || []).map((m: any) => ({
+              if (structureResponse.ok) {
+                const structureData = await structureResponse.json();
+                if (structureData.success && structureData.data) {
+                  
+                  // 1. Charger les Qualifs
+                  const apiQualificationMatches: Match[] = (structureData.data.qualification_matches || []).map((m: any) => ({
                     id: m.id.toString(),
                     uuid: m.uuid,
                     label: m.label,
@@ -704,334 +660,136 @@ export default function TournamentsPage() {
                     date: m.scheduled_datetime ? m.scheduled_datetime.split('T')[0] : (m.date ?? ""),
                     time: m.scheduled_datetime ? (m.scheduled_datetime.split('T')[1]?.slice(0,5) ?? "") : (m.time ?? ""),
                     court: m.court ?? "",
-                    status: m.status === "upcoming" ? "planifié" : 
-                      m.status === "in_progress" ? "en-cours" :
-                      m.status === "completed" ? "terminé" : "planifié",
+                    status: m.status === "completed" ? "terminé" : m.status === "in_progress" ? "en-cours" : "planifié",
                     duration: m.duration || 90,
-                    type: "poule" as MatchType,
+                    type: "qualifications",
                     scoreA: m.score_a,
                     scoreB: m.score_b,
-                    position: { x: 0, y: 0 },
-                })),
-                position: { x: 100, y: 100 },
-                qualifiedToFinals: p.qualified_to_finals || 2,
-                qualifiedToLoserBracket: p.qualified_to_loser_bracket || 0,
-              }));
+                    winnerCode: m.label,
+                    position: { x: 100, y: 100 + (m.match_order || 0) * 100 },
+                  }));
 
-              // Convertir les brackets
-              const apiBrackets: Bracket[] = [];
-              if (structureData.data.bracket_matches && structureData.data.bracket_matches.length > 0) {
-                // Grouper les matchs par type de bracket pour calculer les positions
-                const matchesByType: Record<string, any[]> = {};
-                structureData.data.bracket_matches.forEach((m: any) => {
-                  const mappedType = bracketTypeApiToReact[m.bracket_type] || m.bracket_type || 'finale';
-                  if (!matchesByType[mappedType]) matchesByType[mappedType] = [];
-                  matchesByType[mappedType].push(m);
-                });
-
-                const bracketMatches = structureData.data.bracket_matches.map((m: any, index: number) => {
-                    // CORRECTION 1: Mapping vocabulaire API → React
-                    const mappedBracketType = bracketTypeApiToReact[m.bracket_type] || m.bracket_type || 'finale';
-                    
-                    // CORRECTION 4: UUID généré si absent
-                    const matchUuid = m.uuid || `bracket-match-${m.id || uuidv4()}`;
-                    
-                    // CORRECTION 5: Calculer la position automatiquement
-                    const matchesOfSameType = matchesByType[mappedBracketType] || [];
-                    const indexInType = matchesOfSameType.findIndex((match: any) => match.id === m.id);
-                    const position = calculateBracketMatchPosition(
-                      mappedBracketType as BracketMatchType,
-                      indexInType >= 0 ? indexInType : index,
-                      matchesOfSameType.length
-                    );
-                    
-                    return {
-                      id: m.id?.toString() || matchUuid,
-                      uuid: matchUuid,
-                      label: m.label,
+                  // 2. Charger les Poules (si présentes dans la structure)
+                  let apiPools: Pool[] = (structureData.data.pools || []).map((p: any) => ({
+                    id: p.id.toString(),
+                    name: p.name,
+                    teams: [],
+                    matches: (p.matches || []).map((m: any) => ({
+                      id: m.id.toString(),
+                      uuid: m.uuid,
                       teamA: m.team_a_source ?? "",
                       teamB: m.team_b_source ?? "",
-                      date: m.scheduled_datetime ? m.scheduled_datetime.split('T')[0] : (m.date ?? ""),
-                      time: m.scheduled_datetime ? (m.scheduled_datetime.split('T')[1]?.slice(0,5) ?? "") : (m.time ?? ""),
-                      court: m.court ?? "",
-                      status: m.status === "upcoming" ? "planifié" : 
-                        m.status === "in_progress" ? "en-cours" :
-                        m.status === "completed" ? "terminé" : "planifié",
-                      duration: m.duration || 90,
-                      type: "phase-finale" as MatchType,
+                      status: m.status === "completed" ? "terminé" : "planifié",
+                      type: "poule",
                       scoreA: m.score_a,
                       scoreB: m.score_b,
-                      bracketMatchType: mappedBracketType as BracketMatchType,
-                      winnerCode: m.label,
-                      position: position,
-                    };
-                });
-                
-                // CORRECTION 3: Initialiser enabledRounds avec les rounds trouvés
-                const enabledRounds = Array.from(new Set(
-                  bracketMatches.map((m: Match) => m.bracketMatchType).filter(Boolean)
-                )) as BracketMatchType[];
-                
-                apiBrackets.push({
-                  id: "bracket-1",
-                  name: "Phase Finale",
-                  enabledRounds: enabledRounds,
-                  teams: [],
-                  matches: bracketMatches,
-                  position: { x: 500, y: 100 },
-                  loserToLoserBracket: false,
-                });
-              }
+                      position: { x: 0, y: 0 },
+                    })),
+                    position: p.position || { x: 100, y: 100 },
+                    qualifiedToFinals: p.qualified_to_finals || 2,
+                  }));
 
-              // Convertir les loser brackets
-              const apiLoserBrackets: LoserBracket[] = [];
-              if (structureData.data.loser_bracket_matches && structureData.data.loser_bracket_matches.length > 0) {
-                // Grouper les matchs par type pour calculer les positions
-                const loserMatchesByType: Record<string, any[]> = {};
-                structureData.data.loser_bracket_matches.forEach((m: any) => {
-                  const mappedType = loserBracketTypeApiToReact[m.bracket_type] || m.bracket_type || 'loser-round-1';
-                  if (!loserMatchesByType[mappedType]) loserMatchesByType[mappedType] = [];
-                  loserMatchesByType[mappedType].push(m);
-                });
-
-                const loserMatches = structureData.data.loser_bracket_matches.map((m: any, index: number) => {
-                    // CORRECTION 1: Mapping vocabulaire API → React
-                    const mappedLoserType = loserBracketTypeApiToReact[m.bracket_type] || m.bracket_type || 'loser-round-1';
-                    
-                    // CORRECTION 4: UUID généré si absent
-                    const matchUuid = m.uuid || `loser-match-${m.id || uuidv4()}`;
-                    
-                    // CORRECTION 5: Calculer la position automatiquement
-                    const matchesOfSameType = loserMatchesByType[mappedLoserType] || [];
-                    const indexInType = matchesOfSameType.findIndex((match: any) => match.id === m.id);
-                    const position = calculateLoserBracketMatchPosition(
-                      mappedLoserType as LoserBracketMatchType,
-                      indexInType >= 0 ? indexInType : index
-                    );
-                    
-                    return {
-                      id: m.id?.toString() || matchUuid,
-                      uuid: matchUuid,
-                      label: m.label,
-                      teamA: m.team_a_source || "",
-                      teamB: m.team_b_source || "",
-                      date: m.scheduled_datetime ? m.scheduled_datetime.split('T')[0] : (m.date ?? ""),
-                      time: m.scheduled_datetime ? (m.scheduled_datetime.split('T')[1]?.slice(0,5) ?? "") : (m.time ?? ""),
-                      court: m.court ?? "",
-                      status: m.status === "upcoming" ? "planifié" : 
-                        m.status === "in_progress" ? "en-cours" :
-                        m.status === "completed" ? "terminé" : "planifié",
-                      duration: m.duration || 90,
-                      type: "loser-bracket" as MatchType,
-                      scoreA: m.score_a,
-                      scoreB: m.score_b,
-                      loserBracketMatchType: mappedLoserType as LoserBracketMatchType,
-                      position: position,
-                    };
-                });
-                
-                // CORRECTION 3: Initialiser enabledRounds avec les rounds trouvés
-                const enabledLoserRounds = Array.from(new Set(
-                  loserMatches.map((m: Match) => m.loserBracketMatchType).filter(Boolean)
-                )) as LoserBracketMatchType[];
-                
-                apiLoserBrackets.push({
-                  id: "loser-bracket-1",
-                  name: "Loser Bracket",
-                  enabledRounds: enabledLoserRounds,
-                  teams: [],
-                  matches: loserMatches,
-                  position: { x: 300, y: 100 },
-                });
-              }
-
-              setMatches(apiQualificationMatches);
-              setPools(apiPools);
-              
-              // CORRECTION: Si l'API structure ne retourne pas de bracket_matches,
-              // on les charge depuis /matches pour ne pas écraser les données de loadTournamentData
-              if (apiBrackets.length > 0) {
-                setBrackets(apiBrackets);
-              } else {
-                // Charger les brackets depuis /matches si structure ne les a pas
-                console.log("⚠️ Pas de bracket_matches dans /structure, chargement depuis /matches...");
-                try {
-                  const matchesRes = await fetch(
-                    `http://localhost:8000/tournaments/${tournament.id}/matches`
-                  );
+                  // 3. FALLBACK : Si pas de poules ou de brackets, on charge tout via /matches
+                  const matchesRes = await fetch(`http://localhost:8000/tournaments/${tournament.id}/matches`);
+                  let allMatchesRaw: any[] = [];
                   if (matchesRes.ok) {
                     const matchesJson = await matchesRes.json();
-                    const allMatchesRaw = matchesJson.data || [];
-                    const bracketMatchesRaw = allMatchesRaw.filter(
-                      (m: any) => m.match_type === "bracket"
-                    );
+                    allMatchesRaw = matchesJson.data || [];
 
-                    
-                    if (bracketMatchesRaw.length > 0) {
-                      console.log(`✅ ${bracketMatchesRaw.length} matchs de bracket trouvés via /matches`);
-                      
-                      // Grouper les matchs par type pour calculer les positions
-                      const matchesByType: Record<string, any[]> = {};
-                      bracketMatchesRaw.forEach((m: any) => {
-                        const mappedType = bracketTypeApiToReact[m.bracket_type] || m.bracket_type || 'finale';
-                        if (!matchesByType[mappedType]) matchesByType[mappedType] = [];
-                        matchesByType[mappedType].push(m);
-                      });
+                    // RECONSTRUCTION DES POULES si vides dans la structure
+                    if (apiPools.length === 0) {
+                      const poolMatches = allMatchesRaw.filter((m: any) => m.match_type === "pool" || m.match_type === "poule");
+                      const groupedByPool = poolMatches.reduce((acc: any, m: any) => {
+                        const pId = m.pool_id?.toString() || "1";
+                        if (!acc[pId]) acc[pId] = [];
+                        acc[pId].push(m);
+                        return acc;
+                      }, {});
 
-                      const bracketMatches = bracketMatchesRaw.map((m: any, index: number) => {
-                        const mappedBracketType = bracketTypeApiToReact[m.bracket_type] || m.bracket_type || 'finale';
-                        const matchUuid = m.uuid || `bracket-match-${m.id || uuidv4()}`;
-                        const matchesOfSameType = matchesByType[mappedBracketType] || [];
-                        const indexInType = matchesOfSameType.findIndex((match: any) => match.id === m.id);
-                        const position = calculateBracketMatchPosition(
-                          mappedBracketType as BracketMatchType,
-                          indexInType >= 0 ? indexInType : index,
-                          matchesOfSameType.length
-                        );
-                        
-                        return {
-                          id: m.id?.toString() || matchUuid,
-                          uuid: matchUuid,
-                          label: m.label,
-                          teamA: m.team_a_source ?? "",
-                          teamB: m.team_b_source ?? "",
-                          date: m.date ?? "",
-                          time: m.time ?? "",
-                          court: m.court ?? "",
-                          status: m.status === "upcoming" ? "planifié" : 
-                            m.status === "in_progress" ? "en-cours" :
-                            m.status === "completed" ? "terminé" : "planifié",
-                          duration: m.duration || 90,
-                          type: "phase-finale" as MatchType,
+                      apiPools = Object.keys(groupedByPool).map((pId, idx) => ({
+                        id: pId,
+                        name: `Poule ${idx + 1}`,
+                        teams: [],
+                        matches: groupedByPool[pId].map((m: any) => ({
+                          id: m.id.toString(),
+                          uuid: m.uuid,
+                          teamA: m.team_a_source || "",
+                          teamB: m.team_b_source || "",
+                          status: m.status === "completed" ? "terminé" : "planifié",
+                          type: "poule",
                           scoreA: m.score_a,
                           scoreB: m.score_b,
-                          bracketMatchType: mappedBracketType as BracketMatchType,
-                          winnerCode: m.label,
-                          position: position,
+                        })),
+                        position: { x: 100 + (idx * 350), y: 100 },
+                        qualifiedToFinals: 2,
+                        qualifiedToLoserBracket: 0
+                      }));
+                    }
+
+                    // RECONSTRUCTION DU BRACKET
+                    const bracketMatchesRaw = allMatchesRaw.filter((m: any) => m.match_type === "bracket" || m.match_type === "phase-finale");
+                    if (bracketMatchesRaw.length > 0) {
+                      const formattedBracketMatches = bracketMatchesRaw.map((m: any, index: number) => {
+                        const mappedType = bracketTypeApiToReact[m.bracket_type] || "finale";
+                        // Correction ici :
+                        let status: MatchStatus = "planifié";
+                        if (m.status === "completed") status = "terminé";
+                        else if (m.status === "in_progress") status = "en-cours";
+                        else if (m.status === "cancelled") status = "annulé";
+                        else status = "planifié";
+
+                        return {
+                          id: m.id.toString(),
+                          uuid: m.uuid || uuidv4(),
+                          teamA: m.team_a_source || "",
+                          teamB: m.team_b_source || "",
+                          type: "phase-finale",
+                          bracketMatchType: mappedType,
+                          status, // <-- typé MatchStatus
+                          scoreA: m.score_a,
+                          scoreB: m.score_b,
+                          date: m.date || "",
+                          time: m.time || "",
+                          court: m.court || "",
+                          duration: m.duration || 90,
+                          position: calculateBracketMatchPosition(mappedType as BracketMatchType, index, bracketMatchesRaw.length)
                         };
                       });
-                      
-                      const enabledRounds = Array.from(new Set(
-                        bracketMatches.map((m: Match) => m.bracketMatchType).filter(Boolean)
-                      )) as BracketMatchType[];
-                      
+
                       setBrackets([{
                         id: "bracket-1",
                         name: "Phase Finale",
-                        enabledRounds: enabledRounds,
+                        enabledRounds: Array.from(new Set(formattedBracketMatches.map(m => m.bracketMatchType))),
                         teams: [],
-                        matches: bracketMatches,
-                        position: { x: 500, y: 100 },
-                        loserToLoserBracket: false,
+                        matches: formattedBracketMatches.map(m => ({
+                          ...m,
+                          type: "phase-finale" as MatchType // ou la valeur appropriée selon le contexte
+                        })),
+                        position: { x: 600, y: 100 },
+                        loserToLoserBracket: false
                       }]);
+                    } else {
+                      setBrackets([]); // On vide si aucun match de bracket trouvé
                     }
                   }
-                } catch (e) {
-                  console.log("⚠️ Impossible de charger les brackets depuis /matches:", e);
-                }
-              }
-              
-              // Idem pour les loser brackets
-              if (apiLoserBrackets.length > 0) {
-                setLoserBrackets(apiLoserBrackets);
-              } else {
-                // Charger les loser brackets depuis /matches si structure ne les a pas
-                try {
-                  const matchesRes = await fetch(
-                    `http://localhost:8000/tournaments/${tournament.id}/matches`
-                  );
-                  if (matchesRes.ok) {
-                    const matchesJson = await matchesRes.json();
-                    const allMatchesRaw = matchesJson.data || [];
-                    const loserMatchesRaw = allMatchesRaw.filter((m: any) => m.match_type === "loser_bracket");
-                    
-                    if (loserMatchesRaw.length > 0) {
-                      console.log(`✅ ${loserMatchesRaw.length} matchs de loser bracket trouvés via /matches`);
-                      
-                      const loserMatchesByType: Record<string, any[]> = {};
-                      loserMatchesRaw.forEach((m: any) => {
-                        const mappedType = loserBracketTypeApiToReact[m.bracket_type] || m.bracket_type || 'loser-round-1';
-                        if (!loserMatchesByType[mappedType]) loserMatchesByType[mappedType] = [];
-                        loserMatchesByType[mappedType].push(m);
-                      });
 
-                      const loserMatches = loserMatchesRaw.map((m: any, index: number) => {
-                        const mappedLoserType = loserBracketTypeApiToReact[m.bracket_type] || m.bracket_type || 'loser-round-1';
-                        const matchUuid = m.uuid || `loser-match-${m.id || uuidv4()}`;
-                        const matchesOfSameType = loserMatchesByType[mappedLoserType] || [];
-                        const indexInType = matchesOfSameType.findIndex((match: any) => match.id === m.id);
-                        const position = calculateLoserBracketMatchPosition(
-                          mappedLoserType as LoserBracketMatchType,
-                          indexInType >= 0 ? indexInType : index
-                        );
-                        
-                        return {
-                          id: m.id?.toString() || matchUuid,
-                          uuid: matchUuid,
-                          label: m.label,
-                          teamA: m.team_a_source || "",
-                          teamB: m.team_b_source || "",
-                          date: m.date ?? "",
-                          time: m.time ?? "",
-                          court: m.court ?? "",
-                          status: m.status === "upcoming" ? "planifié" : 
-                            m.status === "in_progress" ? "en-cours" :
-                            m.status === "completed" ? "terminé" : "planifié",
-                          duration: m.duration || 90,
-                          type: "loser-bracket" as MatchType,
-                          scoreA: m.score_a,
-                          scoreB: m.score_b,
-                          loserBracketMatchType: mappedLoserType as LoserBracketMatchType,
-                          position: position,
-                        };
-                      });
-                      
-                      const enabledLoserRounds = Array.from(new Set(
-                        loserMatches.map((m: Match) => m.loserBracketMatchType).filter(Boolean)
-                      )) as LoserBracketMatchType[];
-                      
-                      setLoserBrackets([{
-                        id: "loser-bracket-1",
-                        name: "Loser Bracket",
-                        enabledRounds: enabledLoserRounds,
-                        teams: [],
-                        matches: loserMatches,
-                        position: { x: 300, y: 100 },
-                      }]);
-                    }
-                  }
-                } catch (e) {
-                  console.log("⚠️ Impossible de charger les loser brackets depuis /matches:", e);
+                  // Application des états
+                  setMatches(apiQualificationMatches);
+                  setPools(apiPools);
+                  
+                  // Calcul du prochain ID Match
+                  const allIds = allMatchesRaw.map((m: any) => parseInt(m.id)).filter((id: number) => !isNaN(id));
+                  setNextMatchId(allIds.length > 0 ? Math.max(...allIds) + 1 : 1);
+                  
+                  console.log("✅ Configuration chargée :", { matches: apiQualificationMatches.length, pools: apiPools.length });
                 }
-              }
-              
-              // Calculer le prochain ID
-              const allIds = [
-                ...apiQualificationMatches.map(m => parseInt(m.id)),
-                ...apiPools.flatMap(p => p.matches.map(m => parseInt(m.id))),
-                ...apiBrackets.flatMap(b => b.matches.map(m => parseInt(m.id))),
-                ...apiLoserBrackets.flatMap(lb => lb.matches.map(m => parseInt(m.id))),
-              ].filter(id => !isNaN(id));
-              
-              setNextMatchId(allIds.length > 0 ? Math.max(...allIds) + 1 : 1);
-              console.log("✅ Données chargées depuis l'API");
-              return;
-                  }
-                }
-              } else {
-                console.log("⚠️ Aucun tournoi trouvé pour ce sport");
               }
             }
           }
         } catch (err) {
-          console.log("⚠️ Impossible de charger depuis l'API:", err);
-          // Fallback: charger via loadTournamentData
-          console.log("🔄 Fallback vers loadTournamentData...");
-          loadTournamentData();
+          console.error("❌ Erreur chargement API:", err);
+          loadTournamentData(); // Fallback local
         }
-        
-        // Ne plus utiliser localStorage pour éviter les conflits
-        // Tous les tournois doivent être créés et chargés depuis l'API
       };
       
       loadFromAPI();
@@ -2838,7 +2596,7 @@ export default function TournamentsPage() {
                 <div>
                   <label className="block text-xs font-bold mb-1" style={{ color: '#16a34a' }}>Destination Vainqueur</label>
                   <select
-                    className="..."
+                    className="w-full p-2 border border-green-400 rounded-md focus:ring-green-500 focus:border-green-500 text-black bg-green-50"
                     value={selectedMatch.winner_destination_match_id || ''}
                     onChange={e => {
                       const val = e.target.value;
@@ -2862,7 +2620,7 @@ export default function TournamentsPage() {
                 <div>
                   <label className="block text-xs font-bold mb-1" style={{ color: '#dc2626' }}>Destination Perdant</label>
                   <select
-                    className="..."
+                    className="w-full p-2 border border-red-400 rounded-md focus:ring-red-500 focus:border-red-500 text-black bg-red-50"
                     value={selectedMatch.loser_destination_match_id || ''}
                     onChange={e => {
                       const val = e.target.value;

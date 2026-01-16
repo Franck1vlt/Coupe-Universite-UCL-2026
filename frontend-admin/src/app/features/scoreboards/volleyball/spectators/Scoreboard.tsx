@@ -10,11 +10,8 @@ interface MatchData {
     matchType?: string;
     score1?: number;
     score2?: number;
-    yellowCards1?: number;
-    yellowCards2?: number;
-    redCards1?: number;
-    redCards2?: number;
-    chrono?: string;
+    sets1?: number;
+    sets2?: number;
     lastUpdate?: string;
     matchGround?: string;
     serviceTeam?: "A" | "B"; // Ajout de la propriété serviceTeam
@@ -26,6 +23,8 @@ export default function VolleyballTableSpectatorPage() {
     const [logoB, setLogoB] = useState('/img/default.png');
     const [animateScoreA, setAnimateScoreA] = useState(false);
     const [animateScoreB, setAnimateScoreB] = useState(false);
+    const [animateSetA, setAnimateSetA] = useState(false);
+    const [animateSetB, setAnimateSetB] = useState(false);
     const logoService = "/img/volley-ball.png";
     const CONST_SIZE = 75;
     
@@ -70,6 +69,14 @@ export default function VolleyballTableSpectatorPage() {
                         setAnimateScoreB(true);
                         setTimeout(() => setAnimateScoreB(false), 500);
                     }
+                    if (matchData.sets1 !== newData.sets1) {
+                        setAnimateSetA(true);
+                        setTimeout(() => setAnimateSetA(false), 500);
+                    }
+                    if (matchData.sets2 !== newData.sets2) {
+                        setAnimateSetB(true);
+                        setTimeout(() => setAnimateSetB(false), 500);
+                    }
                     setMatchData(newData);
                 }
             } catch {}
@@ -106,7 +113,7 @@ export default function VolleyballTableSpectatorPage() {
         }
     }
 
-return (
+    return (
         // bg-[#E0E0E0] et centrage total
         <main className="min-h-screen w-full bg-white flex items-center justify-center p-4 overflow-hidden">
             <section className="score-board-container gap-8">
@@ -118,9 +125,15 @@ return (
                         </div>
                         <div className="team-name">{matchData.team2 || 'ÉQUIPE B'}</div>
                     </div>      
-                    {/* Chrono */}
+                    {/* Chrono
                     <div className="flex justify-center mb-4 md:mb-8">
                         <span className="remaining-time">{matchData.chrono || '00:00'}</span>
+                    </div> */}
+                    {/* Score (Élément central stable) */}
+                    <div className="set-display flex items-center text-4xl md:text-6xl font-bold gap-8">
+                        <span className={animateSetB ? 'set-change' : ''}>{matchData.sets2 || 0}</span>
+                        <span className="mx-4 md:mx-8"> - </span>
+                        <span className={animateSetA ? 'set-change' : ''}>{matchData.sets1 || 0}</span>
                     </div>
                     {/* Team A */}
                     <div className="team-column">
@@ -142,7 +155,7 @@ return (
                     </div>
 
                     {/* Score (Élément central stable) */}
-                    <div className="score-display flex items-center text-4xl md:text-6xl font-bold">
+                    <div className="score-display flex items-center text-4xl md:text-6xl font-bold gap-8">
                         <span className={animateScoreB ? 'score-change' : ''}>{matchData.score2 || 0}</span>
                         <span className="mx-4 md:mx-8"> - </span>
                         <span className={animateScoreA ? 'score-change' : ''}>{matchData.score1 || 0}</span>

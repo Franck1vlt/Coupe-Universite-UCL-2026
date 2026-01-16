@@ -100,7 +100,14 @@ export default function FlechettesTableMarquagePage() {
     swapSides,
     court,
     handleEnd,
+    updateMatchStatus
   } = useFlechettesMatch(matchId);
+
+  // Redéfinir les handlers pour intégrer la gestion du statut
+  const handleStart = () => {
+    updateMatchStatus('in_progress');
+  };
+
 
   // Synchroniser les données du match avec les states locaux
   useEffect(() => {
@@ -467,36 +474,31 @@ export default function FlechettesTableMarquagePage() {
             </div>
           </div>
           <div className="bottom-controls grid grid-cols-4 grid-rows-1 gap-4">
-            <div>
-              <button onClick={swipeGameMode} className="btnAction">
-                Mode de jeu
-              </button>
-            </div>
-            <div>
-              <button onClick={handleSwipe} className="btnAction text-white">
-                Swipe
-              </button>
-            </div>
-            <div>
-              <button onClick={resetSet} className="btnAction text-white">
-                🔄 Reset Set
-              </button>
-            </div>
-            <div className="col-span-2">
-              <button
-                className="btnAction text-white w-full font-bold"
-                onClick={() => {
-                  handleEnd();
-                  if (!tournamentId) {
-                    alert("Impossible de retrouver l'ID du tournoi pour la redirection.");
-                    return;
-                  }
-                  window.location.href = `/choix-sport/tournaments/${tournamentId}`;
-                }}
-              >
-                Terminer
-              </button>
-            </div>
+            <button onClick={handleStart} className="btnAction text-white">Start</button>
+            <button onClick={swipeGameMode} className="btnAction">Mode de jeu</button>
+            <button onClick={handleSwipe} className="btnAction text-white">Swipe</button>
+            <button onClick={resetSet} className="btnAction text-white">🔄 Reset Set</button>
+            <button
+              onClick={async () => {
+                console.log('🔵 END button clicked');
+                console.log('🔵 TournamentId:', tournamentId);
+                
+                if (!tournamentId) {
+                  alert("Impossible de retrouver l'ID du tournoi pour la redirection.");
+                  console.error('❌ No tournament ID found');
+                  return;
+                }
+                
+                console.log('🔵 Calling handleEnd...');
+                await handleEnd();  // handleEnd appelle submitMatchResult qui envoie status: 'completed'
+                
+                console.log('🔵 Redirecting to tournament:', tournamentId);
+                router.push(`/choix-sport/tournaments/${tournamentId}`);
+              }}
+              disabled={!teamA || !teamB}
+            >
+              END
+            </button>
           </div>
         </div>
       </div>

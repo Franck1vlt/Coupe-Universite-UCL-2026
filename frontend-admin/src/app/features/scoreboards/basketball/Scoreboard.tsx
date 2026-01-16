@@ -89,9 +89,7 @@ export default function BasketballTableMarquagePage() {
     stopChrono,
     addScore,
     subScore,
-    resetGame,
     resetShotClock,
-    resetShotClockSmart,
     setShotClock,
     addSecond,
     togglePeriod,
@@ -101,11 +99,8 @@ export default function BasketballTableMarquagePage() {
     swapSides,
     period,
     buzzer,
-    addTechnicalFoul,
-    subTechnicalFoul,
     court,
     updateMatchStatus,
-    submitMatchResult,
     handleEnd,
   } = useBasketballMatch(matchId);
 

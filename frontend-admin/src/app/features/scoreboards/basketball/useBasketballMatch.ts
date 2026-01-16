@@ -442,34 +442,29 @@ export function useBasketballMatch(initialMatchId: string | null) {
     const submitMatchResult = async () => {
         if (!initialMatchId) return;
         try {
-            console.log('[Basketball Hook] 📝 Submitting match result...');
-            
-            // Récupérer les données du match pour obtenir les team_sport_id
             const matchResponse = await fetch(`http://localhost:8000/matches/${initialMatchId}`);
             if (!matchResponse.ok) throw new Error('Impossible de récupérer les données du match');
             const matchDataApi = await matchResponse.json();
             const match = matchDataApi.data;
 
-            console.log('[Basketball Hook] 📝 Match data from API:', match);
-            console.log('[Basketball Hook] 📝 team_sport_a_id:', match.team_sport_a_id);
-            console.log('[Basketball Hook] 📝 team_sport_b_id:', match.team_sport_b_id);
-
-            // Vérifier que les équipes sont assignées
-            if (!match.team_sport_a_id || !match.team_sport_b_id) {
-                console.error('[Basketball Hook] ❌ Les équipes ne sont pas assignées');
-                alert('Erreur : Les équipes ne sont pas assignées à ce match. Impossible de terminer le match.');
-                return;
-            }
-
-            const payload = {
+            // --- MODIFICATION ICI ---
+            // On prépare le payload avec les IDs s'ils existent
+            const payload: any = {
                 score_a: matchData.teamA.score,
                 score_b: matchData.teamB.score,
-                status: 'completed',  // ⭐ IMPORTANT: Le statut est bien envoyé ici
-                team_sport_a_id: match.team_sport_a_id,
-                team_sport_b_id: match.team_sport_b_id
+                status: 'completed',
             };
 
-            console.log('[Basketball Hook] 📝 Sending payload:', payload);
+            // On n'ajoute les IDs que s'ils sont présents dans le match d'origine
+            if (match.team_sport_a_id) payload.team_sport_a_id = match.team_sport_a_id;
+            if (match.team_sport_b_id) payload.team_sport_b_id = match.team_sport_b_id;
+            
+            // Optionnel : Retirer ou transformer l'alerte bloquante
+            if (!match.team_sport_a_id || !match.team_sport_b_id) {
+                console.warn('[Basketball Hook] ⚠️ Attention: Pas de team_sport_id. La propagation automatique pourrait échouer.');
+                // Vous pouvez choisir de continuer quand même ou de bloquer ici
+            }
+            // -------------------------
 
             const response = await fetch(`http://localhost:8000/matches/${initialMatchId}`, {
                 method: 'PATCH',

@@ -54,6 +54,15 @@
     line-height: 1;
 }
 
+/* Sets Central */
+.set-display {
+    display: flex;
+    align-items: center;
+    font-size: clamp(2rem, 9vw, 7rem);
+    font-weight: 900;
+    line-height: 1;
+}
+
 /* Infos et Cartons */
 .match-type-label {
     margin-top: 2rem;

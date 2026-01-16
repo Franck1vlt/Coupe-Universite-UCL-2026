@@ -78,8 +78,15 @@ export default function HandballTableMarquagePage() {
     handleEnd,
     togglePeriod,
     periodSwitchChecked,
-    period
+    period,
+    updateMatchStatus
   } = useHandballMatch(matchId);
+
+  const handleStart = () => {
+    updateMatchStatus('in_progress');
+    startChrono();
+  };
+
 
   // Synchroniser les données du match avec les states locaux
   useEffect(() => {
@@ -386,7 +393,7 @@ export default function HandballTableMarquagePage() {
           </div>
 
           <div className="bottom-controls">
-            <button onClick={startChrono}>Start</button>
+            <button onClick={handleStart}>Start</button>
             <button onClick={stopChrono}>Stop</button>
             <button onClick={addSecond}>+1s</button>
             <button onClick={handleSwipe}>Swipe</button>

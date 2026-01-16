@@ -2,9 +2,7 @@ export interface TeamData {
   name?: string;
   logo_url?: string;
   score: number;
-  yellowCards: number;
-  redCards: number;
-  penalties: number;
+  sets: number;
 }
 
 export interface ChronoData {
@@ -18,6 +16,7 @@ export interface MatchData {
   teamB: TeamData;
   chrono: ChronoData;
   matchId: string | null;
-  hasPenalties: boolean;
-  matchType?: string;
+  currentSet: number;
+  numberOfSets: number;
+  matchType: string; 
 }

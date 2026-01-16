@@ -34,6 +34,7 @@ export default function BadmintonTableMarquagePage() {
   const [teamB, setTeamB] = useState("");
   const [matchType, setMatchType] = useState("Type de match");
   const [matchGround, setMatchGround] = useState("Terrain");
+  const [tournamentId, setTournamentId] = useState<string | null>(null);
 
   const [courts, setCourts] = useState<Court[]>([]);
   const [courtSchedules, setCourtSchedules] = useState<any[]>([]);
@@ -74,8 +75,15 @@ export default function BadmintonTableMarquagePage() {
     swapSides,
     court,
     handleEnd,
-    changeService
-  } = useBadmintonMatch(matchId);
+    changeService,
+    updateMatchStatus
+    } = useBadmintonMatch(matchId);
+
+  // Redéfinir les handlers pour intégrer la gestion du statut
+  const handleStart = () => {
+    updateMatchStatus('in_progress');
+    startChrono();
+  };
 
   // Synchroniser les données du match avec les states locaux
   useEffect(() => {
@@ -354,7 +362,7 @@ export default function BadmintonTableMarquagePage() {
           </div>
 
           <div className="bottom-controls">
-            <button onClick={startChrono}>Start</button>
+            <button onClick={handleStart}>Start</button>
             <button onClick={stopChrono}>Stop</button>
             <button onClick={changeService}>Service</button>
             <button onClick={handleSwipe}>Swipe</button>

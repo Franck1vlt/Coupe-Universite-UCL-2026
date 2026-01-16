@@ -37,7 +37,7 @@ export default function ChoixSport() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("http://localhost:8000/sports?skip=0&limit=100", { 
+      const res = await fetch(`http://localhost:8000/sports?skip=0&limit=100`, { 
         method: "GET", 
         headers: { "Accept": "application/json" } 
       });

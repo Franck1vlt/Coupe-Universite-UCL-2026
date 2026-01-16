@@ -3,6 +3,8 @@ import { MatchData } from "./types";
 
 // Ajout du type tournamentId si besoin
 type MatchDataWithTournament = MatchData & { tournamentId?: string | number; court?: string };
+const HALF_TIME_DURATION = 10 * 60; // 10 minutes en secondes
+
 
 export function useHandballMatch(initialMatchId: string | null) {
     console.log('[Handball Hook] ========== VERSION 2.0 - With phase_id support ==========');
@@ -10,24 +12,11 @@ export function useHandballMatch(initialMatchId: string | null) {
         matchId: initialMatchId || "",
         teamA: { name: "Team A", logo_url: "", score: 0, yellowCards: 0, redCards: 0, penalties: 0 },
         teamB: { name: "Team B", logo_url: "", score: 0, yellowCards: 0, redCards: 0, penalties: 0 },
-        chrono: { time: 0, running: false, interval: null },
+        chrono: { time: HALF_TIME_DURATION, running: false, interval: null },
         hasPenalties: false,
         matchType: "",
         tournamentId: undefined
     });
-
-    const updateMatchStatus = async (status: 'en_cours' | 'termine') => {
-        if (!initialMatchId) return;
-        try {
-            await fetch(`http://localhost:8000/matches/${initialMatchId}/status`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ status }),
-            });
-        } catch (e) {
-            console.error(`[Handball Hook] Erreur lors de la mise à jour du statut du match (${status}) :`, e);
-        }
-    };
 
     const intervalRef = useRef<number | null>(null);
     const [court, setCourt] = useState<string>("");
@@ -35,7 +24,6 @@ export function useHandballMatch(initialMatchId: string | null) {
     // UN SEUL useEffect pour récupérer les données du match
     useEffect(() => {
         if (!initialMatchId) return;
-        updateMatchStatus('en_cours');
 
         async function fetchMatchData() {
             try {
@@ -187,54 +175,55 @@ export function useHandballMatch(initialMatchId: string | null) {
 
     // Chrono handlers
     const startChrono = () => {
-        if (matchData.chrono.running) return;
-        
+        if (intervalRef.current !== null) return;
+
+        // ✅ Recharge le temps AVANT de démarrer
         setMatchData((prev) => ({
             ...prev,
-            chrono: { ...prev.chrono, running: true }
+            chrono: {
+                ...prev.chrono,
+                time:
+                    prev.chrono.time === 0
+                        ? HALF_TIME_DURATION
+                        : prev.chrono.time,
+                running: true,
+            },
         }));
-        
+
         intervalRef.current = window.setInterval(() => {
             setMatchData((prev) => {
-                const newTime = prev.chrono.time - 1;
-                
-                // Si le temps est écoulé (0)
-                if (newTime <= 0) {
-                    // Arrêter l'intervalle
-                    if (intervalRef.current) {
+                const newTime = Math.max(0, prev.chrono.time - 1);
+
+                if (newTime === 0 && prev.chrono.time > 0) {
+                    if (intervalRef.current !== null) {
                         clearInterval(intervalRef.current);
                         intervalRef.current = null;
                     }
-                    
-                    // Si on est en MT1, passer à MT2 (SANS démarrer)
+
                     if (period === "MT1") {
-                        setPeriod("MT2");
-                        setPeriodSwitchChecked(true);
-                        return {
-                            ...prev,
-                            chrono: { 
-                                ...prev.chrono,  // 👈 Gardez toutes les propriétés
-                                time: HALF_TIME_DURATION, 
-                                running: false 
-                            }
-                        };
+                        setTimeout(() => {
+                            setPeriod("MT2");
+                            setPeriodSwitchChecked(true);
+                            setMatchData((p) => ({
+                                ...p,
+                                chrono: {
+                                    ...p.chrono,
+                                    time: HALF_TIME_DURATION,
+                                    running: false,
+                                },
+                            }));
+                        }, 100);
                     }
-                    
-                    // Si on est en MT2, juste s'arrêter à 0
+
                     return {
                         ...prev,
-                        chrono: { 
-                            ...prev.chrono,  // 👈 Gardez toutes les propriétés
-                            time: 0, 
-                            running: false 
-                        }
+                        chrono: { ...prev.chrono, time: 0, running: false },
                     };
                 }
-                
-                // Décrémenter normalement
+
                 return {
                     ...prev,
-                    chrono: { ...prev.chrono, time: newTime }
+                    chrono: { ...prev.chrono, time: newTime },
                 };
             });
         }, 1000);
@@ -258,13 +247,7 @@ export function useHandballMatch(initialMatchId: string | null) {
         }));
     }
 
-    const handleEnd = () => {
-        stopChrono();
-        updateMatchStatus('termine');
-    };
-
     // Bascule période MT1 <-> MT2 et réinitialise le chrono à 10 minutes
-    const HALF_TIME_DURATION = 10 * 60; // 10 minutes en secondes
     // Période (MT1 / MT2)
     const [period, setPeriod] = useState<"MT1" | "MT2">("MT1");
     
@@ -359,6 +342,108 @@ export function useHandballMatch(initialMatchId: string | null) {
             matchType: type,
         }));
 
+    /** ---------- STATUS ---------- */
+    const updateMatchStatus = async (status: 'scheduled' | 'in_progress' | 'completed') => {
+        if (!initialMatchId) return;
+        try {
+            await fetch(`http://localhost:8000/matches/${initialMatchId}/status`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status }),
+            });
+            console.log(`[Football Hook] Statut du match mis à jour: ${status}`);
+        } catch (e) {
+            console.error(`[Football Hook] Erreur lors de la mise à jour du statut du match (${status}) :`, e);
+        }
+    };
+
+    /** ---------- SUBMIT RESULT ---------- */
+    const submitMatchResult = async () => {
+        if (!initialMatchId) return;
+        try {
+            const matchResponse = await fetch(`http://localhost:8000/matches/${initialMatchId}`);
+            if (!matchResponse.ok) throw new Error('Impossible de récupérer les données du match');
+            const matchDataApi = await matchResponse.json();
+
+            // Vérification de sécurité
+            const match = matchDataApi.data;
+            if (!match) {
+                throw new Error("Le format des données reçues est incorrect (data manquant)");
+            }
+
+            // --- MODIFICATION ICI ---
+            // On prépare le payload avec les IDs s'ils existent
+            const payload: any = {
+                score_a: matchData.teamA.score,
+                score_b: matchData.teamB.score,
+                status: 'completed',
+            };
+
+            // On n'ajoute les IDs que s'ils sont présents dans le match d'origine
+            if (match.team_sport_a_id) payload.team_sport_a_id = match.team_sport_a_id;
+            if (match.team_sport_b_id) payload.team_sport_b_id = match.team_sport_b_id;
+            
+            // Optionnel : Retirer ou transformer l'alerte bloquante
+            if (!match.team_sport_a_id || !match.team_sport_b_id) {
+                console.warn('[Handball Hook] ⚠️ Attention: Pas de team_sport_id. La propagation automatique pourrait échouer.');
+                // Vous pouvez choisir de continuer quand même ou de bloquer ici
+            }
+            // -------------------------
+
+            const response = await fetch(`http://localhost:8000/matches/${initialMatchId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('[Handball Hook] ❌ Error response:', errorText);
+                throw new Error('Erreur lors de la soumission du résultat');
+            }
+
+            console.log('[Handball Hook] ✅ Match result submitted successfully');
+
+            // ⭐ MODIFICATION: Utiliser matchData.tournamentId au lieu de match.tournament_id
+            if (matchData.tournamentId) {
+                console.log('[Handball Hook] 📝 Starting propagation for tournament:', matchData.tournamentId);
+                
+                const propagateResponse = await fetch(`http://localhost:8000/tournaments/${matchData.tournamentId}/propagate-results`, {
+                    method: 'POST'
+                });
+                
+                if (propagateResponse.ok) {
+                    const propagateData = await propagateResponse.json();
+                    console.log('[Handball Hook] ✅ Propagation response:', propagateData);
+                    
+                    const propagatedCount = propagateData.data?.propagated_matches || 0;
+                    if (propagatedCount > 0) {
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                        alert(`Match terminé !\n${propagatedCount} match(s) propagé(s).`);
+                    } else {
+                        alert('Match terminé ! (Aucune propagation nécessaire)');
+                    }
+                } else {
+                    const errorText = await propagateResponse.text();
+                    console.error('[Handball Hook] ❌ Propagation failed:', errorText);
+                    alert('Match terminé, mais la propagation a échoué.');
+                }
+            } else {
+                console.log('[Handball Hook] ℹ️ No tournament ID, skipping propagation');
+                alert('Match terminé !');
+            }
+        } catch (e) {
+            console.error('[Handball Hook] ❌ Error in submitMatchResult:', e);
+            alert('Erreur lors de la fin du match : ' + String(e));
+        }
+    };
+
+    /** ---------- END MATCH ---------- */
+    const handleEnd = async () => {
+        stopChrono();
+        await submitMatchResult();
+    };
+
     /** ---------- SYNC TO LOCAL STORAGE ---------- */
     useEffect(() => {
         try {
@@ -400,5 +485,5 @@ export function useHandballMatch(initialMatchId: string | null) {
             teamB: { ...p.teamA },
         }));
 
-    return { matchData, formattedTime, handleEnd, startChrono, stopChrono, addSecond, addPoint, subPoint, addYellowCard, subYellowCard, addRedCard, subRedCard, setTeamName, setTeamLogo, setMatchType, swapSides, court, togglePeriod, period, periodSwitchChecked, setPeriodSwitchChecked };
+    return { matchData, formattedTime, handleEnd, updateMatchStatus, startChrono, stopChrono, addSecond, addPoint, subPoint, addYellowCard, subYellowCard, addRedCard, subRedCard, setTeamName, setTeamLogo, setMatchType, swapSides, court, togglePeriod, period, periodSwitchChecked, setPeriodSwitchChecked };
 }

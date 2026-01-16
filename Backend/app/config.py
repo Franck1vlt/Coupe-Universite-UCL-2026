@@ -5,7 +5,9 @@ Gère les variables d'environnement et les paramètres de l'application
 from pydantic_settings import BaseSettings
 from typing import List, Optional
 import os
+from dotenv import load_dotenv
 
+load_dotenv()
 
 class Settings(BaseSettings):
     """Configuration de l'application"""
@@ -17,21 +19,20 @@ class Settings(BaseSettings):
     API_V1_PREFIX: str = "/api/v1"
     
     # Base de données
-    DATABASE_URL: str = "sqlite:///./data/coupe_ucl_2026.db"
+    DATABASE_URL: str = os.getenv("SQLite_DATABASE_URL")
     DATABASE_PATH: Optional[str] = None  # Pour Docker (chemin absolu)
     
     # Sécurité
-    SECRET_KEY: str = "your-secret-key-change-in-production"
+    SECRET_KEY: str = os.getenv("SECRET_KEY")
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     
     # CORS
     CORS_ORIGINS: List[str] = [
-        "http://localhost:3000",
-        "http://localhost:5050",
-        "http://localhost:5150",
-        "http://localhost:8000",
+        os.getenv("API_URL", "http://localhost:8000"),
+        os.getenv("ADMIN_FRONTEND_NEXTJS_URL", "http://localhost:3000"),
+        os.getenv("PUBLIC_FRONTEND_NEXTJS_URL", "http://localhost:3100"),
     ]
     CORS_ALLOW_CREDENTIALS: bool = True
     CORS_ALLOW_METHODS: List[str] = ["*"]
@@ -46,10 +47,17 @@ class Settings(BaseSettings):
     ALLOWED_EMAIL_DOMAINS: List[str] = []
     ALLOWED_EMAILS: List[str] = []
     
+    # URLs attendues (à fournir dans le .env)
+    API_URL: str
+    ADMIN_FRONTEND_NEXTJS_URL: str
+    PUBLIC_FRONTEND_NEXTJS_URL: str
+    SQLite_DATABASE_URL: str
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
         case_sensitive = True
+        extra = "forbid"
 
 
 # Instance globale des settings
