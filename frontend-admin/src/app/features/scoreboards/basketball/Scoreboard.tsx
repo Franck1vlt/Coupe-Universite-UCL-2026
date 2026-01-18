@@ -34,6 +34,8 @@ export default function BasketballTableMarquagePage() {
   const [courts, setCourts] = useState<Court[]>([]);
   const [loadingCourts, setLoadingCourts] = useState(true);
   const [tournamentId, setTournamentId] = useState<string | null>(null);
+  const [chronoMinutes, setChronoMinutes] = useState(0);
+  const [chronoSeconds, setChronoSeconds] = useState(0);
 
   // Charger les équipes au montage du composant
   useEffect(() => {
@@ -91,6 +93,7 @@ export default function BasketballTableMarquagePage() {
     subScore,
     resetShotClock,
     setShotClock,
+    setChrono,
     addSecond,
     togglePeriod,
     setTeamName,
@@ -357,6 +360,37 @@ export default function BasketballTableMarquagePage() {
               />
             </>
           )}
+
+          <label htmlFor="setChrono">Chrono :</label>
+            <div className="flex justify-center gap-2 items-center">
+            <input
+              type="number"
+              min={0}
+              max={59}
+              value={chronoMinutes}
+              onChange={e => {
+                const mins = Number(e.target.value);
+                setChronoMinutes(mins);
+                setChrono(mins, chronoSeconds);
+              }}
+              className="bg-white text-black border border-gray-300 rounded px-1 py-1 mt-2 text-center w-12"
+              placeholder="min"
+            />
+            <span>:</span>
+            <input
+              type="number"
+              min={0}
+              max={59}
+              value={chronoSeconds}
+              onChange={e => {
+                const secs = Number(e.target.value);
+                setChronoSeconds(secs);
+                setChrono(chronoMinutes, secs);
+              }}
+              className="bg-white text-black border border-gray-300 rounded px-1 py-1 mt-2 text-center w-12"
+              placeholder="sec"
+            />
+            </div>
         </div>
 
         <div className="bouton_pied_page">

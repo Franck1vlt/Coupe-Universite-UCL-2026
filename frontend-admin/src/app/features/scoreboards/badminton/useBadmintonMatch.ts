@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { MatchData } from "./types";
+import { submitMatchResultWithPropagation, updateMatchStatus as updateStatus } from "../common/useMatchPropagation";
 
 // Ajout du type tournamentId si besoin
 type MatchDataWithTournament = MatchData & { 
@@ -11,14 +12,27 @@ type MatchDataWithTournament = MatchData & {
 export function useBadmintonMatch(initialMatchId: string | null) {
     console.log('[Badminton Hook] ========== VERSION 2.0 - With phase_id support ==========');
     const [matchData, setMatchData] = useState<MatchDataWithTournament>({
-        matchId: initialMatchId || "",
-        teamA: { name: "Team A", logo_url: "", score: 0, yellowCards: 0, redCards: 0, penalties: 0 },
-        teamB: { name: "Team B", logo_url: "", score: 0, yellowCards: 0, redCards: 0, penalties: 0 },
+        matchId: initialMatchId,
+        currentSet: 1,
+        numberOfSets: 1,
+        teamA: {
+            name: "Team A",
+            score: 0,
+            sets: 0,
+            logo_url: "", // Correction ici
+        },
+        teamB: {
+            name: "Team B",
+            score: 0,
+            sets: 0,
+            logo_url: "", // Correction ici
+        },
+        serviceTeam: "A",
         chrono: { time: 0, running: false, interval: null },
-        hasPenalties: false,
         matchType: "",
-        tournamentId: undefined
+        tournamentId: undefined    
     });
+
 
     const intervalRef = useRef<number | null>(null);
     const [court, setCourt] = useState<string>("");
@@ -199,157 +213,84 @@ export function useBadmintonMatch(initialMatchId: string | null) {
         }
     };
 
-/** ---------- STATUS ---------- */
-    const updateMatchStatus = async (status: 'scheduled' | 'in_progress' | 'completed') => {
-        if (!initialMatchId) return;
-        try {
-            await fetch(`http://localhost:8000/matches/${initialMatchId}/status`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ status }),
-            });
-            console.log(`[Football Hook] Statut du match mis à jour: ${status}`);
-        } catch (e) {
-            console.error(`[Football Hook] Erreur lors de la mise à jour du statut du match (${status}) :`, e);
-        }
+    const resetChrono = () => {
+        setMatchData((prev) => ({
+            ...prev,
+            chrono: { ...prev.chrono, time: 0 }
+        }));
     };
 
-    /** ---------- SUBMIT RESULT ---------- */
-    const submitMatchResult = async () => {
-        if (!initialMatchId) return;
-        try {
-            const matchResponse = await fetch(`http://localhost:8000/matches/${initialMatchId}`);
-            if (!matchResponse.ok) throw new Error('Impossible de récupérer les données du match');
-            const matchDataApi = await matchResponse.json();
-            const match = matchDataApi.data;
-
-            // --- MODIFICATION ICI ---
-            // On prépare le payload avec les IDs s'ils existent
-            const payload: any = {
-                score_a: matchData.teamA.score,
-                score_b: matchData.teamB.score,
-                status: 'completed',
-            };
-
-            // On n'ajoute les IDs que s'ils sont présents dans le match d'origine
-            if (match.team_sport_a_id) payload.team_sport_a_id = match.team_sport_a_id;
-            if (match.team_sport_b_id) payload.team_sport_b_id = match.team_sport_b_id;
-            
-            // Optionnel : Retirer ou transformer l'alerte bloquante
-            if (!match.team_sport_a_id || !match.team_sport_b_id) {
-                console.warn('[Basketball Hook] ⚠️ Attention: Pas de team_sport_id. La propagation automatique pourrait échouer.');
-                // Vous pouvez choisir de continuer quand même ou de bloquer ici
-            }
-            // -------------------------
-
-            const response = await fetch(`http://localhost:8000/matches/${initialMatchId}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload),
-            });
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error('[Basketball Hook] ❌ Error response:', errorText);
-                throw new Error('Erreur lors de la soumission du résultat');
-            }
-
-            console.log('[Basketball Hook] ✅ Match result submitted successfully');
-
-            // ⭐ MODIFICATION: Utiliser matchData.tournamentId au lieu de match.tournament_id
-            if (matchData.tournamentId) {
-                console.log('[Basketball Hook] 📝 Starting propagation for tournament:', matchData.tournamentId);
-                
-                const propagateResponse = await fetch(`http://localhost:8000/tournaments/${matchData.tournamentId}/propagate-results`, {
-                    method: 'POST'
-                });
-                
-                if (propagateResponse.ok) {
-                    const propagateData = await propagateResponse.json();
-                    console.log('[Basketball Hook] ✅ Propagation response:', propagateData);
-                    
-                    const propagatedCount = propagateData.data?.propagated_matches || 0;
-                    if (propagatedCount > 0) {
-                        await new Promise(resolve => setTimeout(resolve, 500));
-                        alert(`Match terminé !\n${propagatedCount} match(s) propagé(s).`);
-                    } else {
-                        alert('Match terminé ! (Aucune propagation nécessaire)');
-                    }
-                } else {
-                    const errorText = await propagateResponse.text();
-                    console.error('[Basketball Hook] ❌ Propagation failed:', errorText);
-                    alert('Match terminé, mais la propagation a échoué.');
-                }
-            } else {
-                console.log('[Basketball Hook] ℹ️ No tournament ID, skipping propagation');
-                alert('Match terminé !');
-            }
-        } catch (e) {
-            console.error('[Basketball Hook] ❌ Error in submitMatchResult:', e);
-            alert('Erreur lors de la fin du match : ' + String(e));
-        }
-    };
-
-    /** ---------- END MATCH ---------- */
     const handleEnd = async () => {
         stopChrono();
         await submitMatchResult();
     };
 
+    /** Sets */
+    const setNumSets = (num: number) =>
+    setMatchData((p: MatchDataWithTournament) => ({
+        ...p,
+        numberOfSets: num,
+    }));
+
+    function isSetFinished(scoreA: number, scoreB: number) {
+        const pointsToWin = 21;
+        if (scoreA >= pointsToWin || scoreB >= pointsToWin) {
+            return Math.abs(scoreA - scoreB) >= 2;
+        }
+        return false;
+    }
+
     /** ---------- POINTS ---------- */
-    const addPoint = (team: "A" | "B") =>
-        setMatchData((p: MatchDataWithTournament) => {
-            const k = teamKey(team);
-            return {
-                ...p,
-                [k]: { ...p[k], score: p[k].score + 1 },
-                serviceTeam: team, // L'équipe qui marque obtient le service
-            };
+    function addPoint(team: "A" | "B") {
+        setMatchData(prev => {
+            // 1. Bloquer si le match est déjà terminé
+            if (prev.teamA.sets >= prev.numberOfSets || prev.teamB.sets >= prev.numberOfSets) {
+                return prev; 
+            }
+
+            const next = structuredClone(prev) as MatchDataWithTournament;
+            const key = team === "A" ? "teamA" : "teamB";
+            
+            // 2. Ajouter le point
+            next[key].score += 1;
+
+            // 3. TRANSFERT DU SERVICE : l'équipe qui marque prend le service
+            next.serviceTeam = team;
+
+            // 4. Vérifier si le set est fini (toujours à 21 points)
+            if (isSetFinished(next.teamA.score, next.teamB.score)) {
+                const winner = next.teamA.score > next.teamB.score ? "A" : "B";
+                const winnerKey = winner === "A" ? "teamA" : "teamB";
+                
+                // Incrémenter le set gagné
+                next[winnerKey].sets += 1;
+
+                // 5. Vérifier la victoire finale
+                if (next[winnerKey].sets >= next.numberOfSets) {
+                    alert(`MATCH TERMINÉ ! Victoire de ${next[winnerKey].name}`);
+                    // On garde les scores affichés mais on arrête la logique
+                } else {
+                    // Nouveau set : remise à zéro et le gagnant du set garde le service
+                    next.teamA.score = 0;
+                    next.teamB.score = 0;
+                    next.currentSet += 1;
+                    next.serviceTeam = winner; 
+                }
+            }
+            return next;
         });
+    }
 
     const subPoint = (team: "A" | "B") =>
         setMatchData((p: MatchDataWithTournament) => {
+            // Empêcher la modification si le match est fini
+            if (p.teamA.sets >= p.numberOfSets || p.teamB.sets >= p.numberOfSets) {
+                return p;
+            }
             const k = teamKey(team);
             return {
                 ...p,
                 [k]: { ...p[k], score: Math.max(0, p[k].score - 1) },
-            };
-        });
-
-    /** ---------- CARTONS ---------- */
-    const addYellowCard = (team: "A" | "B") =>
-        setMatchData((p: MatchDataWithTournament) => {
-            const k = teamKey(team);
-            return {
-                ...p,
-                [k]: { ...p[k], yellowCards: p[k].yellowCards + 1 },
-            };
-        });
-
-    const subYellowCard = (team: "A" | "B") =>
-        setMatchData((p: MatchDataWithTournament) => {
-            const k = teamKey(team);
-            return {
-                ...p,
-                [k]: { ...p[k], yellowCards: Math.max(0, p[k].yellowCards - 1) },
-            };
-        });
-
-    const addRedCard = (team: "A" | "B") =>
-        setMatchData((p: MatchDataWithTournament) => {
-            const k = teamKey(team);
-            return {
-                ...p,
-                [k]: { ...p[k], redCards: p[k].redCards + 1 },
-            };
-        });
-
-    const subRedCard = (team: "A" | "B") =>
-        setMatchData((p: MatchDataWithTournament) => {
-            const k = teamKey(team);
-            return {
-                ...p,
-                [k]: { ...p[k], redCards: Math.max(0, p[k].redCards - 1) },
             };
         });
 
@@ -384,6 +325,41 @@ export function useBadmintonMatch(initialMatchId: string | null) {
             serviceTeam: p.serviceTeam === "A" ? "B" : "A",
         }));
 
+    /** ---------- STATUS ---------- */
+    const updateMatchStatus = async (status: 'scheduled' | 'in_progress' | 'completed') => {
+        if (!initialMatchId) return;
+        await updateStatus(initialMatchId, status);
+    };
+
+    /** ---------- SUBMIT RESULT ---------- */
+    const submitMatchResult = async () => {
+        if (!initialMatchId) return;
+
+        const result = await submitMatchResultWithPropagation({
+            matchId: initialMatchId,
+            tournamentId: matchData.tournamentId,
+            payload: {
+                score_a: matchData.teamA.sets,
+                score_b: matchData.teamB.sets,
+                status: 'completed',
+            },
+            onSuccess: (propagationResult) => {
+                if (propagationResult.propagatedMatches > 0) {
+                    alert(`Match terminé !\n${propagationResult.propagatedMatches} match(s) propagé(s).`);
+                } else {
+                    alert('Match terminé !');
+                }
+            },
+            onError: (error) => {
+                console.error('[Badminton Hook] ❌ Error:', error);
+                alert('Erreur lors de la fin du match : ' + error);
+            },
+        });
+
+        console.log('[Badminton Hook] Submit result:', result);
+    };
+    
+
     /** ---------- SYNC TO LOCAL STORAGE ---------- */
     useEffect(() => {
         try {
@@ -393,19 +369,18 @@ export function useBadmintonMatch(initialMatchId: string | null) {
                 matchType: matchData.matchType || "Match",
                 score1: matchData.teamA.score,
                 score2: matchData.teamB.score,
-                yellowCards1: Math.max(0, matchData.teamA.yellowCards),
-                yellowCards2: Math.max(0, matchData.teamB.yellowCards),
-                redCards1: Math.max(0, matchData.teamA.redCards),
-                redCards2: Math.max(0, matchData.teamB.redCards),
+                sets1: matchData.teamA.sets,
+                sets2: matchData.teamB.sets,
                 chrono: formattedTime,
-                serviceTeam: matchData.serviceTeam || "A",
+                serviceTeam: matchData.serviceTeam, 
+                matchGround: court || "Terrain",    
                 lastUpdate: new Date().toISOString(),
             };
             localStorage.setItem("liveBadmintonMatch", JSON.stringify(payload));
         } catch (e) {
             // Ignore storage errors
         }
-    }, [matchData, formattedTime]);
+    }, [matchData, formattedTime, court]);
 
     // Cleanup à l'unmount
     useEffect(() => {
@@ -426,5 +401,23 @@ export function useBadmintonMatch(initialMatchId: string | null) {
             serviceTeam: p.serviceTeam === "A" ? "B" : "A", // Inverser le service aussi
         }));
 
-    return { matchData, formattedTime, handleEnd, updateMatchStatus, startChrono, stopChrono, addPoint, subPoint, addYellowCard, subYellowCard, addRedCard, subRedCard, setTeamName, setTeamLogo, setMatchType, swapSides, court, changeService };
+    return { 
+        matchData, 
+        formattedTime, 
+        handleEnd, 
+        submitMatchResult, 
+        startChrono, 
+        stopChrono, 
+        addPoint, 
+        subPoint, 
+        setTeamName, 
+        setTeamLogo, 
+        setMatchType, 
+        swapSides, 
+        court, 
+        changeService,
+        updateMatchStatus,
+        setNumSets,
+        resetChrono
+    };
 }

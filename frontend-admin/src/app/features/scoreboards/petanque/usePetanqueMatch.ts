@@ -1,220 +1,45 @@
 import { useState, useRef, useEffect } from "react";
-import { MatchData } from "./types";
+import { MatchData, MeneHistory } from "./types";
+import { submitMatchResultWithPropagation, updateMatchStatus as updateStatus } from "../common/useMatchPropagation";
 
-// Ajout du type tournamentId si besoin
-type Chrono = {
-  time: number;
-  running: boolean;
-  interval: number | null;
-};
-
-type MatchDataWithTournament = MatchData & { 
-  tournamentId?: string | number; 
-  court?: string;
-  serviceTeam?: "A" | "B";
-  chrono: Chrono;
-  cochonnetOwner?: "A" | "B"; // Allow undefined
-};
+type MatchDataWithTournament = MatchData & { tournamentId?: string | number; court?: string };
 
 export function usePetanqueMatch(initialMatchId: string | null) {
-    console.log('[Petanque Hook] ========== VERSION 2.0 - With phase_id support ==========');
     const [matchData, setMatchData] = useState<MatchDataWithTournament>({
         matchId: initialMatchId || "",
-        teamA: { name: "Team A", logo_url: "", score: 0},
-        teamB: { name: "Team B", logo_url: "", score: 0},
-        chrono: { time: 0, running: false, interval: null },
+        teamA: {
+            name: "Team A",
+            logo_url: "",
+            score: 0,  // Commence à 0, monte vers 13
+            sets: 0
+        },
+        teamB: {
+            name: "Team B",
+            logo_url: "",
+            score: 0,  // Commence à 0, monte vers 13
+            sets: 0
+        },
         matchType: "",
-        tournamentId: undefined,
-        cochonnetOwner: "A",
-        currentMene: 1
+        gameMode: "BO3",
+        cochonnetTeam: "A",      // Équipe A lance le cochonnet au début
+        pendingPoints: 0,        // Pas de points en attente
+        pendingWinner: null,     // Pas de gagnant en attente
+        meneHistory: [],         // Historique vide
+        targetScore: 13,         // Match en 13 points
+        tournamentId: undefined
     });
-
-    const updateMatchStatus = async (status: 'scheduled' | 'in_progress' | 'completed') => {
-        if (!initialMatchId) return;
-        try {
-            await fetch(`http://localhost:8000/matches/${initialMatchId}/status`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ status }),
-            });
-            console.log(`[Petanque Hook] Statut du match mis à jour: ${status}`);
-        } catch (e) {
-            console.error(`[Petanque Hook] Erreur lors de la mise à jour du statut du match (${status}) :`, e);
-        }
-    };
-
-    // Fonction pour rafraîchir les données du match après propagation
-    const refreshMatchData = async () => {
-        if (!initialMatchId) return;
-        
-        try {
-            console.log('[Petanque Hook] Rafraîchissement des données du match après propagation...');
-
-            // Récupérer les données mises à jour du match
-            const matchResponse = await fetch(`http://localhost:8000/matches/${initialMatchId}`);
-            if (!matchResponse.ok) {
-                console.error('[Petanque Hook] Erreur lors du rafraîchissement:', matchResponse.status);
-                return;
-            }
-
-            const matchResult = await matchResponse.json();
-            const match = matchResult.data;
-
-            // Récupérer les noms des équipes mises à jour
-            let teamAName = "Team A";
-            let teamALogo = "";
-            let teamBName = "Team B";
-            let teamBLogo = "";
-
-            // Équipe A
-            if (match.team_sport_a_id) {
-                const teamSportAResponse = await fetch(`http://localhost:8000/team-sports/${match.team_sport_a_id}`);
-                if (teamSportAResponse.ok) {
-                    const teamSportAData = await teamSportAResponse.json();
-                    const teamAResponse = await fetch(`http://localhost:8000/teams/${teamSportAData.data.team_id}`);
-                    if (teamAResponse.ok) {
-                        const teamAData = await teamAResponse.json();
-                        teamAName = teamAData.data.name;
-                        teamALogo = teamAData.data.logo_url || "";
-                    }
-                }
-            } else if (match.team_a_source) {
-                teamAName = match.team_a_source;
-            }
-
-            // Équipe B
-            if (match.team_sport_b_id) {
-                const teamSportBResponse = await fetch(`http://localhost:8000/team-sports/${match.team_sport_b_id}`);
-                if (teamSportBResponse.ok) {
-                    const teamSportBData = await teamSportBResponse.json();
-                    const teamBResponse = await fetch(`http://localhost:8000/teams/${teamSportBData.data.team_id}`);
-                    if (teamBResponse.ok) {
-                        const teamBData = await teamBResponse.json();
-                        teamBName = teamBData.data.name;
-                        teamBLogo = teamBData.data.logo_url || "";
-                    }
-                }
-            } else if (match.team_b_source) {
-                teamBName = match.team_b_source;
-            }
-
-            console.log('[Petanque Hook] Données rafraîchies - TeamA:', teamAName, 'TeamB:', teamBName);
-
-            // Mettre à jour uniquement les noms des équipes sans toucher aux scores
-            setMatchData(prev => ({
-                ...prev,
-                teamA: { ...prev.teamA, name: teamAName, logo_url: teamALogo },
-                teamB: { ...prev.teamB, name: teamBName, logo_url: teamBLogo },
-            }));
-
-        } catch (error) {
-            console.error('[Petanque Hook] Erreur lors du rafraîchissement:', error);
-        }
-    };
-
-    const submitMatchResult = async () => {
-        if (!initialMatchId) return;
-        try {
-            // ⚠️ IMPORTANT : Récupérer d'abord les données complètes du match
-            // pour obtenir les team_sport_id
-            console.log('[Petanque Hook] Récupération des données du match avant soumission...');
-            const matchResponse = await fetch(`http://localhost:8000/matches/${initialMatchId}`);
-
-            if (!matchResponse.ok) {
-                console.error('[Petanque Hook] Impossible de récupérer le match');
-                throw new Error('Impossible de récupérer les données du match');
-            }
-
-            const matchResult = await matchResponse.json();
-            const match = matchResult.data;
-
-            console.log('[Petanque Hook] Données du match:', match);
-            console.log('[Petanque Hook] team_sport_a_id:', match.team_sport_a_id);
-            console.log('[Petanque Hook] team_sport_b_id:', match.team_sport_b_id);
-
-            // Vérifier que les équipes sont bien assignées
-            if (!match.team_sport_a_id || !match.team_sport_b_id) {
-                console.error('[Petanque Hook] ❌ ERREUR : Les équipes ne sont pas assignées au match !');
-                alert('Erreur : Les équipes ne sont pas assignées à ce match. Impossible de terminer le match.');
-                return;
-            }
-
-            // Construire le payload avec les team_sport_id
-            const payload = {
-                score_a: matchData.teamA.score,
-                score_b: matchData.teamB.score,
-                status: 'completed',
-                team_sport_a_id: match.team_sport_a_id,  // ⚠️ AJOUT CRITIQUE
-                team_sport_b_id: match.team_sport_b_id   // ⚠️ AJOUT CRITIQUE
-            };
-
-            console.log('[Petanque Hook] Payload de soumission:', payload);
-
-            const response = await fetch(`http://localhost:8000/matches/${initialMatchId}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload),
-            });
-
-            if (!response.ok) {
-                console.error('[Petanque Hook] Erreur lors de la soumission');
-                throw new Error('Erreur lors de la soumission du résultat');
-            }
-
-            console.log('[Petanque Hook] Résultat du match soumis avec succès');
-
-            if (matchData.tournamentId || match.tournament_id) {
-                const tournamentId = matchData.tournamentId || match.tournament_id;
-                console.log('[Petanque Hook] Lancement de la propagation pour le tournoi:', tournamentId);
-
-                const propagateResponse = await fetch(`http://localhost:8000/tournaments/${tournamentId}/propagate-results`, {
-                    method: 'POST'
-                });
-
-                if (propagateResponse.ok) {
-                    const propagateData = await propagateResponse.json();
-                    console.log('[Petanque Hook] Propagation réussie:', propagateData);
-
-                    const propagatedCount = propagateData.data?.propagated_matches || 0;
-
-                    if (propagatedCount > 0) {
-                        console.log(`[Petanque Hook] ${propagatedCount} match(s) propagé(s)`);
-
-                        // Attendre un peu pour que le backend finalise
-                        await new Promise(resolve => setTimeout(resolve, 500));
-
-                        // Rafraîchir les données
-                        await refreshMatchData();
-
-                        alert(`Match terminé !\n${propagatedCount} match(s) propagé(s) avec les équipes gagnantes/perdantes.`);
-                    } else {
-                        alert('Match terminé ! (Aucune propagation nécessaire)');
-                    }
-                } else {
-                    console.warn('[Petanque Hook] La propagation a échoué');
-                    alert('Match terminé, mais la propagation a échoué. Utilisez le bouton "Propager les résultats" dans le menu.');
-                }
-            }
-        } catch (e) {
-            console.error('[Petanque Hook] Erreur:', e);
-            if (e instanceof Error) {
-                alert('Erreur lors de la fin du match : ' + e.message);
-            } else {
-                alert('Erreur lors de la fin du match : ' + String(e));
-            }
-        }
-    };
 
     const intervalRef = useRef<number | null>(null);
     const [court, setCourt] = useState<string>("");
+    const [isMatchWon, setIsMatchWon] = useState<boolean>(false);
+    const [matchWinner, setMatchWinner] = useState<"A" | "B" | null>(null);
 
-    // UN SEUL useEffect pour récupérer les données du match
+    // Récupérer les données du match depuis l'API
     useEffect(() => {
         if (!initialMatchId) return;
 
         async function fetchMatchData() {
             try {
-                console.log('[Petanque Hook] ========== STARTING FETCH ==========');
                 console.log('[Petanque Hook] Fetching match data for matchId:', initialMatchId);
 
                 // 1. Récupérer les données du match
@@ -227,19 +52,7 @@ export function usePetanqueMatch(initialMatchId: string | null) {
                 const match = matchResult.data;
                 console.log('[Petanque Hook] Match data:', match);
 
-                // 2. Récupérer le tournament_id depuis la phase
-                let tournamentId: number | undefined = undefined;
-                if (match.phase_id) {
-                    console.log('[Petanque Hook] Fetching tournament phase:', match.phase_id);
-                    const phaseResponse = await fetch(`http://localhost:8000/tournament-phases/${match.phase_id}`);
-                    if (phaseResponse.ok) {
-                        const phaseData = await phaseResponse.json();
-                        tournamentId = phaseData.data.tournament_id;
-                        console.log('[Petanque Hook] TournamentId from phase:', tournamentId);
-                    }
-                }
-
-                // 3. Récupérer les informations des équipes
+                // 2. Récupérer les informations des équipes
                 let teamAName = "Team A";
                 let teamALogo = "";
                 let teamBName = "Team B";
@@ -263,7 +76,7 @@ export function usePetanqueMatch(initialMatchId: string | null) {
                 } else if (match.team_a_source) {
                     // Fallback: afficher la source si l'équipe n'est pas encore résolue
                     teamAName = match.team_a_source;
-                    console.log('[Petanque Hook] Team A (source fallback):', teamAName);
+                    console.log('[Petanque Hook] Team A (source):', teamAName);
                 }
 
                 // Équipe B
@@ -284,7 +97,7 @@ export function usePetanqueMatch(initialMatchId: string | null) {
                 } else if (match.team_b_source) {
                     // Fallback: afficher la source si l'équipe n'est pas encore résolue
                     teamBName = match.team_b_source;
-                    console.log('[Petanque Hook] Team B (source fallback):', teamBName);
+                    console.log('[Petanque Hook] Team B (source):', teamBName);
                 }
 
                 // 3. Récupérer les informations de planification (terrain)
@@ -297,7 +110,8 @@ export function usePetanqueMatch(initialMatchId: string | null) {
                     console.log('[Petanque Hook] Schedule data:', scheduleData.data);
                     if (scheduleData.data?.court_name) {
                         courtName = scheduleData.data.court_name;
-                        setCourt(courtName ?? "");
+                    } else if (scheduleData.data?.court_id) {
+                        courtName = scheduleData.data.court_id.toString();
                     }
                 }
 
@@ -318,7 +132,6 @@ export function usePetanqueMatch(initialMatchId: string | null) {
                 }
 
                 console.log('[Petanque Hook] Final values - TeamA:', teamAName, 'TeamB:', teamBName, 'MatchType:', matchType, 'Court:', courtName);
-                console.log('[Petanque Hook] TournamentId:', tournamentId);
 
                 // 5. Mettre à jour le state avec les données récupérées
                 setMatchData(prev => ({
@@ -326,11 +139,11 @@ export function usePetanqueMatch(initialMatchId: string | null) {
                     teamA: { ...prev.teamA, name: teamAName, logo_url: teamALogo },
                     teamB: { ...prev.teamB, name: teamBName, logo_url: teamBLogo },
                     matchType: matchType,
-                    tournamentId: tournamentId,
+                    tournamentId: match.tournament_id || match.tournamentId || (match.tournament && (match.tournament.id || match.tournament.tournament_id)) || undefined,
                     court: courtName
                 }));
 
-                console.log('[Petanque Hook] Match data updated with tournamentId:', tournamentId);
+                console.log('[Petanque Hook] Match data updated successfully');
 
             } catch (error) {
                 console.error('[Petanque Hook] Error fetching match data:', error);
@@ -340,82 +153,216 @@ export function usePetanqueMatch(initialMatchId: string | null) {
         fetchMatchData();
     }, [initialMatchId]);
 
-    // Helper to get the correct team key
-    function teamKey(team: "A" | "B"): "teamA" | "teamB" {
-        return team === "A" ? "teamA" : "teamB";
-    }
-
-    /** ---------- CHRONO ---------- */
-    // Chrono logic
-    const [formattedTime, setFormattedTime] = useState<string>("00:00");
-    function formatChrono(time: number): string {
-        const min = Math.floor(time / 60);
-        const sec = time % 60;
-        return `${min.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
-    }
-    // Update formattedTime when chrono changes
-    useEffect(() => {
-        setFormattedTime(formatChrono(matchData.chrono.time));
-    }, [matchData.chrono.time]);
-
-    // Chrono handlers
-    const startChrono = () => {
-        if (matchData.chrono.running) return;
-
-        // Mettre à jour le statut du match à "in_progress"
-        updateMatchStatus('in_progress');
-
-        setMatchData((prev) => ({
-            ...prev,
-            chrono: { ...prev.chrono, running: true }
-        }));
-        intervalRef.current = window.setInterval(() => {
-            setMatchData((prev) => ({
-                ...prev,
-                chrono: { ...prev.chrono, time: prev.chrono.time + 1 }
-            }));
-        }, 1000);
+    /** ---------- GESTION DU COCHONNET ---------- */
+    // Retourne l'équipe qui doit lancer le cochonnet
+    const getCochonnetTeam = (): "A" | "B" => {
+        return matchData.cochonnetTeam;
     };
 
-    const stopChrono = () => {
-        setMatchData((prev) => ({
-            ...prev,
-            chrono: { ...prev.chrono, running: false }
-        }));
-        if (intervalRef.current !== null) {
-            window.clearInterval(intervalRef.current);
-            intervalRef.current = null;
-        }
+    // Retourne le texte à afficher pour le cochonnet
+    const getCurrentPlayer = (): string => {
+        const team = matchData.cochonnetTeam;
+        const teamName = team === "A" ? matchData.teamA.name : matchData.teamB.name;
+        return `${teamName} de lancer le cochonnet`;
     };
 
+    // Change manuellement l'équipe qui a le cochonnet (bouton Service)
+    const changeService = () => {
+        setMatchData(p => ({
+            ...p,
+            cochonnetTeam: p.cochonnetTeam === "A" ? "B" : "A"
+        }));
+    };
+
+    /** ---------- GESTION DES MÈNES ---------- */
+    // Sélectionne l'équipe gagnante de la mène (étape 1)
+    const selectMeneWinner = (team: "A" | "B") => {
+        setMatchData(p => ({
+            ...p,
+            pendingWinner: team,
+            pendingPoints: p.pendingPoints || 1 // Par défaut 1 point si pas encore sélectionné
+        }));
+    };
+
+    // Ajoute des points pour la mène en cours (étape 2)
+    const addThrow = (points: number) => {
+        setMatchData(p => ({
+            ...p,
+            pendingPoints: points,
+            currentThrows: [points] // Pour compatibilité avec l'affichage existant
+        }));
+    };
+
+    // Valide la mène et attribue les points (étape 3)
+    const validateThrow = () => {
+        setMatchData(p => {
+            // 1. Empêcher la validation si le match est déjà terminé
+            if (isMatchWon) {
+                console.warn('[Petanque] Le match est déjà terminé.');
+                return p;
+            }
+
+            if (!p.pendingWinner || p.pendingPoints <= 0) {
+                console.warn('[Petanque] Sélectionnez d\'abord une équipe gagnante et les points');
+                return p;
+            }
+
+            const points = p.pendingPoints;
+            const winner = p.pendingWinner;
+
+            // 2. Calculer le nouveau score en plafonnant au targetScore
+            // Si (score actuel + points) > 13, on s'arrête à 13.
+            const newScoreA = winner === "A" 
+                ? Math.min(p.teamA.score + points, p.targetScore) 
+                : p.teamA.score;
+            const newScoreB = winner === "B" 
+                ? Math.min(p.teamB.score + points, p.targetScore) 
+                : p.teamB.score;
+
+            const meneRecord: MeneHistory = {
+                winner: winner,
+                points: points,
+                scoreABefore: p.teamA.score,
+                scoreBBefore: p.teamB.score,
+                cochonnetBefore: p.cochonnetTeam
+            };
+
+            // 3. Vérifier la condition de victoire
+            if (newScoreA >= p.targetScore || newScoreB >= p.targetScore) {
+                const winningTeam = newScoreA >= p.targetScore ? "A" : "B";
+                
+                setIsMatchWon(true);
+                setMatchWinner(winningTeam);
+
+                const newSetsA = winningTeam === "A" ? p.teamA.sets + 1 : p.teamA.sets;
+                const newSetsB = winningTeam === "B" ? p.teamB.sets + 1 : p.teamB.sets;
+
+                return {
+                    ...p,
+                    teamA: { ...p.teamA, score: newScoreA, sets: newSetsA },
+                    teamB: { ...p.teamB, score: newScoreB, sets: newSetsB },
+                    pendingWinner: null,
+                    pendingPoints: 0,
+                    meneHistory: [...p.meneHistory, meneRecord],
+                    cochonnetTeam: winner
+                };
+            }
+
+            // Mène normale
+            return {
+                ...p,
+                teamA: { ...p.teamA, score: newScoreA },
+                teamB: { ...p.teamB, score: newScoreB },
+                pendingWinner: null,
+                pendingPoints: 0,
+                meneHistory: [...p.meneHistory, meneRecord],
+                cochonnetTeam: winner
+            };
+        });
+    };
+
+    // Annule la dernière mène validée
+    const cancelLastThrow = () => {
+        setMatchData(p => {
+            // Si des points sont en attente, les annuler d'abord
+            if (p.pendingWinner || p.pendingPoints > 0) {
+                return {
+                    ...p,
+                    pendingWinner: null,
+                    pendingPoints: 0,
+                    currentThrows: []
+                };
+            }
+
+            // Sinon, annuler la dernière mène de l'historique
+            if (p.meneHistory.length === 0) {
+                console.warn('[Petanque] Aucune mène à annuler');
+                return p;
+            }
+
+            const lastMene = p.meneHistory[p.meneHistory.length - 1];
+            const newHistory = p.meneHistory.slice(0, -1);
+
+            console.log(`[Petanque] Annulation de la dernière mène - Retour au score ${lastMene.scoreABefore}-${lastMene.scoreBBefore}`);
+
+            return {
+                ...p,
+                teamA: { ...p.teamA, score: lastMene.scoreABefore },
+                teamB: { ...p.teamB, score: lastMene.scoreBBefore },
+                cochonnetTeam: lastMene.cochonnetBefore,
+                meneHistory: newHistory,
+                pendingWinner: null,
+                pendingPoints: 0,
+                currentThrows: []
+            };
+        });
+    };
+
+    /** ---------- RESET D'UN SET ---------- */
+    const resetSet = () => {
+        setIsMatchWon(false);
+        setMatchWinner(null);
+        setMatchData(p => ({
+            ...p,
+            teamA: { ...p.teamA, score: 0 },
+            teamB: { ...p.teamB, score: 0 },
+            cochonnetTeam: "A",
+            pendingWinner: null,
+            pendingPoints: 0,
+            currentThrows: [],
+            meneHistory: []
+        }));
+    };
+
+    /** ---------- STATUS ---------- */
+    const updateMatchStatus = async (status: 'scheduled' | 'in_progress' | 'completed') => {
+        if (!initialMatchId) return;
+        await updateStatus(initialMatchId, status);
+    };
+
+    /** ---------- SUBMIT RESULT ---------- */
+    const submitMatchResult = async () => {
+        if (!initialMatchId) return;
+
+        const result = await submitMatchResultWithPropagation({
+            matchId: initialMatchId,
+            tournamentId: matchData.tournamentId,
+            payload: {
+                score_a: matchData.teamA.score,
+                score_b: matchData.teamB.score,
+                status: 'completed',
+            },
+            onSuccess: (propagationResult) => {
+                if (propagationResult.propagatedMatches > 0) {
+                    alert(`Match terminé !\n${propagationResult.propagatedMatches} match(s) propagé(s).`);
+                } else {
+                    alert('Match terminé !');
+                }
+            },
+            onError: (error) => {
+                console.error('[Petanque Hook] ❌ Error:', error);
+                alert('Erreur lors de la fin du match : ' + error);
+            },
+        });
+
+        console.log('[Petanque Hook] Submit result:', result);
+    };
+
+
+    /** ---------- END MATCH ---------- */
     const handleEnd = async () => {
-        stopChrono();
-
-        // Soumettre les résultats du match (scores + status completed en une seule requête)
-        // Cela déclenche automatiquement la propagation des équipes vers les matchs suivants
         await submitMatchResult();
     };
 
-    /** ---------- POINTS ---------- */
-    const addPoint = (team: "A" | "B") =>
-        setMatchData((p: MatchDataWithTournament) => {
-            const k = teamKey(team);
-            return {
-                ...p,
-                [k]: { ...p[k], score: p[k].score + 1 },
-                serviceTeam: team, // L'équipe qui marque obtient le service
-                cochonnetOwner: team, // L'équipe qui marque lance le cochonnet à la mène suivante
-            };
-        });
+    /** ---------- GAME MODE ---------- */
+    const [gameMode, setGameMode] = useState<"BO3" | "BO5">(matchData.gameMode || "BO3");
 
-    const subPoint = (team: "A" | "B") =>
-        setMatchData((p: MatchDataWithTournament) => {
-            const k = teamKey(team);
-            return {
-                ...p,
-                [k]: { ...p[k], score: Math.max(0, p[k].score - 1) },
-            };
-        });
+    useEffect(() => {
+        setMatchData(p => ({
+            ...p,
+            gameMode: gameMode
+        }));
+    }, [gameMode]);
 
     /** ---------- METADATA UPDATES ---------- */
     const setTeamName = (team: "A" | "B", name: string) =>
@@ -442,26 +389,40 @@ export function usePetanqueMatch(initialMatchId: string | null) {
             matchType: type,
         }));
 
+    const setTargetScore = (score: number) =>
+        setMatchData((p: MatchDataWithTournament) => ({
+            ...p,
+            targetScore: score,
+        }));
+
     /** ---------- SYNC TO LOCAL STORAGE ---------- */
     useEffect(() => {
         try {
             const payload = {
                 team1: matchData.teamA.name || "ÉQUIPE A",
                 team2: matchData.teamB.name || "ÉQUIPE B",
+                logoA: matchData.teamA.logo_url || "",
+                logoB: matchData.teamB.logo_url || "",
                 matchType: matchData.matchType || "Match",
+                tournamentId: matchData.tournamentId,
+                matchGround: matchData.court,
                 scoreA: matchData.teamA.score,
                 scoreB: matchData.teamB.score,
-                chrono: formattedTime,
-                cochonnetOwner: matchData.cochonnetOwner || "A",
-                currentMene: matchData.currentMene || 1,
-                matchGround: matchData.court || court || "Terrain",
+                setsA: matchData.teamA.sets,
+                setsB: matchData.teamB.sets,
+                gameMode: matchData.gameMode || "BO3",
+                cochonnetTeam: matchData.cochonnetTeam,
+                pendingWinner: matchData.pendingWinner,
+                pendingPoints: matchData.pendingPoints,
+                targetScore: matchData.targetScore,
+                meneCount: matchData.meneHistory.length,
                 lastUpdate: new Date().toISOString(),
             };
             localStorage.setItem("livePetanqueMatch", JSON.stringify(payload));
         } catch (e) {
             // Ignore storage errors
         }
-    }, [matchData, formattedTime, court]);
+    }, [matchData]);
 
     // Cleanup à l'unmount
     useEffect(() => {
@@ -479,16 +440,31 @@ export function usePetanqueMatch(initialMatchId: string | null) {
             ...p,
             teamA: { ...p.teamB },
             teamB: { ...p.teamA },
-            serviceTeam: p.serviceTeam === "A" ? "B" : "A", // Inverser le service aussi
-            cochonnetOwner: p.cochonnetOwner === "A" ? "B" : "A", // Inverser le cochonnet aussi
+            // Inverser aussi le cochonnet si nécessaire
+            cochonnetTeam: p.cochonnetTeam === "A" ? "B" : "A"
         }));
 
-    /** ---------- CHANGEMENT MANUEL DU COCHONNET ---------- */
-    const changeCochonnet = () =>
-        setMatchData((p: MatchDataWithTournament) => ({
-            ...p,
-            cochonnetOwner: p.cochonnetOwner === "A" ? "B" : "A",
-        }));
-
-    return { matchData, formattedTime, handleEnd, startChrono, stopChrono, addPoint, subPoint, setTeamName, setTeamLogo, setMatchType, swapSides, court, changeCochonnet };
+    return {
+        matchData,
+        handleEnd,
+        addThrow,
+        cancelLastThrow,
+        validateThrow,
+        resetSet,
+        getCurrentPlayer,
+        getCochonnetTeam,
+        selectMeneWinner,
+        gameMode,
+        setGameMode,
+        setTeamName,
+        setTeamLogo,
+        setMatchType,
+        setTargetScore,
+        swapSides,
+        court,
+        updateMatchStatus,
+        changeService,
+        isMatchWon,
+        matchWinner
+    };
 }

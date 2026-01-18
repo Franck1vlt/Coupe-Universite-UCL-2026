@@ -134,3 +134,12 @@ WHERE id = 10;
 SELECT winner_points, loser_points FROM Match;
 
 SELECT id, name FROM Team;
+
+SELECT id, team_sport_a_id, team_sport_b_id, team_a_source, team_b_source, score_a, score_b, winner_destination_match_id, loser_destination_match_id
+FROM Match;
+
+SELECT id, pool_id, match_type, team_a_source, team_b_source FROM Match WHERE pool_id IS NOT NULL ORDER BY pool_id, id;
+
+SELECT id, team_sport_a_id, team_sport_b_id, team_a_source, team_b_source FROM Match;
+
+SELECT * FROM TeamSport WHERE team_id = 8;

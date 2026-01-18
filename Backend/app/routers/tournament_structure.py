@@ -14,7 +14,8 @@ from app.models.pool import Pool
 from app.models.match import Match
 from app.models.teampool import TeamPool
 from app.exceptions import create_success_response, NotFoundError
-
+from app.models.team import Team
+from app.models.teamsport import TeamSport
 from app.utils.serializers import match_to_dict
 from app.models.court import Court
 from app.models.matchschedule import MatchSchedule
@@ -33,8 +34,14 @@ class TournamentMatchCreate(BaseModel):
     team_sport_b_id: Optional[int] = None
     team_a_source: Optional[str] = None
     team_b_source: Optional[str] = None
+    # Destinations (IDs numériques - legacy)
     winner_destination_match_id: Optional[int] = None
     loser_destination_match_id: Optional[int] = None
+    # Destinations (UUIDs - nouveau format, résolu en IDs après création)
+    winner_destination_match_uuid: Optional[str] = None
+    loser_destination_match_uuid: Optional[str] = None
+    winner_destination_slot: Optional[str] = None  # "A" ou "B"
+    loser_destination_slot: Optional[str] = None   # "A" ou "B"
     label: Optional[str] = None
     match_order: Optional[int] = None
     status: str = "upcoming"
@@ -288,12 +295,86 @@ def create_tournament_structure(
         return phase
 
     import uuid
-
-    # --- FONCTION UPSERT OPTIMISÉE ---
+    # --- FONCTION UPSERT OPTIMISÉE ET CORRIGÉE ---
     def upsert_match(m_data, phase_id, match_type, pool_id=None):
+        # Imports nécessaires pour la résolution (au cas où ils ne sont pas en haut du fichier)
+        from app.models.team import Team
+        from app.models.teamsport import TeamSport
+
         def get_val(obj, key, default=None):
             if isinstance(obj, dict): return obj.get(key, default)
             return getattr(obj, key, default)
+
+        # =================================================================
+        # 1. RÉSOLUTION AUTOMATIQUE DES ID D'EQUIPES (CORRECTIF)
+        # =================================================================
+        
+        # --- Résolution Équipe A ---
+        source_a = get_val(m_data, 'team_a_source')
+        id_a = get_val(m_data, 'team_sport_a_id')
+        
+        # Si on a un nom (ex: "Piktura") mais pas d'ID, on cherche l'ID dans la BDD
+        if source_a and not id_a:
+            # 1. On cherche d'abord si l'équipe existe dans la table Team
+            team = db.query(Team).filter(Team.name == source_a).first()
+            
+            if team:
+                # 2. On cherche si elle est déjà inscrite dans TeamSport pour ce sport
+                ts = db.query(TeamSport).filter(
+                    TeamSport.team_id == team.id,
+                    TeamSport.sport_id == tournament.sport_id
+                ).first()
+                
+                # 3. SI ELLE N'EST PAS INSCRITE, ON L'INSCRIT AUTOMATIQUEMENT !
+                if not ts:
+                    ts = TeamSport(
+                        team_id=team.id,
+                        sport_id=tournament.sport_id,
+                        is_active=True
+                    )
+                    db.add(ts)
+                    db.flush() # Pour générer l'ID immédiatement
+                    
+                # 4. On utilise l'ID (existant ou nouveau)
+                if isinstance(m_data, dict):
+                    m_data['team_sport_a_id'] = ts.id
+                else:
+                    m_data.team_sport_a_id = ts.id
+
+        # --- Résolution Équipe B ---
+        source_b = get_val(m_data, 'team_b_source')
+        id_b = get_val(m_data, 'team_sport_b_id')
+
+        if source_b and not id_b:
+            # 1. On cherche d'abord si l'équipe existe dans la table Team
+            team = db.query(Team).filter(Team.name == source_b).first()
+            
+            if team:
+                # 2. On cherche si elle est déjà inscrite dans TeamSport pour ce sport
+                ts = db.query(TeamSport).filter(
+                    TeamSport.team_id == team.id,
+                    TeamSport.sport_id == tournament.sport_id
+                ).first()
+                
+                # 3. SI ELLE N'EST PAS INSCRITE, ON L'INSCRIT AUTOMATIQUEMENT !
+                if not ts:
+                    ts = TeamSport(
+                        team_id=team.id,
+                        sport_id=tournament.sport_id,
+                        is_active=True
+                    )
+                    db.add(ts)
+                    db.flush() # Pour générer l'ID immédiatement
+                    
+                # 4. On utilise l'ID (existant ou nouveau)
+                if isinstance(m_data, dict):
+                    m_data['team_sport_b_id'] = ts.id
+                else:
+                    m_data.team_sport_b_id = ts.id
+
+        # =================================================================
+        # 2. LOGIQUE STANDARD DE SAUVEGARDE (EXISTANTE)
+        # =================================================================
 
         m_id = get_val(m_data, 'id')       # ID SQL (ex: 42)
         m_uuid = get_val(m_data, 'uuid')   # UUID Frontend (ex: "a1b2...")
@@ -306,11 +387,11 @@ def create_tournament_structure(
 
         match = None
 
-        # 1. Priorité absolue : ID SQL (s'il est présent et valide)
+        # A. Priorité absolue : ID SQL (s'il est présent et valide)
         if m_id and isinstance(m_id, int):
             match = db.query(Match).filter(Match.id == m_id).first()
 
-        # 2. Si pas trouvé par ID, chercher par UUID (identifiant unique frontend)
+        # B. Si pas trouvé par ID, chercher par UUID (identifiant unique frontend)
         if not match and m_uuid:
             match = (
                 db.query(Match)
@@ -322,9 +403,7 @@ def create_tournament_structure(
                 .first()
             )
 
-
-        # 3. Dernier recours : Recherche sémantique (Phase + Type + Label/Pool)
-        # Cela empêche de recréer "Finale" ou "Poule A - Match 1" si l'UUID a été perdu
+        # C. Dernier recours : Recherche sémantique
         if not match and m_label:
             query = db.query(Match).filter(
                 Match.phase_id == phase_id,
@@ -352,8 +431,12 @@ def create_tournament_structure(
                 match.uuid = m_uuid
 
             match.tournament_id = tournament_id
+            # Ici, get_val récupérera l'ID résolu à l'étape 1 si disponible
+            match.team_sport_a_id = get_val(m_data, 'team_sport_a_id', match.team_sport_a_id)
+            match.team_sport_b_id = get_val(m_data, 'team_sport_b_id', match.team_sport_b_id)
             match.team_a_source = get_val(m_data, 'team_a_source', match.team_a_source)
             match.team_b_source = get_val(m_data, 'team_b_source', match.team_b_source)
+            
             match.label = get_val(m_data, 'label', match.label)
             match.status = get_val(m_data, 'status', match.status)
             match.bracket_type = get_val(m_data, 'bracket_type', match.bracket_type)
@@ -363,8 +446,7 @@ def create_tournament_structure(
             match.duration = get_val(m_data, 'duration', match.duration)
             match.updated_at = datetime.utcnow()
 
-            # Pour les destinations, on vérifie si la clé existe dans m_data
-            # Si elle existe (même si None), on met à jour. Sinon on garde l'ancienne valeur
+            # Mise à jour des destinations et points
             if isinstance(m_data, dict):
                 if 'winner_destination_match_id' in m_data:
                     match.winner_destination_match_id = m_data['winner_destination_match_id']
@@ -379,7 +461,6 @@ def create_tournament_structure(
                 if 'loser_points' in m_data:
                     match.loser_points = m_data['loser_points']
             else:
-                # Si c'est un objet Pydantic, on utilise hasattr
                 if hasattr(m_data, 'winner_destination_match_id'):
                     match.winner_destination_match_id = m_data.winner_destination_match_id
                 if hasattr(m_data, 'loser_destination_match_id'):
@@ -402,6 +483,11 @@ def create_tournament_structure(
                 tournament_id=tournament_id,
                 match_type=match_type,
                 bracket_type=get_val(m_data, 'bracket_type'),
+                
+                # Utilisation des ID résolus
+                team_sport_a_id=get_val(m_data, 'team_sport_a_id'),
+                team_sport_b_id=get_val(m_data, 'team_sport_b_id'),
+                
                 team_a_source=get_val(m_data, 'team_a_source'),
                 team_b_source=get_val(m_data, 'team_b_source'),
                 winner_destination_match_id=get_val(m_data, 'winner_destination_match_id'),
@@ -424,7 +510,6 @@ def create_tournament_structure(
             db.flush()  # Pour avoir match.id
 
         # --- Création ou update du MatchSchedule associé ---
-        # Récupérer court_id si possible
         court_name = get_val(m_data, 'court')
         court_id = None
         if court_name:
@@ -432,7 +517,6 @@ def create_tournament_structure(
             if court_obj:
                 court_id = court_obj.id
 
-        # scheduled_datetime (format ISO)
         scheduled_datetime = get_val(m_data, 'scheduled_datetime')
         if scheduled_datetime:
             try:
@@ -450,7 +534,7 @@ def create_tournament_structure(
             ms.court_id = court_id
             ms.scheduled_datetime = scheduled_dt
             ms.estimated_duration_minutes = estimated_duration
-            ms.tournament_id
+            ms.tournament_id = tournament_id
         else:
             ms = MatchSchedule(
                 match_id=match.id,
@@ -463,10 +547,32 @@ def create_tournament_structure(
 
         return match
 
-    # --- TRAITEMENT DES SECTIONS ---
+    # --- COLLECTE DES DESTINATIONS UUID À RÉSOUDRE ---
+    # Format: [(match_uuid, winner_dest_uuid, loser_dest_uuid, winner_slot, loser_slot), ...]
+    pending_destinations = []
+
+    def collect_destinations(m_data):
+        """Collecte les UUIDs de destination pour résolution ultérieure"""
+        def get_val(obj, key, default=None):
+            if isinstance(obj, dict): return obj.get(key, default)
+            return getattr(obj, key, default)
+
+        m_uuid = get_val(m_data, 'uuid')
+        winner_dest_uuid = get_val(m_data, 'winner_destination_match_uuid')
+        loser_dest_uuid = get_val(m_data, 'loser_destination_match_uuid')
+        winner_slot = get_val(m_data, 'winner_destination_slot')
+        loser_slot = get_val(m_data, 'loser_destination_slot')
+
+        if m_uuid and (winner_dest_uuid or loser_dest_uuid):
+            pending_destinations.append((m_uuid, winner_dest_uuid, loser_dest_uuid, winner_slot, loser_slot))
+            print(f"[COLLECT] Match {m_uuid} -> winnerDest={winner_dest_uuid} (slot {winner_slot}), loserDest={loser_dest_uuid} (slot {loser_slot})")
+
+    # --- TRAITEMENT DES SECTIONS (PASSE 1 : Création des matchs) ---
     if structure.qualification_matches:
         p = get_or_create_phase("qualifications", 1)
-        for m in structure.qualification_matches: upsert_match(m, p.id, "qualification")
+        for m in structure.qualification_matches:
+            collect_destinations(m)
+            upsert_match(m, p.id, "qualification")
 
     if structure.pools:
         p = get_or_create_phase("pools", 2)
@@ -477,23 +583,76 @@ def create_tournament_structure(
                 db.add(pool)
                 db.flush()
             if hasattr(p_data, 'matches') and p_data.matches:
-                for m in p_data.matches: upsert_match(m, p.id, "pool", pool.id)
+                for m in p_data.matches:
+                    collect_destinations(m)
+                    upsert_match(m, p.id, "pool", pool.id)
 
     if structure.brackets:
         phase_final = get_or_create_phase("final", 3)
         for bracket_group in structure.brackets:
             for m_data in bracket_group.matches:
+                collect_destinations(m_data)
                 upsert_match(m_data, phase_final.id, "bracket")
-    
+
     if structure.loser_brackets:
         phase_loser = get_or_create_phase("loser_bracket", 4)
         for loser_bracket_group in structure.loser_brackets:
             for m_data in loser_bracket_group.matches:
-                upsert_match(
-                    {**m_data.dict(), "bracket_type": "loser"},
-                    phase_loser.id,
-                    "bracket"
-                )
+                m_dict = {**m_data.dict(), "bracket_type": "loser"}
+                collect_destinations(m_dict)
+                upsert_match(m_dict, phase_loser.id, "bracket")
+
+    # Flush pour s'assurer que tous les matchs ont des IDs
+    db.flush()
+
+    # --- PASSE 2 : Résolution des UUIDs de destination en IDs ---
+    if pending_destinations:
+        print(f"[RESOLVE] Résolution de {len(pending_destinations)} destinations UUID...")
+
+        # Récupérer tous les matchs du tournoi pour construire le mapping UUID -> ID
+        all_matches = (
+            db.query(Match)
+            .join(TournamentPhase)
+            .filter(TournamentPhase.tournament_id == tournament_id)
+            .all()
+        )
+
+        # Créer les mappings UUID -> ID et ID (string) -> ID
+        uuid_to_id = {}
+        for m in all_matches:
+            if m.uuid:
+                uuid_to_id[m.uuid] = m.id
+            # Aussi mapper l'ID string vers l'ID (pour les cas où l'ID frontend est déjà un ID SQL)
+            uuid_to_id[str(m.id)] = m.id
+
+        print(f"[RESOLVE] Mapping créé avec {len(uuid_to_id)} entrées")
+
+        # Résoudre chaque destination
+        for (match_uuid, winner_dest_uuid, loser_dest_uuid, winner_slot, loser_slot) in pending_destinations:
+            # Trouver le match source
+            source_match = next((m for m in all_matches if m.uuid == match_uuid), None)
+            if not source_match:
+                print(f"[RESOLVE] ⚠️ Match source non trouvé: {match_uuid}")
+                continue
+
+            updated = False
+
+            # Résoudre la destination du vainqueur
+            if winner_dest_uuid and winner_dest_uuid in uuid_to_id:
+                source_match.winner_destination_match_id = uuid_to_id[winner_dest_uuid]
+                source_match.winner_destination_slot = winner_slot
+                updated = True
+                print(f"[RESOLVE] ✅ Match {source_match.label or source_match.id}: winner -> ID {uuid_to_id[winner_dest_uuid]} (slot {winner_slot})")
+
+            # Résoudre la destination du perdant
+            if loser_dest_uuid and loser_dest_uuid in uuid_to_id:
+                source_match.loser_destination_match_id = uuid_to_id[loser_dest_uuid]
+                source_match.loser_destination_slot = loser_slot
+                updated = True
+                print(f"[RESOLVE] ✅ Match {source_match.label or source_match.id}: loser -> ID {uuid_to_id[loser_dest_uuid]} (slot {loser_slot})")
+
+            if updated:
+                source_match.updated_at = datetime.utcnow()
 
     db.commit()
 
@@ -507,12 +666,17 @@ def create_tournament_structure(
 
     return {
         "status": "ok",
+        "destinations_resolved": len(pending_destinations),
         "matches": [
             {
                 "id": m.id,
-                "uuid": m.uuid,         
+                "uuid": m.uuid,
                 "label": m.label,
-                "match_type": m.match_type
+                "match_type": m.match_type,
+                "winner_destination_match_id": m.winner_destination_match_id,
+                "loser_destination_match_id": m.loser_destination_match_id,
+                "winner_destination_slot": m.winner_destination_slot,
+                "loser_destination_slot": m.loser_destination_slot
             }
             for m in matches
         ]
@@ -546,14 +710,16 @@ def get_tournament_structure(
             "bracket_type": m.bracket_type,
             "team_a_source": m.team_a_source,
             "team_b_source": m.team_b_source,
-            
-            # --- AJOUT DES DESTINATIONS ---
+
+            # --- DESTINATIONS ET SLOTS ---
             "winner_destination_match_id": m.winner_destination_match_id,
             "loser_destination_match_id": m.loser_destination_match_id,
+            "winner_destination_slot": getattr(m, 'winner_destination_slot', None),
+            "loser_destination_slot": getattr(m, 'loser_destination_slot', None),
             "winner_points": m.winner_points if m.winner_points is not None else 0,
             "loser_points": m.loser_points if m.loser_points is not None else 0,
             # ------------------------------
-            
+
             "label": m.label,
             "status": m.status,
             "score_a": m.score_a if m.score_a is not None else 0,

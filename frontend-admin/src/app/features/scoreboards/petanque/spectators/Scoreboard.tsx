@@ -1,33 +1,34 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import Image from "next/image";
 import "./spectators.css";
 
 interface MatchData {
     team1?: string;
     team2?: string;
+    logoA?: string;
+    logoB?: string;
     matchType?: string;
+    matchGround?: string;
     scoreA?: number;
     scoreB?: number;
-    score1?: number;
-    score2?: number;
-    chrono?: string;
+    setsA?: number;
+    setsB?: number;
+    gameMode?: string;
+    cochonnetTeam?: "A" | "B";
+    pendingWinner?: "A" | "B" | null;
+    pendingPoints?: number;
+    targetScore?: number;
+    meneCount?: number;
     lastUpdate?: string;
-    matchGround?: string;
-    cochonnetOwner?: "A" | "B"; // Propriété pour le cochonnet (pétanque)
-    currentMene?: number;
 }
 
 export default function PetanqueTableSpectatorPage() {
-    const [matchData, setMatchData] = useState<MatchData>({});
-    const [logoA, setLogoA] = useState('/img/default.png');
-    const [logoB, setLogoB] = useState('/img/default.png');
     const [animateScoreA, setAnimateScoreA] = useState(false);
     const [animateScoreB, setAnimateScoreB] = useState(false);
-    const logoService = "/img/cochonet.png";
-    const CONST_SIZE = 75;
-    
+    const [matchData, setMatchData] = useState<MatchData>({});
+
+
     useEffect(() => {
         // Charger les données initiales
         loadInitialData();
@@ -37,21 +38,18 @@ export default function PetanqueTableSpectatorPage() {
             if (e.key !== 'livePetanqueMatch' || !e.newValue) return;
             try {
                 const newData: MatchData = JSON.parse(e.newValue);
-                // Animation si le score change
-                const newScoreA = newData.scoreA || newData.score1 || 0;
-                const oldScoreA = matchData.scoreA || matchData.score1 || 0;
-                const newScoreB = newData.scoreB || newData.score2 || 0;
-                const oldScoreB = matchData.scoreB || matchData.score2 || 0;
-
-                if (oldScoreA !== newScoreA) {
-                    setAnimateScoreA(true);
-                    setTimeout(() => setAnimateScoreA(false), 500);
-                }
-                if (oldScoreB !== newScoreB) {
-                    setAnimateScoreB(true);
-                    setTimeout(() => setAnimateScoreB(false), 500);
-                }
-                setMatchData(newData);
+                setMatchData((prevData) => {
+                    // Animation si le score change
+                    if (prevData.scoreA !== newData.scoreA) {
+                        setAnimateScoreA(true);
+                        setTimeout(() => setAnimateScoreA(false), 400);
+                    }
+                    if (prevData.scoreB !== newData.scoreB) {
+                        setAnimateScoreB(true);
+                        setTimeout(() => setAnimateScoreB(false), 400);
+                    }
+                    return newData;
+                });
             } catch (err) {
                 console.error('Erreur de parsing localStorage:', err);
             }
@@ -65,22 +63,20 @@ export default function PetanqueTableSpectatorPage() {
                 const raw = localStorage.getItem('livePetanqueMatch');
                 if (!raw) return;
                 const newData: MatchData = JSON.parse(raw);
-                if (JSON.stringify(matchData) !== JSON.stringify(newData)) {
-                    const newScoreA = newData.scoreA || newData.score1 || 0;
-                    const oldScoreA = matchData.scoreA || matchData.score1 || 0;
-                    const newScoreB = newData.scoreB || newData.score2 || 0;
-                    const oldScoreB = matchData.scoreB || matchData.score2 || 0;
-
-                    if (oldScoreA !== newScoreA) {
-                        setAnimateScoreA(true);
-                        setTimeout(() => setAnimateScoreA(false), 500);
+                setMatchData((prevData) => {
+                    if (JSON.stringify(prevData) !== JSON.stringify(newData)) {
+                        if (prevData.scoreA !== newData.scoreA) {
+                            setAnimateScoreA(true);
+                            setTimeout(() => setAnimateScoreA(false), 400);
+                        }
+                        if (prevData.scoreB !== newData.scoreB) {
+                            setAnimateScoreB(true);
+                            setTimeout(() => setAnimateScoreB(false), 400);
+                        }
+                        return newData;
                     }
-                    if (oldScoreB !== newScoreB) {
-                        setAnimateScoreB(true);
-                        setTimeout(() => setAnimateScoreB(false), 500);
-                    }
-                    setMatchData(newData);
-                }
+                    return prevData;
+                });
             } catch {}
         }, 2000);
 
@@ -89,19 +85,6 @@ export default function PetanqueTableSpectatorPage() {
             clearInterval(poll);
         };
     }, []);
-
-    useEffect(() => {
-        if (matchData.team1) {
-            setLogoA(`/img/${matchData.team1}.png`);
-        } else {
-            setLogoA('/img/default.png');
-        }
-        if (matchData.team2) {
-            setLogoB(`/img/${matchData.team2}.png`);
-        } else {
-            setLogoB('/img/default.png');
-        }
-    }, [matchData.team1, matchData.team2]);
 
     // Charger les données initiales depuis localStorage
     function loadInitialData() {
@@ -116,60 +99,85 @@ export default function PetanqueTableSpectatorPage() {
     }
 
 return (
-        // bg-[#E0E0E0] et centrage total
         <main className="min-h-screen w-full bg-white flex items-center justify-center p-4 overflow-hidden">
             <section className="score-board-container gap-8">
-                <div className="flex items-center justify-between w-full gap-4 md:gap-12">
-                    {/* Team B */}
-                    <div className="team-column">
-                        <div className="logo-wrapper">
-                            <Image src={logoB} alt="Logo Team B" width={180} height={180} className="team-logo" onError={() => setLogoB('/img/no-logo.png')} priority />
+
+                {/* Score central avec logos au-dessus des noms */}
+                <div className="flex flex-col items-center gap-4 w-full">
+
+                    <div className="flex items-center justify-center w-full gap-4">
+                        
+                        {/* ZONE COCHONNET GAUCHE (Place réservée) */}
+                        <div className="flex justify-end" style={{ width: '60px' }}>
+                            {matchData.cochonnetTeam === "A" && (
+                                <img src="/img/cochonet.png" alt="Cochonnet" className="w-12 h-12 object-contain" />
+                            )}
                         </div>
-                        <div className="team-name">{matchData.team2 || 'ÉQUIPE B'}</div>
-                    </div>      
-                    {/* Chrono */}
-                    <div className="flex justify-center mb-4 md:mb-8">
-                        <span className="remaining-time">{matchData.chrono || '00:00'}</span>
-                    </div>
-                    {/* Team A */}
-                    <div className="team-column">
-                        <div className="logo-wrapper">
-                            <Image src={logoA} alt="Logo Team A" width={180} height={180} className="team-logo" onError={() => setLogoA('/img/no-logo.png')} priority />
+
+                        {/* BLOC CENTRAL (Équipes et Score) */}
+                        <div className="flex items-center justify-between" style={{ width: '700px' }}>
+                            
+                            {/* Équipe A */}
+                            <div className="flex flex-col items-center">
+                                {matchData.logoA && (
+                                    <img src={matchData.logoA} alt={matchData.team1} className="w-24 h-24 object-contain mb-2" />
+                                )}
+                                <span className="team-label text-xl font-bold">{matchData.team1 || 'FLD'}</span>
+                            </div>
+
+                            {/* Score */}
+                            <div className="flex items-center gap-6 mx-8">
+                                <span className={`points-value text-7xl font-black ${animateScoreA ? 'score-change' : ''}`}>
+                                    {matchData.scoreA ?? 0}
+                                </span>
+                                <span className="sets-separator text-5xl">-</span>
+                                <span className={`points-value text-7xl font-black ${animateScoreB ? 'score-change' : ''}`}>
+                                    {matchData.scoreB ?? 0}
+                                </span>
+                            </div>
+
+                            {/* Équipe B */}
+                            <div className="flex flex-col items-center">
+                                {matchData.logoB && (
+                                    <img src={matchData.logoB} alt={matchData.team2} className="w-24 h-24 object-contain mb-2" />
+                                )}
+                                <span className="team-label text-xl font-bold">{matchData.team2 || 'FMMS'}</span>
+                            </div>
                         </div>
-                        <div className="team-name">{matchData.team1 || 'ÉQUIPE A'}</div>
+
+                        {/* ZONE COCHONNET DROITE (Place réservée) */}
+                        <div className="flex justify-start" style={{ width: '60px' }}>
+                            {matchData.cochonnetTeam === "B" && (
+                                <img src="/img/cochonet.png" alt="Cochonnet" className="w-12 h-12 object-contain" />
+                            )}
+                        </div>
+
                     </div>
+
+                    {/* Indicateur de mène */}
+                    <div className="mene-indicator" style={{ fontSize: '1.5rem', fontWeight: 'bold', marginTop: '1rem' }}>
+                        Mène {(matchData.meneCount || 0) + 1}
+                    </div>
+
+                    {/* Indicateur cochonnet */}
+                    {matchData.cochonnetTeam && (
+                        <div className="current-player-section">
+                            <div className="current-player-text">
+                                🎯 A {matchData.cochonnetTeam === "A" ? matchData.team1 : matchData.team2} de lancer le cochonnet
+                            </div>
+                        </div>
+                    )}
                 </div>
 
-                {/* Bloc central : Logo Service + Scores */}
-                <div className="flex flex-row justify-center items-center gap-8 mb-6">
-                    
-                    {/* Côté Gauche (Team B) */}
-                    <div className="w-10 md:w-16 flex justify-end">
-                        {matchData.cochonnetOwner === "B" && (
-                            <Image src={logoService} alt="Logo Cochonnet" width={CONST_SIZE} height={CONST_SIZE} className="service-logo" />
-                        )}
-                    </div>
-
-                    {/* Score (Élément central stable) */}
-                    <div className="score-display flex items-center text-4xl md:text-6xl font-bold">
-                        <span className={animateScoreB ? 'score-change' : ''}>{matchData.scoreB || matchData.score2 || 0}</span>
-                        <span className="mx-4 md:mx-8"> - </span>
-                        <span className={animateScoreA ? 'score-change' : ''}>{matchData.scoreA || matchData.score1 || 0}</span>
-                    </div>
-
-                    {/* Côté Droit (Team A) */}
-                    <div className="w-10 md:w-16 flex justify-start">
-                        {matchData.cochonnetOwner === "A" && (
-                            <Image src={logoService} alt="Logo Cochonnet" width={CONST_SIZE} height={CONST_SIZE} className="service-logo" />
-                        )}
-                    </div>
-                    
+                {/* Mode de jeu, terrain et type de match */}
+                <div className="match-info-section">
+                    <span className="match-mode">Match en {matchData.targetScore || 13} points</span>
+                    <span className="match-separator"> - </span>
+                    <span className="match-type">{matchData.matchGround || 'Terrain'}</span>
+                    <span className="match-separator"> - </span>
+                    <span className="match-type">{matchData.matchType || 'Match'}</span>
                 </div>
 
-                {/* Infos Match */}
-                <div className="match-type-label">
-                    {matchData.matchGround || 'Terrain'} - {matchData.matchType || 'Match'}
-                </div>
             </section>
         </main>
     );

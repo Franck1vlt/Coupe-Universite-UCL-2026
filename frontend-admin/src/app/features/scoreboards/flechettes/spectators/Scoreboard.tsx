@@ -7,6 +7,7 @@ interface MatchData {
     team1?: string;
     team2?: string;
     matchType?: string;
+    matchGround?: string;
     scoreA?: number;
     scoreB?: number;
     setsA?: number;
@@ -119,11 +120,11 @@ return (
                 <div className="flex flex-col items-center gap-6 w-full">
                     {/* Sets gagnés - EN GROS */}
                     <div className="sets-score">
-                        <span className="team-label">Team B</span>
+                        <span className="team-label">{matchData.team2 || 'Team B'}</span>
                         <span className={`sets-number ${animateSetB ? 'set-change' : ''}`}>{matchData.setsB || 0}</span>
                         <span className="sets-separator">-</span>
                         <span className={`sets-number ${animateSetA ? 'set-change' : ''}`}>{matchData.setsA || 0}</span>
-                        <span className="team-label">Team A</span>
+                        <span className="team-label">{matchData.team1 || 'Team A'}</span>
                     </div>
 
                     {/* Points restants - EN TRÈS GROS */}
@@ -150,11 +151,13 @@ return (
                     )}
                 </div>
 
-                {/* Mode de jeu et type de match */}
+                {/* Mode de jeu, terrain et type de match */}
                 <div className="match-info-section">
-                    <span className="match-mode">{matchData.gameMode || 'BO5'}</span>
+                    <span className="match-mode">{matchData.gameMode || 'BO3'}</span>
                     <span className="match-separator"> - </span>
-                    <span className="match-type">{matchData.matchType || 'Demi-finale'}</span>
+                    <span className="match-type">{matchData.matchGround || 'Terrain'}</span>
+                    <span className="match-separator"> - </span>
+                    <span className="match-type">{matchData.matchType || 'Match'}</span>
                 </div>
 
             </section>

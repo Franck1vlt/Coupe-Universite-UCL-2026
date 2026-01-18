@@ -296,10 +296,10 @@ export default function CourtsPage() {
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                 Créé le
               </th>
-              <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">
+              {/* <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">
                 Statut
               </th>
-              <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase"></th>
+              <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase"></th> */}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -348,7 +348,7 @@ export default function CourtsPage() {
                         })()
                       : new Date().toLocaleDateString("fr-FR")} {/* Date du jour par défaut */}
                   </td>
-                  <td className="px-4 py-4 whitespace-nowrap text-center">
+                  {/* <td className="px-4 py-4 whitespace-nowrap text-center">
                     <span
                       className={
                         isCourtInUse(court.id)
@@ -358,7 +358,7 @@ export default function CourtsPage() {
                     >
                       {isCourtInUse(court.id) ? "Utilisé" : "Libre"}
                     </span>
-                  </td>
+                  </td> */}
                   <td className="px-4 py-4 whitespace-nowrap text-center relative">
                     {editMode === court.id ? (
                       <div className="flex gap-2 justify-center">

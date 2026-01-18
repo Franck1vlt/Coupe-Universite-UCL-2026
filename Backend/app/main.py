@@ -2347,6 +2347,8 @@ async def update_match(
             # Propager le gagnant vers le match de destination
             if winner_team_sport_id and match.winner_destination_match_id:
                 print(f"🔄 Propagation du gagnant (team_sport_id={winner_team_sport_id}) du match {match.id} vers match {match.winner_destination_match_id}")
+                print(f"   Slot configuré: {match.winner_destination_slot}")
+
                 winner_dest_match = db.query(Match).filter(
                     Match.id == match.winner_destination_match_id
                 ).first()
@@ -2359,37 +2361,43 @@ async def update_match(
                         winner_team = db.query(Team).filter(Team.id == winner_team_sport.team_id).first()
                         winner_team_name = winner_team.name if winner_team else None
 
-                    print(f"   Match destination trouvé: {winner_dest_match.id} (label={winner_dest_match.label}, team_a_source={winner_dest_match.team_a_source}, team_b_source={winner_dest_match.team_b_source})")
+                    print(f"   Match destination trouvé: {winner_dest_match.id} (label={winner_dest_match.label})")
                     print(f"   Nom de l'équipe gagnante: {winner_team_name}")
 
-                    # Déterminer quelle position (A ou B) doit recevoir le gagnant
-                    # Stratégie: si team_a_source correspond au label du match actuel, mettre en A
-                    # Sinon, chercher la première position libre
-                    if winner_dest_match.team_a_source == match.label or winner_dest_match.team_a_source == f"W{match.id}":
+                    # UTILISER LE SLOT CONFIGURÉ (winner_destination_slot)
+                    if match.winner_destination_slot == "A":
                         winner_dest_match.team_sport_a_id = winner_team_sport_id
                         if winner_team_name:
                             winner_dest_match.team_a_source = winner_team_name
-                        print(f"   ✅ Assigné à team_sport_a_id et team_a_source={winner_team_name}")
-                    elif winner_dest_match.team_b_source == match.label or winner_dest_match.team_b_source == f"W{match.id}":
+                        print(f"   ✅ Gagnant assigné à slot A (team_sport_a_id={winner_team_sport_id}, team_a_source={winner_team_name})")
+                    elif match.winner_destination_slot == "B":
                         winner_dest_match.team_sport_b_id = winner_team_sport_id
                         if winner_team_name:
                             winner_dest_match.team_b_source = winner_team_name
-                        print(f"   ✅ Assigné à team_sport_b_id et team_b_source={winner_team_name}")
-                    elif winner_dest_match.team_sport_a_id is None:
-                        winner_dest_match.team_sport_a_id = winner_team_sport_id
-                        if winner_team_name:
-                            winner_dest_match.team_a_source = winner_team_name
-                        print(f"   ✅ Assigné à team_sport_a_id et team_a_source={winner_team_name} (slot libre)")
-                    elif winner_dest_match.team_sport_b_id is None:
-                        winner_dest_match.team_sport_b_id = winner_team_sport_id
-                        if winner_team_name:
-                            winner_dest_match.team_b_source = winner_team_name
-                        print(f"   ✅ Assigné à team_sport_b_id et team_b_source={winner_team_name} (slot libre)")
+                        print(f"   ✅ Gagnant assigné à slot B (team_sport_b_id={winner_team_sport_id}, team_b_source={winner_team_name})")
+                    else:
+                        # Fallback: chercher un slot libre si winner_destination_slot n'est pas configuré
+                        print(f"   ⚠️ winner_destination_slot non configuré, recherche d'un slot libre...")
+                        if winner_dest_match.team_sport_a_id is None:
+                            winner_dest_match.team_sport_a_id = winner_team_sport_id
+                            if winner_team_name:
+                                winner_dest_match.team_a_source = winner_team_name
+                            print(f"   ✅ Gagnant assigné à slot A libre (fallback)")
+                        elif winner_dest_match.team_sport_b_id is None:
+                            winner_dest_match.team_sport_b_id = winner_team_sport_id
+                            if winner_team_name:
+                                winner_dest_match.team_b_source = winner_team_name
+                            print(f"   ✅ Gagnant assigné à slot B libre (fallback)")
+                        else:
+                            print(f"   ❌ Aucun slot libre disponible!")
                 else:
                     print(f"   ❌ Match destination {match.winner_destination_match_id} introuvable")
-            
+
             # Propager le perdant vers le match de destination (bracket perdants)
             if loser_team_sport_id and match.loser_destination_match_id:
+                print(f"🔄 Propagation du perdant (team_sport_id={loser_team_sport_id}) du match {match.id} vers match {match.loser_destination_match_id}")
+                print(f"   Slot configuré: {match.loser_destination_slot}")
+
                 loser_dest_match = db.query(Match).filter(
                     Match.id == match.loser_destination_match_id
                 ).first()
@@ -2402,29 +2410,35 @@ async def update_match(
                         loser_team = db.query(Team).filter(Team.id == loser_team_sport.team_id).first()
                         loser_team_name = loser_team.name if loser_team else None
 
-                    print(f"🔄 Propagation du perdant (team_sport_id={loser_team_sport_id}, nom={loser_team_name}) vers match {match.loser_destination_match_id}")
+                    print(f"   Match destination trouvé: {loser_dest_match.id} (label={loser_dest_match.label})")
+                    print(f"   Nom de l'équipe perdante: {loser_team_name}")
 
-                    # Même logique pour les perdants
-                    if loser_dest_match.team_a_source == match.label or loser_dest_match.team_a_source == f"L{match.id}":
+                    # UTILISER LE SLOT CONFIGURÉ (loser_destination_slot)
+                    if match.loser_destination_slot == "A":
                         loser_dest_match.team_sport_a_id = loser_team_sport_id
                         if loser_team_name:
                             loser_dest_match.team_a_source = loser_team_name
-                        print(f"   ✅ Perdant assigné à team_sport_a_id et team_a_source={loser_team_name}")
-                    elif loser_dest_match.team_b_source == match.label or loser_dest_match.team_b_source == f"L{match.id}":
+                        print(f"   ✅ Perdant assigné à slot A (team_sport_a_id={loser_team_sport_id}, team_a_source={loser_team_name})")
+                    elif match.loser_destination_slot == "B":
                         loser_dest_match.team_sport_b_id = loser_team_sport_id
                         if loser_team_name:
                             loser_dest_match.team_b_source = loser_team_name
-                        print(f"   ✅ Perdant assigné à team_sport_b_id et team_b_source={loser_team_name}")
-                    elif loser_dest_match.team_sport_a_id is None:
-                        loser_dest_match.team_sport_a_id = loser_team_sport_id
-                        if loser_team_name:
-                            loser_dest_match.team_a_source = loser_team_name
-                        print(f"   ✅ Perdant assigné à team_sport_a_id et team_a_source={loser_team_name} (slot libre)")
-                    elif loser_dest_match.team_sport_b_id is None:
-                        loser_dest_match.team_sport_b_id = loser_team_sport_id
-                        if loser_team_name:
-                            loser_dest_match.team_b_source = loser_team_name
-                        print(f"   ✅ Perdant assigné à team_sport_b_id et team_b_source={loser_team_name} (slot libre)")
+                        print(f"   ✅ Perdant assigné à slot B (team_sport_b_id={loser_team_sport_id}, team_b_source={loser_team_name})")
+                    else:
+                        # Fallback: chercher un slot libre si loser_destination_slot n'est pas configuré
+                        print(f"   ⚠️ loser_destination_slot non configuré, recherche d'un slot libre...")
+                        if loser_dest_match.team_sport_a_id is None:
+                            loser_dest_match.team_sport_a_id = loser_team_sport_id
+                            if loser_team_name:
+                                loser_dest_match.team_a_source = loser_team_name
+                            print(f"   ✅ Perdant assigné à slot A libre (fallback)")
+                        elif loser_dest_match.team_sport_b_id is None:
+                            loser_dest_match.team_sport_b_id = loser_team_sport_id
+                            if loser_team_name:
+                                loser_dest_match.team_b_source = loser_team_name
+                            print(f"   ✅ Perdant assigné à slot B libre (fallback)")
+                        else:
+                            print(f"   ❌ Aucun slot libre disponible!")
             
             db.commit()
     

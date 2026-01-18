@@ -37,6 +37,9 @@ export default function HandballTableMarquagePage() {
   const [loadingCourts, setLoadingCourts] = useState(true);
   const [selectedDateTime, setSelectedDateTime] = useState<string>("");
 
+  const [chronoMinutes, setChronoMinutes] = useState(0);
+  const [chronoSeconds, setChronoSeconds] = useState(0);
+
   // Charger les équipes au montage du composant
   useEffect(() => {
     fetchTeams();
@@ -63,6 +66,7 @@ export default function HandballTableMarquagePage() {
     formattedTime,
     startChrono,
     stopChrono,
+    setChrono,
     addSecond,
     addPoint,
     subPoint,
@@ -199,7 +203,7 @@ export default function HandballTableMarquagePage() {
         </h1>
       </header>
 
-<div className="gauche">
+      <div className="gauche">
         <div className="parametres-match mb-6">
           <label htmlFor="teamA">Équipe A :</label>
             {matchId ? (
@@ -302,6 +306,37 @@ export default function HandballTableMarquagePage() {
               />
             </>
           )}
+
+          <label htmlFor="setChrono">Chrono :</label>
+          <div className="flex justify-center gap-2 items-center">
+            <input
+              type="number"
+              min={0}
+              max={59}
+              value={chronoMinutes}
+              onChange={e => {
+                const mins = Number(e.target.value);
+                setChronoMinutes(mins);
+                setChrono(mins, chronoSeconds);
+              }}
+              className="bg-white text-black border border-gray-300 rounded px-1 py-1 mt-2 text-center w-12"
+              placeholder="min"
+            />
+            <span>:</span>
+            <input
+              type="number"
+              min={0}
+              max={59}
+              value={chronoSeconds}
+              onChange={e => {
+                const secs = Number(e.target.value);
+                setChronoSeconds(secs);
+                setChrono(chronoMinutes, secs);
+              }}
+              className="bg-white text-black border border-gray-300 rounded px-1 py-1 mt-2 text-center w-12"
+              placeholder="sec"
+            />
+            </div>
         </div>
 
         <div className="bouton_pied_page">

@@ -666,6 +666,13 @@ export default function TournamentsPage() {
                     scoreA: m.score_a,
                     scoreB: m.score_b,
                     winnerCode: m.label,
+                    winnerPoints: m.winner_points ?? 0,
+                    loserPoints: m.loser_points ?? 0,
+                    // Destinations - convertir l'ID numérique en string pour le frontend
+                    winner_destination_match_id: m.winner_destination_match_id?.toString() || null,
+                    loser_destination_match_id: m.loser_destination_match_id?.toString() || null,
+                    winner_destination_slot: m.winner_destination_slot || undefined,
+                    loser_destination_slot: m.loser_destination_slot || undefined,
                     position: { x: 100, y: 100 + (m.match_order || 0) * 100 },
                   }));
 
@@ -677,12 +684,19 @@ export default function TournamentsPage() {
                     matches: (p.matches || []).map((m: any) => ({
                       id: m.id.toString(),
                       uuid: m.uuid,
+                      label: m.label,
                       teamA: m.team_a_source ?? "",
                       teamB: m.team_b_source ?? "",
                       status: m.status === "completed" ? "terminé" : "planifié",
                       type: "poule",
                       scoreA: m.score_a,
                       scoreB: m.score_b,
+                      winnerPoints: m.winner_points ?? 0,
+                      loserPoints: m.loser_points ?? 0,
+                      winner_destination_match_id: m.winner_destination_match_id?.toString() || null,
+                      loser_destination_match_id: m.loser_destination_match_id?.toString() || null,
+                      winner_destination_slot: m.winner_destination_slot || undefined,
+                      loser_destination_slot: m.loser_destination_slot || undefined,
                       position: { x: 0, y: 0 },
                     })),
                     position: p.position || { x: 100, y: 100 },
@@ -741,6 +755,7 @@ export default function TournamentsPage() {
                         return {
                           id: m.id.toString(),
                           uuid: m.uuid || uuidv4(),
+                          label: m.label,
                           teamA: m.team_a_source || "",
                           teamB: m.team_b_source || "",
                           type: "phase-finale",
@@ -752,6 +767,12 @@ export default function TournamentsPage() {
                           time: m.time || "",
                           court: m.court || "",
                           duration: m.duration || 90,
+                          winnerPoints: m.winner_points ?? 0,
+                          loserPoints: m.loser_points ?? 0,
+                          winner_destination_match_id: m.winner_destination_match_id?.toString() || null,
+                          loser_destination_match_id: m.loser_destination_match_id?.toString() || null,
+                          winner_destination_slot: m.winner_destination_slot || undefined,
+                          loser_destination_slot: m.loser_destination_slot || undefined,
                           position: calculateBracketMatchPosition(mappedType as BracketMatchType, index, bracketMatchesRaw.length)
                         };
                       });
@@ -1607,14 +1628,15 @@ export default function TournamentsPage() {
                 duration: m.duration || 90,
                 team_a_source: m.teamA || null,
                 team_b_source: m.teamB || null,
-                winner_destination_match_id: m.winner_destination_match_id ? parseInt(m.winner_destination_match_id.toString()) : null,
-                loser_destination_match_id: m.loser_destination_match_id ? parseInt(m.loser_destination_match_id.toString()) : null,
+                // Envoi des UUIDs de destination (le backend résoudra en IDs)
+                winner_destination_match_uuid: m.winner_destination_match_id || null,
+                loser_destination_match_uuid: m.loser_destination_match_id || null,
                 winner_destination_slot: m.winner_destination_slot || null,
                 loser_destination_slot: m.loser_destination_slot || null,
                 winner_points: m.winnerPoints !== undefined ? m.winnerPoints : 0,
                 loser_points: m.loserPoints !== undefined ? m.loserPoints : 0,
               };
-              console.log(`📤 Match ${m.id} - winnerPoints: ${m.winnerPoints}, loserPoints: ${m.loserPoints} -> envoi: winner_points=${match.winner_points}, loser_points=${match.loser_points}`);
+              console.log(`📤 Match ${m.id} - winnerDest: ${m.winner_destination_match_id}, loserDest: ${m.loser_destination_match_id}`);
               return match;
             }),
 
@@ -1636,8 +1658,9 @@ export default function TournamentsPage() {
                 duration: m.duration || 90,
                 team_a_source: m.teamA || null,
                 team_b_source: m.teamB || null,
-                winner_destination_match_id: m.winner_destination_match_id ? parseInt(m.winner_destination_match_id.toString()) : null,
-                loser_destination_match_id: m.loser_destination_match_id ? parseInt(m.loser_destination_match_id.toString()) : null,
+                // Envoi des UUIDs de destination (le backend résoudra en IDs)
+                winner_destination_match_uuid: m.winner_destination_match_id || null,
+                loser_destination_match_uuid: m.loser_destination_match_id || null,
                 winner_destination_slot: m.winner_destination_slot || null,
                 loser_destination_slot: m.loser_destination_slot || null,
                 winner_points: m.winnerPoints !== undefined ? Number(m.winnerPoints) : 0,
@@ -1664,8 +1687,9 @@ export default function TournamentsPage() {
                 duration: m.duration || 90,
                 team_a_source: m.teamA || null,
                 team_b_source: m.teamB || null,
-                winner_destination_match_id: m.winner_destination_match_id ? parseInt(m.winner_destination_match_id.toString()) : null,
-                loser_destination_match_id: m.loser_destination_match_id ? parseInt(m.loser_destination_match_id.toString()) : null,
+                // Envoi des UUIDs de destination (le backend résoudra en IDs)
+                winner_destination_match_uuid: m.winner_destination_match_id || null,
+                loser_destination_match_uuid: m.loser_destination_match_id || null,
                 winner_destination_slot: m.winner_destination_slot || null,
                 loser_destination_slot: m.loser_destination_slot || null,
                 winner_points: m.winnerPoints !== undefined ? Number(m.winnerPoints) : 0,
@@ -1673,7 +1697,7 @@ export default function TournamentsPage() {
               };
             }),
           })),
-          
+
           loserBrackets: loserBrackets.map((lb) => ({
             name: lb.name,
             matches: lb.matches.map((m) => {
@@ -1692,12 +1716,11 @@ export default function TournamentsPage() {
                 duration: m.duration || 90,
                 team_a_source: m.teamA || null,
                 team_b_source: m.teamB || null,
-                winner_destination_match_id: m.winner_destination_match_id ? parseInt(m.winner_destination_match_id.toString()) : null,
-                loser_destination_match_id: m.loser_destination_match_id ? parseInt(m.loser_destination_match_id.toString()) : null,
+                // Envoi des UUIDs de destination (le backend résoudra en IDs)
+                winner_destination_match_uuid: m.winner_destination_match_id || null,
+                loser_destination_match_uuid: m.loser_destination_match_id || null,
                 winner_destination_slot: m.winner_destination_slot || null,
                 loser_destination_slot: m.loser_destination_slot || null,
-
-                // ENVOI EXPLICITE DES POINTS
                 winner_points: m.winnerPoints !== undefined ? Number(m.winnerPoints) : 0,
                 loser_points: m.loserPoints !== undefined ? Number(m.loserPoints) : 0,
               };
@@ -1797,7 +1820,7 @@ export default function TournamentsPage() {
             </div>
 
             <button
-            onClick={() => router.push("/configuration-coupe")}
+            onClick={() => router.push("/configuration-coupe/tournaments")}
             className="absolute left-4 top-4 flex items-center gap-2 bg-white rounded-full shadow px-4 py-2 hover:bg-blue-50 transition focus:outline-none focus:ring-2 focus:ring-blue-400"
             aria-label="Retour"
             >
@@ -2591,54 +2614,87 @@ export default function TournamentsPage() {
               )}
 
 
-              {/* Sélection de la destination du vainqueur/perdant (sans slot) */}
+              {/* Sélection de la destination du vainqueur/perdant avec slot A/B */}
               <div className="grid grid-cols-2 gap-2 mb-2">
                 <div>
                   <label className="block text-xs font-bold mb-1" style={{ color: '#16a34a' }}>Destination Vainqueur</label>
-                  <select
-                    className="w-full p-2 border border-green-400 rounded-md focus:ring-green-500 focus:border-green-500 text-black bg-green-50"
-                    value={selectedMatch.winner_destination_match_id || ''}
-                    onChange={e => {
-                      const val = e.target.value;
-                      // Si vide -> null, sinon on garde la valeur string
-                      updateMatch({
-                        ...selectedMatch,
-                        winner_destination_match_id: val === "" ? null : val,
-                      });
-                    }}
-                  >
-                    <option value="">Aucune</option>
-                    {allAvailableMatches
-                      .filter(m => m.id !== selectedMatch.id) // On ne peut pas s'envoyer vers soi-même
-                      .map(m => (
-                        <option key={m.id} value={m.id}>
-                          {m.label || `Match #${m.id}`} 
-                        </option>
-                      ))}
-                  </select>
+                  <div className="flex gap-1">
+                    <select
+                      className="flex-1 p-2 border border-green-400 rounded-md focus:ring-green-500 focus:border-green-500 text-black bg-green-50"
+                      value={selectedMatch.winner_destination_match_id || ''}
+                      onChange={e => {
+                        const val = e.target.value;
+                        updateMatch({
+                          ...selectedMatch,
+                          winner_destination_match_id: val === "" ? null : val,
+                        });
+                      }}
+                    >
+                      <option value="">Aucune</option>
+                      {allAvailableMatches
+                        .filter(m => m.id !== selectedMatch.id)
+                        .map(m => (
+                          <option key={m.id} value={m.id}>
+                            {m.label || `Match #${m.id}`}
+                          </option>
+                        ))}
+                    </select>
+                    <select
+                      className="w-16 p-2 border border-green-400 rounded-md focus:ring-green-500 focus:border-green-500 text-black bg-green-50 font-bold"
+                      value={selectedMatch.winner_destination_slot || ''}
+                      onChange={e => {
+                        updateMatch({
+                          ...selectedMatch,
+                          winner_destination_slot: e.target.value === "" ? undefined : (e.target.value as "A" | "B"),
+                        });
+                      }}
+                      disabled={!selectedMatch.winner_destination_match_id}
+                    >
+                      <option value="">-</option>
+                      <option value="A">A</option>
+                      <option value="B">B</option>
+                    </select>
+                  </div>
                 </div>
                 <div>
                   <label className="block text-xs font-bold mb-1" style={{ color: '#dc2626' }}>Destination Perdant</label>
-                  <select
-                    className="w-full p-2 border border-red-400 rounded-md focus:ring-red-500 focus:border-red-500 text-black bg-red-50"
-                    value={selectedMatch.loser_destination_match_id || ''}
-                    onChange={e => {
-                      const val = e.target.value;
-                      updateMatch({
-                        ...selectedMatch,
-                        loser_destination_match_id: val === "" ? null : val,
-                      });
-                    }}
-                  >
-                    <option value="">Aucune</option>
-                    {allAvailableMatches
-                      .filter(m => m.id !== selectedMatch.id) // On ne peut pas s'envoyer vers soi-même
-                      .map(m => (
-                        <option key={m.id} value={m.id}>
-                          {m.label || `Match #${m.id}`} 
-                        </option>
-                      ))}
-                  </select>
+                  <div className="flex gap-1">
+                    <select
+                      className="flex-1 p-2 border border-red-400 rounded-md focus:ring-red-500 focus:border-red-500 text-black bg-red-50"
+                      value={selectedMatch.loser_destination_match_id || ''}
+                      onChange={e => {
+                        const val = e.target.value;
+                        updateMatch({
+                          ...selectedMatch,
+                          loser_destination_match_id: val === "" ? null : val,
+                        });
+                      }}
+                    >
+                      <option value="">Aucune</option>
+                      {allAvailableMatches
+                        .filter(m => m.id !== selectedMatch.id)
+                        .map(m => (
+                          <option key={m.id} value={m.id}>
+                            {m.label || `Match #${m.id}`}
+                          </option>
+                        ))}
+                    </select>
+                    <select
+                      className="w-16 p-2 border border-red-400 rounded-md focus:ring-red-500 focus:border-red-500 text-black bg-red-50 font-bold"
+                      value={selectedMatch.loser_destination_slot || ''}
+                      onChange={e => {
+                        updateMatch({
+                          ...selectedMatch,
+                          loser_destination_slot: e.target.value === "" ? undefined : (e.target.value as "A" | "B"),
+                        });
+                      }}
+                      disabled={!selectedMatch.loser_destination_match_id}
+                    >
+                      <option value="">-</option>
+                      <option value="A">A</option>
+                      <option value="B">B</option>
+                    </select>
+                  </div>
                 </div>
               </div>
 
@@ -3826,7 +3882,7 @@ export default function TournamentsPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="font-bold text-gray-900">Match de Phase Finale</h3>
-                  <p className="text-sm text-orange-600">
+                  <p className="text-sm text-black">
                     {selectedBracketMatch.bracketMatchType ? 
                       ({
                         "quarts": "Quart de finale",

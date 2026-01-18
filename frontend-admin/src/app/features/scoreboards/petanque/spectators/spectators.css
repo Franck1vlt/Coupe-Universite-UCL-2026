@@ -9,8 +9,6 @@
 
 /* Chrono Fluide */
 .remaining-time {
-    font-size: clamp(3rem, 12vw, 10rem);
-    font-weight: 800;
     color: #48bb78;
     font-variant-numeric: tabular-nums;
     line-height: 1;
@@ -55,7 +53,9 @@
 }
 
 /* Infos et Cartons */
-.match-type-label {
+.match-infos {
+    display: flex; 
+    gap: clamp(1rem, 2vw, 1.8rem);
     margin-top: 2rem;
     font-size: clamp(1rem, 2vw, 1.8rem);
     font-weight: 700;
@@ -81,7 +81,124 @@
     font-size: 0.8em;
 }
 
+/* Score des sets - EN GROS */
+.sets-score {
+    display: flex;
+    align-items: center;
+    gap: clamp(0.8rem, 2vw, 1.5rem);
+    font-weight: 700;
+}
+
+.team-label {
+    font-size: clamp(1.8rem, 4vw, 3rem);
+    text-transform: uppercase;
+    color: #333;
+}
+
+.sets-number {
+    font-size: clamp(3rem, 6vw, 5rem);
+    font-weight: 900;
+    color: #000;
+}
+
+.sets-separator {
+    font-size: clamp(2.5rem, 5vw, 4rem);
+    font-weight: 700;
+    color: #666;
+}
+
+/* Points restants - EN TRÈS GROS */
+.remaining-points {
+    display: flex;
+    align-items: center;
+    gap: clamp(1rem, 3vw, 2rem);
+}
+
+.points-value {
+    font-size: clamp(6rem, 15vw, 12rem);
+    font-weight: 900;
+    line-height: 1;
+    color: #000;
+}
+
+.points-separator {
+    font-size: clamp(4rem, 10vw, 8rem);
+    font-weight: 700;
+    color: #666;
+}
+
+/* Joueur actuel - CLAIREMENT VISIBLE */
+.current-player-section {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+    margin-top: 2rem;
+    background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+    padding: clamp(1rem, 3vw, 2rem) clamp(2rem, 5vw, 4rem);
+    border-radius: 1rem;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+}
+
+.current-player-text {
+    font-size: clamp(2rem, 5vw, 4rem);
+    font-weight: 900;
+    color: #000;
+    text-align: center;
+    text-transform: uppercase;
+}
+
+.current-throw-info {
+    font-size: clamp(1.2rem, 3vw, 2rem);
+    font-weight: 600;
+    color: #1f2937;
+}
+
+/* Info du match */
+.match-info-section {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 1.5rem;
+}
+
+.match-mode {
+    font-size: clamp(1.5rem, 3.5vw, 2.5rem);
+    font-weight: 700;
+    color: #16a34a;
+}
+
+.match-separator {
+    font-size: clamp(1.5rem, 3.5vw, 2.5rem);
+    font-weight: 700;
+    color: #000;
+}
+
+.match-type {
+    font-size: clamp(1.5rem, 3.5vw, 2.5rem);
+    font-weight: 700;
+    color: #000;
+}
+
 /* Animations */
 .score-change {
-    animation: scoreUpdate 0.5s ease-in-out;
+    animation: scoreUpdate 0.4s ease-in-out;
+}
+
+.set-change {
+    animation: setUpdate 0.5s ease-in-out;
+}
+
+@keyframes scoreUpdate {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.15); }
+    100% { transform: scale(1); }
+}
+
+@keyframes setUpdate {
+    0% { transform: scale(1); }
+    25% { transform: scale(1.2); }
+    50% { transform: scale(1.1); }
+    75% { transform: scale(1.2); }
+    100% { transform: scale(1); }
 }

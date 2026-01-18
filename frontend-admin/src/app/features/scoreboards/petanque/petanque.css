@@ -7,10 +7,13 @@
     /* Background colors */
     --bg-yellow-900: #ffcc00;
     --bg-yellow-300: #fcd34d;
-    --bg-red-900: #ff0000;
+    --bg-red-900: #630000;
+    --bg-red-500: #ff0000;
     --bg-red-300: #fca5a5;
     --bg-blue-400: #60a5fa;
     --bg-blue-300: #93c5fd;
+    --bg-blue-900: #004386;
+    --bg-green-900: #064e3b;
     --bg-green-400: #4ade80;
     --bg-green-300: #86efac;
     --bg-gray-400: #9ca3af;
@@ -97,6 +100,15 @@ button:hover {
     overflow: hidden;
 }
 
+.score-display {
+    margin-bottom: 3vh;
+}
+
+.mene-info {
+    margin: 2vh;
+    font-size: 1.2rem;
+}
+
 .parametres-match {
     background: rgba(255, 255, 255, 0.25);
     backdrop-filter: blur(10px);
@@ -124,17 +136,6 @@ button:hover {
     color: black;
 }
 
-.timer {
-    font-family: 'Digital', monospace;
-    font-size: 2rem;
-    font-weight: bold;
-    background: #000;
-    padding: 8px 16px;
-    margin: 8px;
-    border-radius: 5px;
-    color: #ff0000;
-}
-
 .button-row1 {
     display: flex;
     flex-direction: row;
@@ -155,6 +156,22 @@ button:hover {
 
 .button-row2 button {
     width: 200px;
+}
+
+.btnAdd {
+    background-color: var(--bg-red-500);
+}
+
+.btnCancel {
+    background-color: var(--bg-red-900);
+}
+
+.btnValidate {
+    background-color: var(--bg-green-900);
+}
+
+.btnAction {
+    background-color: var(--bg-blue-900);
 }
 
 .details-line {
@@ -178,32 +195,21 @@ button:hover {
 
 .petanque-root .scoreboard {
     text-align: center;
-    padding: 20px;
     height: auto;
     color: #fff;
-    padding: 20px;
-    text-align: center;
-    margin: 50px auto;
     transform: scale(0.88);
     transform-origin: top center;
+    gap: 10vh;
 }
 
 .scoreboard span {
     font-size: 1em;
-}
-
-.petanque-root .teams-line {
-    display: flex;
-    justify-content: space-evenly;
-    font-size: 2rem;
-    font-weight: bold;
-    margin-bottom: 20px;
+    padding: 1vh;
 }
 
 .petanque-root .score-line {
     font-size: 3rem;
     font-weight: bold;
-    margin-bottom: 10px;
 }
 
 .score-row {
@@ -246,64 +252,10 @@ button:hover {
     justify-content: center;
 }
 
-.cards-section {
-    margin: 20px 0;
-}
-
-.team-cards {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-}
-
-.card-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    font-size: 14px;
-}
-
-.cards-count {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.card-icon {
-    width: 20px;
-    height: 28px;
-    border-radius: 2px;
-}
-
-.yellow-card {
-    display: flex;
-    flex-direction: row;
-    justify-content: space-around;
-    margin-top: 20px;
-    margin-bottom: 20px;
-}
-
-.red-card {
-    display: flex;
-    flex-direction: row;
-    justify-content: space-around;
-    margin-top: 20px;
-    margin-bottom: 20px;
-}
-
-.yellow-card button {
-    background-color: #fcd34d;
-}
-
-.red-card button {
-    background-color: #ef4444;
-}
-
 .bottom-controls {
     display: flex;
     justify-content: space-around;
     gap: 10px;
-    margin-top: 60px;
 }
 
 .action-button {
@@ -551,3 +503,74 @@ button:hover {
     vertical-align: super;
 }
 
+/* Switch mi-temps */
+.slider.round {
+border-radius: 34px;
+}
+
+.slider.round:before {
+border-radius: 50%;
+}
+
+.period-switch {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+}
+
+.period-switch span {
+    font-size: 1rem;
+    color: #fff;
+}
+
+.switch {
+    position: relative;
+    display: inline-block;
+    width: 60px;
+    height: 34px;
+}
+
+.switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #ccc;
+    transition: .4s;
+}
+
+.slider:before {
+    position: absolute;
+    content: "";
+    height: 26px;
+    width: 26px;
+    left: 4px;
+    bottom: 4px;
+    background-color: white;
+    transition: .4s;
+}
+
+input:checked + .slider {
+    background-color: #2196F3;
+}
+
+input:focus + .slider {
+    box-shadow: 0 0 1px #2196F3;
+}
+
+input:checked + .slider:before {
+    transform: translateX(26px);
+}
+
+.bottom-controls {
+    margin: 5vh;
+}

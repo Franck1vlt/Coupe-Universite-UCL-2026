@@ -571,89 +571,78 @@ export default function TournamentViewPage() {
   }, [params.id, teamSportIdToName]);
 
 
-  // Générer le classement des poules avec les vrais résultats
-  const generatePoolRankings = async (): Promise<Map<string, RankingEntry[]>> => {
-    const poolRankings = new Map<string, RankingEntry[]>();
-    
-    // Récupérer le classement de chaque poule via l'API
-    for (const pool of pools) {
-      try {
-        const response = await fetch(`http://localhost:8000/pools/${pool.id}/standings`);
-        if (response.ok) {
-          const data = await response.json();
-          const standings = data.data || [];
-          
-          // Convertir les standings de l'API au format RankingEntry
-          const ranking: RankingEntry[] = standings.map((standing: any) => ({
-            position: standing.position || 1,
-            team: standing.team_name || "",
-            played: (standing.wins || 0) + (standing.losses || 0) + (standing.draws || 0),
-            won: standing.wins || 0,
-            drawn: standing.draws || 0,
-            lost: standing.losses || 0,
-            points: standing.points || 0,
-            scoreDiff: standing.goal_difference || 0,
-          }));
-          
-          poolRankings.set(pool.name, ranking);
-        } else {
-          console.warn(`⚠️ Impossible de récupérer le classement de la poule ${pool.id}`);
-          // Fallback: calculer localement
-          const standings = calculatePoolStandings(pools.find(p => p.id === pool.id) as TournamentLogicPool);
-          const ranking: RankingEntry[] = standings.map((standing, index) => ({
-            position: index + 1,
-            team: standing.team,
-            played: standing.played,
-            won: standing.won,
-            drawn: 0,
-            lost: standing.lost,
-            points: standing.points,
-            scoreDiff: standing.scoreDiff,
-          }));
-          poolRankings.set(pool.name, ranking);
-        }
-      } catch (err) {
-        console.warn(`⚠️ Erreur lors du chargement du classement de la poule ${pool.id}:`, err);
-        // Fallback: calculer localement
-        const standings = calculatePoolStandings(pools.find(p => p.id === pool.id) as TournamentLogicPool);
-        const ranking: RankingEntry[] = standings.map((standing, index) => ({
-          position: index + 1,
-          team: standing.team,
-          played: standing.played,
-          won: standing.won,
-          drawn: 0,
-          lost: standing.lost,
-          points: standing.points,
-          scoreDiff: standing.scoreDiff,
-        }));
-        poolRankings.set(pool.name, ranking);
-      }
-    }
-    
-    return poolRankings;
-  };
-
-  // Générer le classement final avec les vrais points
-  // NOTE: Cette fonction est maintenant appelée dans un useEffect
-
   // États pour stocker les rankings
   const [poolRankings, setPoolRankings] = useState<Map<string, RankingEntry[]>>(new Map());
   const [finalRanking, setFinalRanking] = useState<RankingEntry[]>([]);
+  
+  // Générer le classement des poules avec les vrais résultats
+  const generatePoolRankings = () => {
+    const newPoolRankings = new Map<string, RankingEntry[]>();
+
+    pools.forEach((pool) => {
+      // 1. On récupère les matchs dont le label contient le nom de la poule (ex: "Poule A")
+      const poolMatches = matches.filter(m => 
+        m.type === "poule" && m.label.includes(pool.name)
+      );
+
+      const stats: Record<string, RankingEntry> = {};
+
+      // 2. Initialiser les équipes de la poule
+      // Si pool.teams est vide, on les extrait des matchs
+      const teamsInPool = pool.teams.length > 0 ? pool.teams : 
+        Array.from(new Set(poolMatches.flatMap(m => [m.teamA, m.teamB])));
+
+      teamsInPool.forEach(teamName => {
+        stats[teamName] = {
+          position: 0, team: teamName, played: 0, won: 0, drawn: 0, lost: 0, points: 0, scoreDiff: 0 
+        };
+      });
+
+      // 3. Calcul des points (3, 1, 0)
+      poolMatches.forEach((m) => {
+        if (m.status !== "terminé" || m.scoreA === undefined || m.scoreB === undefined) return;
+
+        const { teamA, teamB, scoreA, scoreB } = m;
+        if (!stats[teamA] || !stats[teamB]) return;
+
+        stats[teamA].played++;
+        stats[teamB].played++;
+        stats[teamA].scoreDiff = (stats[teamA].scoreDiff || 0) + (scoreA - scoreB);
+        stats[teamB].scoreDiff = (stats[teamB].scoreDiff || 0) + (scoreB - scoreA);
+
+        if (scoreA > scoreB) {
+          stats[teamA].points += 3;
+          stats[teamA].won++;
+          stats[teamB].lost++;
+        } else if (scoreB > scoreA) {
+          stats[teamB].points += 3;
+          stats[teamB].won++;
+          stats[teamA].lost++;
+        } else {
+          stats[teamA].points += 1;
+          stats[teamB].points += 1;
+          stats[teamA].drawn++;
+          stats[teamB].drawn++;
+        }
+      });
+
+      // 4. Tri par points puis différence de buts
+      const sorted = Object.values(stats).sort((a, b) => {
+        if (b.points !== a.points) return b.points - a.points;
+        return (b.scoreDiff || 0) - (a.scoreDiff || 0);
+      });
+
+      sorted.forEach((e, i) => e.position = i + 1);
+      newPoolRankings.set(pool.name, sorted);
+    });
+
+    setPoolRankings(newPoolRankings);
+  };
 
   // Charger les classements des poules via l'API
   useEffect(() => {
-    if (pools.length === 0) {
-      setPoolRankings(new Map());
-      return;
-    }
-
-    const loadPoolRankings = async () => {
-      const rankings = await generatePoolRankings();
-      setPoolRankings(rankings);
-    };
-
-    loadPoolRankings();
-  }, [pools]);
+    generatePoolRankings();
+  }, [pools, rankingFilter, matches]);
 
   // Charger le classement final depuis l'API
   useEffect(() => {

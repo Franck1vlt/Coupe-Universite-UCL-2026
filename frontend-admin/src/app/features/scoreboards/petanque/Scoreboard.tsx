@@ -24,8 +24,6 @@ export default function PetanqueTableMarquagePage() {
   const params = useSearchParams();
   const matchId = params.get("matchId");
   const router = useRouter();
-  const logoService = "/img/cochonet.png";
-  const CONST_SIZE = 30;
   const [tournamentId, setTournamentId] = useState<string | null>(null);
   const [teamA, setTeamA] = useState("");
   const [teamB, setTeamB] = useState("");
@@ -53,12 +51,12 @@ export default function PetanqueTableMarquagePage() {
         const matchRes = await fetch(`http://localhost:8000/matches/${matchId}`);
         if (!matchRes.ok) throw new Error('Match not found');
         const matchData = await matchRes.json();
-
+        
         // 2. Récupérer la phase pour obtenir tournament_id
         const phaseRes = await fetch(`http://localhost:8000/tournament-phases/${matchData.data.phase_id}`);
         if (!phaseRes.ok) throw new Error('Phase not found');
         const phaseData = await phaseRes.json();
-
+        
         setTournamentId(phaseData.data.tournament_id.toString());
       } catch (err) {
         console.error("Erreur récupération tournamentId:", err);
@@ -84,25 +82,34 @@ export default function PetanqueTableMarquagePage() {
 
   const {
     matchData,
-    formattedTime,
-    startChrono,
-    stopChrono,
-    addPoint,
-    subPoint,
+    addThrow,
+    cancelLastThrow,
+    validateThrow,
+    resetSet,
+    getCochonnetTeam,
+    selectMeneWinner,
     setTeamName,
     setTeamLogo,
     setMatchType: setMatchTypeMeta,
+    setTargetScore,
+    changeService,
     swapSides,
     court,
     handleEnd,
-    changeCochonnet
+    updateMatchStatus
   } = usePetanqueMatch(matchId);
+
+  // Redéfinir les handlers pour intégrer la gestion du statut
+  const handleStart = () => {
+    updateMatchStatus('in_progress');
+  };
+
 
   // Synchroniser les données du match avec les states locaux
   useEffect(() => {
     console.log('[Petanque Scoreboard] Match data changed:', matchData);
     console.log('[Petanque Scoreboard] Court:', court);
-
+    
     if (matchData.teamA.name && matchData.teamA.name !== "Team A") {
       setTeamA(matchData.teamA.name);
       console.log('[Petanque Scoreboard] Set Team A to:', matchData.teamA.name);
@@ -312,6 +319,17 @@ export default function PetanqueTableMarquagePage() {
               />
             </>
           )}
+        
+          <label htmlFor="targetScore">Points par matchs :</label>
+          <input
+            id="targetScore"
+            type="number"
+            min="1"
+            max="21"
+            value={matchData.targetScore}
+            onChange={(e) => setTargetScore(parseInt(e.target.value) || 13)}
+            className="w-full text-center rounded-md border-none mb-2.5 bg-white text-black p-2"
+          />
         </div>
 
         <div className="bouton_pied_page">
@@ -326,70 +344,151 @@ export default function PetanqueTableMarquagePage() {
 
       {/* Tableau de marquage */}
       <div className="droite">
-        <div className="scoreboard gap-8">
+        <div className="scoreboard">
           <div className="score-display">
-            <div className="teams-line mb-4">
-              <span>{matchData.teamA.name !== "Team A" ? matchData.teamA.name : (teamA != "" ? teams.find((c: Team) => c.id === teamA)?.name : "Team A")}</span>
-              <span>{matchData.teamB.name !== "Team B" ? matchData.teamB.name : (teamB != "" ? teams.find((c: Team) => c.id === teamB)?.name : "Team B")}</span>
-            </div>
-            <div className="score-line flex flex-row justify-center items-center gap-8 mb-6">
-              <div>
-                {matchData.cochonnetOwner === "A" && (
-                  <img src={logoService} alt="Logo Cochonnet" width={CONST_SIZE} height={CONST_SIZE} className="service-logo" />
-                )}
+            <div className="score-line flex flex-row justify-center items-center">
+              {/* Equipe A */}
+              <div className="flex flex-col items-center gap-1">
+                <div className="flex items-center gap-2">
+                  {getCochonnetTeam() === "A" && <img src="/img/cochonet.png" alt="Cochonnet" className="w-6 h-6" />}
+                  <span className="text-xl font-semibold">{matchData.teamA.name !== "Team A" ? matchData.teamA.name : (teamA != "" ? teams.find((c: Team) => c.id === teamA)?.name : "Team A")}</span>
+                </div>
               </div>
-              <div>{matchData.teamA.score} - {matchData.teamB.score}</div>
-              <div>
-                {matchData.cochonnetOwner === "B" && (
-                  <img src={logoService} alt="Logo Cochonnet" width={CONST_SIZE} height={CONST_SIZE} className="service-logo" />
-                )}
+
+              {/* Score */}
+              <div className="flex items-center gap-4">
+                <span className="text-5xl font-bold">{matchData.teamA.score}</span>
+                <span className="text-3xl font-bold text-gray-400">-</span>
+                <span className="text-5xl font-bold">{matchData.teamB.score}</span>
+              </div>
+
+              {/* Equipe B */}
+              <div className="flex flex-col items-center gap-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-xl font-semibold">{matchData.teamB.name !== "Team B" ? matchData.teamB.name : (teamB != "" ? teams.find((c: Team) => c.id === teamB)?.name : "Team B")}</span>
+                  {getCochonnetTeam() === "B" && <img src="/img/cochonet.png" alt="Cochonnet" className="w-6 h-6" />}
+                </div>
               </div>
             </div>
-            <div className="info-line">
-              <p>{matchData.matchType || (matchType !== "Type de match" ? matchType : "Type de match")} - {
-                // Affiche toujours le nom du terrain si possible
-                courts.find(c => c.id === matchData.court?.toString())?.name
-                || courts.find(c => c.name === matchData.court)?.name
-                || courts.find(c => c.id === court?.toString())?.name
-                || courts.find(c => c.name === court)?.name
-                || courts.find(c => c.id === matchGround)?.name
-                || matchData.court
-                || court
-                || (matchGround !== "Terrain" ? courts.find(c => c.id === matchGround)?.name : "Terrain")
-              }</p>
+
+            {/* Infos du match */}
+            <div className="flex flex-row justify-center items-center mb-6 gap-4">
+              <span className="px-3 py-1 bg-gray-100 text-gray-700 rounded-full">
+                {matchData.matchType || (matchType !== "Type de match" ? matchType : "Match")}
+              </span>
+              <span className="px-3 py-1 bg-gray-100 text-gray-700 rounded-full">
+                {courts.find(c => c.id === matchData.court?.toString())?.name
+                  || courts.find(c => c.name === matchData.court)?.name
+                  || courts.find(c => c.id === court?.toString())?.name
+                  || courts.find(c => c.name === court)?.name
+                  || courts.find(c => c.id === matchGround)?.name
+                  || matchData.court
+                  || court
+                  || (matchGround !== "Terrain" ? courts.find(c => c.id === matchGround)?.name : "Terrain")}
+              </span>
+              <span className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full font-medium">
+                Match en {matchData.targetScore} pts
+              </span>
+            </div>
+          </div>
+            
+          {/* Infos de la mène en cours */}
+          <div className="mene-info">
+            <div className="text-lg">
+              Mene {matchData.meneHistory.length + 1}
+            </div>
+            <div className="current-player">
+              <p className="text-lg font-semibold flex items-center justify-center gap-2">
+                🎯 A {getCochonnetTeam() === "A" ? matchData.teamA.name : matchData.teamB.name} de lancer le cochonnet
+              </p>
+              <p className="text-xl">
+                {matchData.pendingWinner ? (
+                  <>Gagnant : {matchData.pendingWinner === "A" ? matchData.teamA.name : matchData.teamB.name} | Points : {matchData.pendingPoints || "?"}</>
+                ) : (
+                  "Selectionnez le gagnant de la mene"
+                )}
+              </p>
             </div>
           </div>
 
-          <div className="points-section">
-            <div className="flex items-center gap-2">
-              <p>Points : {matchData.teamA.score}</p>
-              <button onClick={() => subPoint("A")}>-</button>
-              <button onClick={() => addPoint("A")}>+</button>
+          {/* Choix équipe gagnante de la mène */}
+          <div className="meneAction flex flex-col items-center gap-4 mt-4">
+
+            <div className="buttons-section flex flex-col items-center gap-4">
+              <p>Equipe gagnante de la mene :</p>
+              <div className="winner-buttons flex flex-row gap-6 mb-4 justify-center">
+                <button
+                  onClick={() => selectMeneWinner("A")}
+                  className={matchData.pendingWinner === "A" ? "selected" : ""}
+                  style={matchData.pendingWinner === "A" ? { backgroundColor: "#4CAF50", color: "white" } : {}}
+                >
+                  {matchData.teamA.name}
+                </button>
+                <button
+                  onClick={() => selectMeneWinner("B")}
+                  className={matchData.pendingWinner === "B" ? "selected" : ""}
+                  style={matchData.pendingWinner === "B" ? { backgroundColor: "#4CAF50", color: "white" } : {}}
+                >
+                  {matchData.teamB.name}
+                </button>
+              </div>
             </div>
-            <div className="timer">{formattedTime}</div>
-            <div className="flex items-center gap-2">
-              <p>Points : {matchData.teamB.score}</p>
-              <button onClick={() => subPoint("B")}>-</button>
-              <button onClick={() => addPoint("B")}>+</button>
+
+            <div className="buttons-section flex flex-col items-center gap-4">
+              {/* Boutons pour les points de la mène (1-6) */}
+              <p className="mb-2">Points de la mene :</p>
+              <div className="PointButtons flex flex-row flex-wrap gap-4 justify-center">
+                <button className={`btnAdd ${matchData.pendingPoints === 1 ? "selected" : ""}`} onClick={() => addThrow(1)} style={matchData.pendingPoints === 1 ? { backgroundColor: "#2196F3", color: "white" } : {}}>1</button>
+                <button className={`btnAdd ${matchData.pendingPoints === 2 ? "selected" : ""}`} onClick={() => addThrow(2)} style={matchData.pendingPoints === 2 ? { backgroundColor: "#2196F3", color: "white" } : {}}>2</button>
+                <button className={`btnAdd ${matchData.pendingPoints === 3 ? "selected" : ""}`} onClick={() => addThrow(3)} style={matchData.pendingPoints === 3 ? { backgroundColor: "#2196F3", color: "white" } : {}}>3</button>
+                <button className={`btnAdd ${matchData.pendingPoints === 4 ? "selected" : ""}`} onClick={() => addThrow(4)} style={matchData.pendingPoints === 4 ? { backgroundColor: "#2196F3", color: "white" } : {}}>4</button>
+                <button className={`btnAdd ${matchData.pendingPoints === 5 ? "selected" : ""}`} onClick={() => addThrow(5)} style={matchData.pendingPoints === 5 ? { backgroundColor: "#2196F3", color: "white" } : {}}>5</button>
+                <button className={`btnAdd ${matchData.pendingPoints === 6 ? "selected" : ""}`} onClick={() => addThrow(6)} style={matchData.pendingPoints === 6 ? { backgroundColor: "#2196F3", color: "white" } : {}}>6</button>
+              </div>
+            </div>
+
+            {/* Boutons d'action de mène */}
+            <div className="action-buttons flex flex-row gap-6">
+              <button className="btnCancel text-white px-4 py-2 rounded" onClick={cancelLastThrow}>
+                Annuler
+              </button>
+              <button
+                className="btnValidate text-white px-4 py-2 rounded font-bold"
+                onClick={validateThrow}
+                disabled={!matchData.pendingWinner || matchData.pendingPoints <= 0}
+                style={(!matchData.pendingWinner || matchData.pendingPoints <= 0) ? { opacity: 0.5, cursor: "not-allowed" } : {}}
+              >
+                Valider mène
+              </button>
             </div>
           </div>
 
-
-          {/* Boutons de contrôle généraux */}
-          <div className="bottom-controls grid grid-cols-2 gap-4 mt-8">
-            <button onClick={startChrono}>Start</button>
-            <button onClick={stopChrono}>Stop</button>
-            <button onClick={changeCochonnet}>Cochonnet</button>
-            <button onClick={handleSwipe}>Swipe</button>
+          {/* Contrôles en bas */}
+          <div className="bottom-controls grid grid-cols-5 grid-rows-1 gap-4">
+            <button onClick={handleStart} className="btnAction text-white">Start</button>
+            <button onClick={changeService} className="btnAction text-white" title="Changer l'equipe qui lance le cochonnet">
+              Service
+            </button>
+            <button onClick={handleSwipe} className="btnAction text-white">Swipe</button>
+            <button onClick={resetSet} className="btnAction text-white">Reset</button>
             <button
               onClick={async () => {
+                console.log('🔵 END button clicked');
+                console.log('🔵 TournamentId:', tournamentId);
+                
                 if (!tournamentId) {
                   alert("Impossible de retrouver l'ID du tournoi pour la redirection.");
+                  console.error('❌ No tournament ID found');
                   return;
                 }
-                await handleEnd();
-                window.location.href = `/choix-sport/tournaments/${tournamentId}`;
+                
+                console.log('🔵 Calling handleEnd...');
+                await handleEnd();  // handleEnd appelle submitMatchResult qui envoie status: 'completed'
+                
+                console.log('🔵 Redirecting to tournament:', tournamentId);
+                router.push(`/choix-sport/tournaments/${tournamentId}`);
               }}
+              disabled={!teamA || !teamB}
             >
               END
             </button>

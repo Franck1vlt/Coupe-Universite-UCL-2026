@@ -1,9 +1,13 @@
 import { ReactNode } from "react";
 import "./globals.css";
+import { Metadata } from 'next';
 
-export const metadata = {
-  title: "Dashboard",
-  description: "Application de gestion de la coupe universitaire",
+export const metadata: Metadata = {
+  title: "Coupe de l'Université UCL",
+  description: "Application de gestion sportive de la coupe de l'Université",
+  icons: {
+    icon: '/img/coupe.png', // Chemin vers votre image dans le dossier public
+  },
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
