@@ -63,7 +63,7 @@ export default function GestionTeams() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("http://localhost:8000/teams?skip=0&limit=100", { method: "GET", headers: { "Accept": "application/json" } });
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/teams?skip=0&limit=100`, { method: "GET", headers: { "Accept": "application/json" } });
       if (!res.ok) throw new Error("Impossible de charger les équipes.");
       const data = await res.json();
 
@@ -96,7 +96,7 @@ export default function GestionTeams() {
     setRemoving(teamId);
     setError(null);
     try {
-      const res = await fetch(`http://localhost:8000/teams/${teamId}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/teams/${teamId}`, {
         method: "DELETE",
         headers: { Accept: "application/json" },
       });
@@ -180,7 +180,7 @@ export default function GestionTeams() {
       const logoUrl = computeLogoUrlFromName(nom);
 
       // On ajoute le champ logo_url explicitement dans la requête
-      const url = `http://localhost:8000/teams?name=${encodeURIComponent(nom)}&primary_color=${encodeURIComponent(color)}&logo_url=${encodeURIComponent(logoUrl)}`;
+      const url = `${process.env.NEXT_PUBLIC_API_URL}/teams?name=${encodeURIComponent(nom)}&primary_color=${encodeURIComponent(color)}&logo_url=${encodeURIComponent(logoUrl)}`;
       const res = await fetch(url, {
         method: "POST",
         headers: { Accept: "application/json" }
@@ -223,7 +223,7 @@ export default function GestionTeams() {
       // Recalcule l'URL du logo si le nom a changé (toujours synchronisé sur le nom)
       const logoUrl = computeLogoUrlFromName(name.trim());
 
-      const url = `http://localhost:8000/teams/${team.id}`;
+      const url = `${process.env.NEXT_PUBLIC_API_URL}/teams/${team.id}`;
       const payload = {
         name: name.trim(),
         primary_color: colorName,

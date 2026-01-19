@@ -304,7 +304,7 @@ export default function TournamentsPage() {
   const fetchTeams = async () => {
     setLoadingTeams(true);
     try {
-      const res = await fetch("http://localhost:8000/teams?skip=0&limit=100", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/teams?skip=0&limit=100`, {
         method: "GET",
         headers: { "Accept": "application/json" }
       });
@@ -327,7 +327,7 @@ export default function TournamentsPage() {
   const fetchCourts = async () => {
     setLoadingCourts(true);
     try {
-      const res = await fetch("http://localhost:8000/courts?skip=0&limit=100", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/courts?skip=0&limit=100`, {
         method: "GET",
         headers: { "Accept": "application/json" }
       });
@@ -380,7 +380,7 @@ export default function TournamentsPage() {
       console.log(`📅 Envoi match schedule pour match ${matchId}:`, payload);
 
       // Essayer d'abord un PUT (mise à jour)
-      let res = await fetch(`http://localhost:8000/match-schedules/${matchId}`, {
+      let res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/match-schedules/${matchId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
@@ -389,7 +389,7 @@ export default function TournamentsPage() {
       // Si 404, créer avec POST
       if (res.status === 404) {
         console.log(`⚠️ Schedule inexistant pour match ${matchId}, création...`);
-        res = await fetch(`http://localhost:8000/match-schedules/`, {
+        res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/match-schedules/`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload)
@@ -445,7 +445,7 @@ export default function TournamentsPage() {
   const loadTournamentData = async () => {
     try {
       // 1. Récupération du tournoi
-      const response = await fetch(`http://localhost:8000/tournaments`);
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/tournaments`);
       if (!response.ok) return;
       const tournamentsData = await response.json();
       const tournament = tournamentsData.data.items.find(
@@ -457,7 +457,7 @@ export default function TournamentsPage() {
 
       // 2. Récupération des matchs via la liste globale (plus fiable)
       const matchesRes = await fetch(
-        `http://localhost:8000/tournaments/${tournament.id}/matches`
+        `${process.env.NEXT_PUBLIC_API_URL}/tournaments/${tournament.id}/matches`
       );
       if (!matchesRes.ok) return;
       const matchesJson = await matchesRes.json();
@@ -635,7 +635,7 @@ export default function TournamentsPage() {
       // Essayer de charger depuis l'API d'abord
       const loadFromAPI = async () => {
         try {
-          const response = await fetch(`http://localhost:8000/tournaments`);
+          const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/tournaments`);
           if (!response.ok) throw new Error("Erreur lors du chargement des tournois");
           
           const data = await response.json();
@@ -644,7 +644,7 @@ export default function TournamentsPage() {
             
             if (tournament) {
               setTournamentId(tournament.id);
-              const structureResponse = await fetch(`http://localhost:8000/tournaments/${tournament.id}/structure`);
+              const structureResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/tournaments/${tournament.id}/structure`);
               
               if (structureResponse.ok) {
                 const structureData = await structureResponse.json();
@@ -668,9 +668,9 @@ export default function TournamentsPage() {
                     winnerCode: m.label,
                     winnerPoints: m.winner_points ?? 0,
                     loserPoints: m.loser_points ?? 0,
-                    // Destinations - convertir l'ID numérique en string pour le frontend
-                    winner_destination_match_id: m.winner_destination_match_id?.toString() || null,
-                    loser_destination_match_id: m.loser_destination_match_id?.toString() || null,
+                    // Destinations - utiliser les UUIDs de destination (fournis par le backend)
+                    winner_destination_match_id: m.winner_destination_match_uuid || null,
+                    loser_destination_match_id: m.loser_destination_match_uuid || null,
                     winner_destination_slot: m.winner_destination_slot || undefined,
                     loser_destination_slot: m.loser_destination_slot || undefined,
                     position: { x: 100, y: 100 + (m.match_order || 0) * 100 },
@@ -693,8 +693,8 @@ export default function TournamentsPage() {
                       scoreB: m.score_b,
                       winnerPoints: m.winner_points ?? 0,
                       loserPoints: m.loser_points ?? 0,
-                      winner_destination_match_id: m.winner_destination_match_id?.toString() || null,
-                      loser_destination_match_id: m.loser_destination_match_id?.toString() || null,
+                      winner_destination_match_id: m.winner_destination_match_uuid || null,
+                      loser_destination_match_id: m.loser_destination_match_uuid || null,
                       winner_destination_slot: m.winner_destination_slot || undefined,
                       loser_destination_slot: m.loser_destination_slot || undefined,
                       position: { x: 0, y: 0 },
@@ -704,7 +704,7 @@ export default function TournamentsPage() {
                   }));
 
                   // 3. FALLBACK : Si pas de poules ou de brackets, on charge tout via /matches
-                  const matchesRes = await fetch(`http://localhost:8000/tournaments/${tournament.id}/matches`);
+                  const matchesRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/tournaments/${tournament.id}/matches`);
                   let allMatchesRaw: any[] = [];
                   if (matchesRes.ok) {
                     const matchesJson = await matchesRes.json();
@@ -769,8 +769,8 @@ export default function TournamentsPage() {
                           duration: m.duration || 90,
                           winnerPoints: m.winner_points ?? 0,
                           loserPoints: m.loser_points ?? 0,
-                          winner_destination_match_id: m.winner_destination_match_id?.toString() || null,
-                          loser_destination_match_id: m.loser_destination_match_id?.toString() || null,
+                          winner_destination_match_id: m.winner_destination_match_uuid || null,
+                          loser_destination_match_id: m.loser_destination_match_uuid || null,
                           winner_destination_slot: m.winner_destination_slot || undefined,
                           loser_destination_slot: m.loser_destination_slot || undefined,
                           position: calculateBracketMatchPosition(mappedType as BracketMatchType, index, bracketMatchesRaw.length)
@@ -821,7 +821,7 @@ export default function TournamentsPage() {
   const fetchSport = async (sportId: string) => {
     setLoading(true);
     try {
-      const res = await fetch(`http://localhost:8000/sports/${sportId}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/sports/${sportId}`, {
         method: "GET",
         headers: { "Accept": "application/json" }
       });
@@ -1487,7 +1487,7 @@ export default function TournamentsPage() {
       if (tournamentId) {
         console.log(`🗑️ Suppression de la structure du tournoi ${tournamentId}...`);
         
-        const response = await fetch(`http://localhost:8000/tournaments/${tournamentId}/structure`, {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/tournaments/${tournamentId}/structure`, {
           method: 'DELETE',
           headers: { 'Accept': 'application/json' }
         });
@@ -1732,8 +1732,8 @@ export default function TournamentsPage() {
         const tournamentName = `${sportName} - ${new Date().getFullYear()}`;
 
         const url = tournamentId 
-          ? `http://localhost:8000/tournaments/${tournamentId}/structure` 
-          : `http://localhost:8000/tournaments`;
+          ? `${process.env.NEXT_PUBLIC_API_URL}/tournaments/${tournamentId}/structure` 
+          : `${process.env.NEXT_PUBLIC_API_URL}/tournaments`;
 
         const payload = tournamentId 
           ? structure 
@@ -2613,7 +2613,6 @@ export default function TournamentsPage() {
                 </>
               )}
 
-
               {/* Sélection de la destination du vainqueur/perdant avec slot A/B */}
               <div className="grid grid-cols-2 gap-2 mb-2">
                 <div>
@@ -2631,10 +2630,10 @@ export default function TournamentsPage() {
                       }}
                     >
                       <option value="">Aucune</option>
-                      {allAvailableMatches
-                        .filter(m => m.id !== selectedMatch.id)
+                      {[...matches, ...pools.flatMap(p=>p.matches), ...brackets.flatMap(b=>b.matches), ...loserBrackets.flatMap(lb=>lb.matches)]
+                        .filter(m => m.id !== selectedMatch?.id)
                         .map(m => (
-                          <option key={m.id} value={m.id}>
+                          <option key={m.id} value={m.uuid}>
                             {m.label || `Match #${m.id}`}
                           </option>
                         ))}
@@ -2671,10 +2670,10 @@ export default function TournamentsPage() {
                       }}
                     >
                       <option value="">Aucune</option>
-                      {allAvailableMatches
-                        .filter(m => m.id !== selectedMatch.id)
+                      {[...matches, ...pools.flatMap(p=>p.matches), ...brackets.flatMap(b=>b.matches), ...loserBrackets.flatMap(lb=>lb.matches)]
+                        .filter(m => m.id !== selectedMatch?.id)
                         .map(m => (
-                          <option key={m.id} value={m.id}>
+                          <option key={m.id} value={m.uuid}>
                             {m.label || `Match #${m.id}`}
                           </option>
                         ))}
@@ -3423,6 +3422,112 @@ export default function TournamentsPage() {
                       
                       return (
                         <>
+                          {/* Perdants des qualifications */}
+                          {(() => {
+                            const qualificationLosers: string[] = [];
+                            matches
+                              .filter(m => m.type === "qualifications")
+                              .forEach(match => {
+                                if (match.loserCode) {
+                                  qualificationLosers.push(match.loserCode);
+                                } else if (match.winnerCode) {
+                                  // Si pas de loserCode explicite, générer LQ1, LQ2, etc.
+                                  const matchNum = match.winnerCode.replace('WQ', '');
+                                  qualificationLosers.push(`LQ${matchNum}`);
+                                }
+                              });
+
+                            if (qualificationLosers.length === 0) return null;
+
+                            return (
+                              <>
+                                <div className="text-xs font-semibold text-red-600 mt-2 mb-1">
+                                  Perdants des qualifications
+                                </div>
+                                {qualificationLosers.map(code => {
+                                  const isSelected = selectedLoserBracket.teams.includes(code);
+                                  const isUsedElsewhere = usedTeams.brackets.has(code);
+                                  return (
+                                    <div key={code} className="flex items-center">
+                                      <input
+                                        type="checkbox"
+                                        id={`lb-qual-loser-${code}`}
+                                        checked={isSelected}
+                                        disabled={isUsedElsewhere}
+                                        onChange={(e) => {
+                                          if (e.target.checked) {
+                                            addTeamToLoserBracket(selectedLoserBracket.id, code);
+                                          } else {
+                                            removeTeamFromLoserBracket(selectedLoserBracket.id, code);
+                                          }
+                                        }}
+                                        className="mr-2"
+                                      />
+                                      <label
+                                        htmlFor={`lb-qual-loser-${code}`}
+                                        className={`text-sm font-medium ${isUsedElsewhere ? 'text-gray-400 line-through' : 'text-red-600'}`}
+                                      >
+                                        {code} {isUsedElsewhere && '(déjà utilisé)'}
+                                      </label>
+                                    </div>
+                                  );
+                                })}
+                                <div className="border-t border-gray-200 my-2"></div>
+                              </>
+                            );
+                          })()}
+
+                          {/* Qualifiés Loser Bracket des poules */}
+                          {(() => {
+                            const poolLoserBracketQualifiers: string[] = [];
+                            pools.forEach(pool => {
+                              const startRank = (pool.qualifiedToFinals || 0) + 1;
+                              const endRank = startRank + (pool.qualifiedToLoserBracket || 0) - 1;
+                              for (let i = startRank; i <= endRank; i++) {
+                                poolLoserBracketQualifiers.push(`${pool.name}-${i}`);
+                              }
+                            });
+
+                            if (poolLoserBracketQualifiers.length === 0) return null;
+
+                            return (
+                              <>
+                                <div className="text-xs font-semibold text-amber-600 mt-2 mb-1">
+                                  Qualifiés Loser Bracket (poules)
+                                </div>
+                                {poolLoserBracketQualifiers.map(code => {
+                                  const isSelected = selectedLoserBracket.teams.includes(code);
+                                  const isUsedElsewhere = usedTeams.brackets.has(code);
+                                  return (
+                                    <div key={code} className="flex items-center">
+                                      <input
+                                        type="checkbox"
+                                        id={`lb-pool-qualifier-${code}`}
+                                        checked={isSelected}
+                                        disabled={isUsedElsewhere}
+                                        onChange={(e) => {
+                                          if (e.target.checked) {
+                                            addTeamToLoserBracket(selectedLoserBracket.id, code);
+                                          } else {
+                                            removeTeamFromLoserBracket(selectedLoserBracket.id, code);
+                                          }
+                                        }}
+                                        className="mr-2"
+                                      />
+                                      <label
+                                        htmlFor={`lb-pool-qualifier-${code}`}
+                                        className={`text-sm font-medium ${isUsedElsewhere ? 'text-gray-400 line-through' : 'text-amber-600'}`}
+                                      >
+                                        {code} {isUsedElsewhere && '(déjà utilisé)'}
+                                      </label>
+                                    </div>
+                                  );
+                                })}
+                                <div className="border-t border-gray-200 my-2"></div>
+                              </>
+                            );
+                          })()}
+
                           {/* Perdants des phases finales */}
                           {(() => {
                             const bracketLosers: string[] = [];
@@ -3433,18 +3538,18 @@ export default function TournamentsPage() {
                                 }
                               });
                             });
-                            
+
                             if (bracketLosers.length === 0) return null;
-                            
+
                             return (
                               <>
-                                <div className="text-xs font-semibold text-black mt-2 mb-1">
+                                <div className="text-xs font-semibold text-indigo-600 mt-2 mb-1">
                                   Perdants de la phase finale
                                 </div>
                                 {bracketLosers.map(code => {
                                   const isSelected = selectedLoserBracket.teams.includes(code);
-                                  const isUsedElsewhere = usedTeams.qualifications.has(code) || 
-                                                          usedTeams.pools.has(code) || 
+                                  const isUsedElsewhere = usedTeams.qualifications.has(code) ||
+                                                          usedTeams.pools.has(code) ||
                                                           usedTeams.brackets.has(code);
                                   return (
                                     <div key={code} className="flex items-center">
@@ -3462,9 +3567,9 @@ export default function TournamentsPage() {
                                         }}
                                         className="mr-2"
                                       />
-                                      <label 
-                                        htmlFor={`lb-bracket-loser-${code}`} 
-                                        className={`text-sm font-medium ${isUsedElsewhere ? 'text-gray-400 line-through' : 'text-black'}`}
+                                      <label
+                                        htmlFor={`lb-bracket-loser-${code}`}
+                                        className={`text-sm font-medium ${isUsedElsewhere ? 'text-gray-400 line-through' : 'text-indigo-600'}`}
                                       >
                                         {code} {isUsedElsewhere && '(déjà utilisé)'}
                                       </label>
@@ -3772,53 +3877,87 @@ export default function TournamentsPage() {
                 </div>
               </div>
 
-              {/* Destinations vainqueur/perdant */}
+              {/* Destinations vainqueur/perdant avec slot A/B */}
               <div className="grid grid-cols-2 gap-2 mb-2">
                 <div>
                   <label className="block text-xs font-bold mb-1" style={{ color: '#16a34a' }}>Destination Vainqueur</label>
-                  <select
-                    className="w-full p-2 border border-green-400 rounded-md focus:ring-green-500 focus:border-green-500 text-black bg-green-50"
-                    value={selectedPoolMatch.winner_destination_match_id || ''}
-                    onChange={e => {
-                      const value = e.target.value || null;
-                      updatePoolMatch({
-                        ...selectedPoolMatch,
-                        winner_destination_match_id: value,
-                      });
-                    }}
-                  >
-                    <option value="">Aucune</option>
-                    {[...matches, ...pools.flatMap(p=>p.matches), ...brackets.flatMap(b=>b.matches), ...loserBrackets.flatMap(lb=>lb.matches)]
-                      .filter(m => m.id !== selectedPoolMatch.id)
-                      .map(m => (
-                        <option key={m.id} value={m.id}>
-                          {m.label || m.id}
-                        </option>
-                      ))}
-                  </select>
+                  <div className="flex gap-1">
+                    <select
+                      className="flex-1 p-2 border border-green-400 rounded-md focus:ring-green-500 focus:border-green-500 text-black bg-green-50"
+                      value={selectedPoolMatch.winner_destination_match_id || ''}
+                      onChange={e => {
+                        const value = e.target.value || null;
+                        updatePoolMatch({
+                          ...selectedPoolMatch,
+                          winner_destination_match_id: value,
+                        });
+                      }}
+                    >
+                      <option value="">Aucune</option>
+                      {[...matches, ...pools.flatMap(p=>p.matches), ...brackets.flatMap(b=>b.matches), ...loserBrackets.flatMap(lb=>lb.matches)]
+                        .filter(m => m.id !== selectedMatch?.id)
+                        .map(m => (
+                          <option key={m.id} value={m.uuid}>
+                            {m.label || `Match #${m.id}`}
+                          </option>
+                        ))}
+                    </select>
+                    <select
+                      className="w-14 p-2 border border-green-400 rounded-md text-black bg-green-50 font-bold"
+                      value={selectedPoolMatch.winner_destination_slot || ''}
+                      onChange={e => {
+                        updatePoolMatch({
+                          ...selectedPoolMatch,
+                          winner_destination_slot: e.target.value === "" ? undefined : (e.target.value as "A" | "B"),
+                        });
+                      }}
+                      disabled={!selectedPoolMatch.winner_destination_match_id}
+                    >
+                      <option value="">-</option>
+                      <option value="A">A</option>
+                      <option value="B">B</option>
+                    </select>
+                  </div>
                 </div>
                 <div>
                   <label className="block text-xs font-bold mb-1" style={{ color: '#dc2626' }}>Destination Perdant</label>
-                  <select
-                    className="w-full p-2 border border-red-400 rounded-md focus:ring-red-500 focus:border-red-500 text-black bg-red-50"
-                    value={selectedPoolMatch.loser_destination_match_id || ''}
-                    onChange={e => {
-                      const value = e.target.value || null;
-                      updatePoolMatch({
-                        ...selectedPoolMatch,
-                        loser_destination_match_id: value,
-                      });
-                    }}
-                  >
-                    <option value="">Aucune</option>
-                    {[...matches, ...pools.flatMap(p=>p.matches), ...brackets.flatMap(b=>b.matches), ...loserBrackets.flatMap(lb=>lb.matches)]
-                      .filter(m => m.id !== selectedPoolMatch.id)
-                      .map(m => (
-                        <option key={m.id} value={m.id}>
-                          {m.label || m.id}
-                        </option>
-                      ))}
-                  </select>
+                  <div className="flex gap-1">
+                    <select
+                      className="flex-1 p-2 border border-red-400 rounded-md focus:ring-red-500 focus:border-red-500 text-black bg-red-50"
+                      value={selectedPoolMatch.loser_destination_match_id || ''}
+                      onChange={e => {
+                        const value = e.target.value || null;
+                        updatePoolMatch({
+                          ...selectedPoolMatch,
+                          loser_destination_match_id: value,
+                        });
+                      }}
+                    >
+                      <option value="">Aucune</option>
+                      {[...matches, ...pools.flatMap(p=>p.matches), ...brackets.flatMap(b=>b.matches), ...loserBrackets.flatMap(lb=>lb.matches)]
+                        .filter(m => m.id !== selectedMatch?.id)
+                        .map(m => (
+                          <option key={m.id} value={m.uuid}>
+                            {m.label || `Match #${m.id}`}
+                          </option>
+                        ))}
+                    </select>
+                    <select
+                      className="w-14 p-2 border border-red-400 rounded-md text-black bg-red-50 font-bold"
+                      value={selectedPoolMatch.loser_destination_slot || ''}
+                      onChange={e => {
+                        updatePoolMatch({
+                          ...selectedPoolMatch,
+                          loser_destination_slot: e.target.value === "" ? undefined : (e.target.value as "A" | "B"),
+                        });
+                      }}
+                      disabled={!selectedPoolMatch.loser_destination_match_id}
+                    >
+                      <option value="">-</option>
+                      <option value="A">A</option>
+                      <option value="B">B</option>
+                    </select>
+                  </div>
                 </div>
               </div>
 
@@ -4032,53 +4171,87 @@ export default function TournamentsPage() {
                 </div>
               </div>
 
-              {/* Destinations vainqueur/perdant */}
+              {/* Destinations vainqueur/perdant avec slot A/B */}
               <div className="grid grid-cols-2 gap-2 mb-2">
                 <div>
                   <label className="block text-xs font-bold mb-1" style={{ color: '#16a34a' }}>Destination Vainqueur</label>
-                  <select
-                    className="w-full p-2 border border-green-400 rounded-md focus:ring-green-500 focus:border-green-500 text-black bg-green-50"
-                    value={selectedBracketMatch.winner_destination_match_id || ''}
-                    onChange={e => {
-                      const value = e.target.value || null;
-                      updateBracketMatch({
-                        ...selectedBracketMatch,
-                        winner_destination_match_id: value,
-                      });
-                    }}
-                  >
-                    <option value="">Aucune</option>
-                    {[...matches, ...pools.flatMap(p=>p.matches), ...brackets.flatMap(b=>b.matches), ...loserBrackets.flatMap(lb=>lb.matches)]
-                      .filter(m => m.id !== selectedBracketMatch.id)
-                      .map(m => (
-                        <option key={m.id} value={m.id}>
-                          {m.label || m.id}
-                        </option>
-                      ))}
-                  </select>
+                  <div className="flex gap-1">
+                    <select
+                      className="flex-1 p-2 border border-green-400 rounded-md focus:ring-green-500 focus:border-green-500 text-black bg-green-50"
+                      value={selectedBracketMatch.winner_destination_match_id || ''}
+                      onChange={e => {
+                        const value = e.target.value || null;
+                        updateBracketMatch({
+                          ...selectedBracketMatch,
+                          winner_destination_match_id: value,
+                        });
+                      }}
+                    >
+                      <option value="">Aucune</option>
+                      {[...matches, ...pools.flatMap(p=>p.matches), ...brackets.flatMap(b=>b.matches), ...loserBrackets.flatMap(lb=>lb.matches)]
+                        .filter(m => m.id !== selectedMatch?.id)
+                        .map(m => (
+                          <option key={m.id} value={m.uuid}>
+                            {m.label || `Match #${m.id}`}
+                          </option>
+                        ))}
+                    </select>
+                    <select
+                      className="w-14 p-2 border border-green-400 rounded-md text-black bg-green-50 font-bold"
+                      value={selectedBracketMatch.winner_destination_slot || ''}
+                      onChange={e => {
+                        updateBracketMatch({
+                          ...selectedBracketMatch,
+                          winner_destination_slot: e.target.value === "" ? undefined : (e.target.value as "A" | "B"),
+                        });
+                      }}
+                      disabled={!selectedBracketMatch.winner_destination_match_id}
+                    >
+                      <option value="">-</option>
+                      <option value="A">A</option>
+                      <option value="B">B</option>
+                    </select>
+                  </div>
                 </div>
                 <div>
                   <label className="block text-xs font-bold mb-1" style={{ color: '#dc2626' }}>Destination Perdant</label>
-                  <select
-                    className="w-full p-2 border border-red-400 rounded-md focus:ring-red-500 focus:border-red-500 text-black bg-red-50"
-                    value={selectedBracketMatch.loser_destination_match_id || ''}
-                    onChange={e => {
-                      const value = e.target.value || null;
-                      updateBracketMatch({
-                        ...selectedBracketMatch,
-                        loser_destination_match_id: value,
-                      });
-                    }}
-                  >
-                    <option value="">Aucune</option>
-                    {[...matches, ...pools.flatMap(p=>p.matches), ...brackets.flatMap(b=>b.matches), ...loserBrackets.flatMap(lb=>lb.matches)]
-                      .filter(m => m.id !== selectedBracketMatch.id)
-                      .map(m => (
-                        <option key={m.id} value={m.id}>
-                          {m.label || m.id}
-                        </option>
-                      ))}
-                  </select>
+                  <div className="flex gap-1">
+                    <select
+                      className="flex-1 p-2 border border-red-400 rounded-md focus:ring-red-500 focus:border-red-500 text-black bg-red-50"
+                      value={selectedBracketMatch.loser_destination_match_id || ''}
+                      onChange={e => {
+                        const value = e.target.value || null;
+                        updateBracketMatch({
+                          ...selectedBracketMatch,
+                          loser_destination_match_id: value,
+                        });
+                      }}
+                    >
+                      <option value="">Aucune</option>
+                      {[...matches, ...pools.flatMap(p=>p.matches), ...brackets.flatMap(b=>b.matches), ...loserBrackets.flatMap(lb=>lb.matches)]
+                        .filter(m => m.id !== selectedMatch?.id)
+                        .map(m => (
+                          <option key={m.id} value={m.uuid}>
+                            {m.label || `Match #${m.id}`}
+                          </option>
+                        ))}
+                    </select>
+                    <select
+                      className="w-14 p-2 border border-red-400 rounded-md text-black bg-red-50 font-bold"
+                      value={selectedBracketMatch.loser_destination_slot || ''}
+                      onChange={e => {
+                        updateBracketMatch({
+                          ...selectedBracketMatch,
+                          loser_destination_slot: e.target.value === "" ? undefined : (e.target.value as "A" | "B"),
+                        });
+                      }}
+                      disabled={!selectedBracketMatch.loser_destination_match_id}
+                    >
+                      <option value="">-</option>
+                      <option value="A">A</option>
+                      <option value="B">B</option>
+                    </select>
+                  </div>
                 </div>
               </div>
 
@@ -4277,53 +4450,87 @@ export default function TournamentsPage() {
                 </div>
               </div>
 
-              {/* Destinations vainqueur/perdant */}
+              {/* Destinations vainqueur/perdant avec slot A/B */}
               <div className="grid grid-cols-2 gap-2 mb-2">
                 <div>
                   <label className="block text-xs font-bold mb-1" style={{ color: '#16a34a' }}>Destination Vainqueur</label>
-                  <select
-                    className="w-full p-2 border border-green-400 rounded-md focus:ring-green-500 focus:border-green-500 text-black bg-green-50"
-                    value={selectedLoserBracketMatch.winner_destination_match_id || ''}
-                    onChange={e => {
-                      const value = e.target.value || null;
-                      updateLoserBracketMatch({
-                        ...selectedLoserBracketMatch,
-                        winner_destination_match_id: value,
-                      });
-                    }}
-                  >
-                    <option value="">Aucune</option>
-                    {[...matches, ...pools.flatMap(p=>p.matches), ...brackets.flatMap(b=>b.matches), ...loserBrackets.flatMap(lb=>lb.matches)]
-                      .filter(m => m.id !== selectedLoserBracketMatch.id)
-                      .map(m => (
-                        <option key={m.id} value={m.id}>
-                          {m.label || m.id}
-                        </option>
-                      ))}
-                  </select>
+                  <div className="flex gap-1">
+                    <select
+                      className="flex-1 p-2 border border-green-400 rounded-md focus:ring-green-500 focus:border-green-500 text-black bg-green-50"
+                      value={selectedLoserBracketMatch.winner_destination_match_id || ''}
+                      onChange={e => {
+                        const value = e.target.value || null;
+                        updateLoserBracketMatch({
+                          ...selectedLoserBracketMatch,
+                          winner_destination_match_id: value,
+                        });
+                      }}
+                    >
+                      <option value="">Aucune</option>
+                      {[...matches, ...pools.flatMap(p=>p.matches), ...brackets.flatMap(b=>b.matches), ...loserBrackets.flatMap(lb=>lb.matches)]
+                        .filter(m => m.id !== selectedMatch?.id)
+                        .map(m => (
+                          <option key={m.id} value={m.uuid}>
+                            {m.label || `Match #${m.id}`}
+                          </option>
+                        ))}
+                    </select>
+                    <select
+                      className="w-14 p-2 border border-green-400 rounded-md text-black bg-green-50 font-bold"
+                      value={selectedLoserBracketMatch.winner_destination_slot || ''}
+                      onChange={e => {
+                        updateLoserBracketMatch({
+                          ...selectedLoserBracketMatch,
+                          winner_destination_slot: e.target.value === "" ? undefined : (e.target.value as "A" | "B"),
+                        });
+                      }}
+                      disabled={!selectedLoserBracketMatch.winner_destination_match_id}
+                    >
+                      <option value="">-</option>
+                      <option value="A">A</option>
+                      <option value="B">B</option>
+                    </select>
+                  </div>
                 </div>
                 <div>
                   <label className="block text-xs font-bold mb-1" style={{ color: '#dc2626' }}>Destination Perdant</label>
-                  <select
-                    className="w-full p-2 border border-red-400 rounded-md focus:ring-red-500 focus:border-red-500 text-black bg-red-50"
-                    value={selectedLoserBracketMatch.loser_destination_match_id || ''}
-                    onChange={e => {
-                      const value = e.target.value || null;
-                      updateLoserBracketMatch({
-                        ...selectedLoserBracketMatch,
-                        loser_destination_match_id: value,
-                      });
-                    }}
-                  >
-                    <option value="">Aucune</option>
-                    {[...matches, ...pools.flatMap(p=>p.matches), ...brackets.flatMap(b=>b.matches), ...loserBrackets.flatMap(lb=>lb.matches)]
-                      .filter(m => m.id !== selectedLoserBracketMatch.id)
-                      .map(m => (
-                        <option key={m.id} value={m.id}>
-                          {m.label || m.id}
-                        </option>
-                      ))}
-                  </select>
+                  <div className="flex gap-1">
+                    <select
+                      className="flex-1 p-2 border border-red-400 rounded-md focus:ring-red-500 focus:border-red-500 text-black bg-red-50"
+                      value={selectedLoserBracketMatch.loser_destination_match_id || ''}
+                      onChange={e => {
+                        const value = e.target.value || null;
+                        updateLoserBracketMatch({
+                          ...selectedLoserBracketMatch,
+                          loser_destination_match_id: value,
+                        });
+                      }}
+                    >
+                      <option value="">Aucune</option>
+                      {[...matches, ...pools.flatMap(p=>p.matches), ...brackets.flatMap(b=>b.matches), ...loserBrackets.flatMap(lb=>lb.matches)]
+                        .filter(m => m.id !== selectedMatch?.id)
+                        .map(m => (
+                          <option key={m.id} value={m.uuid}>
+                            {m.label || `Match #${m.id}`}
+                          </option>
+                        ))}
+                    </select>
+                    <select
+                      className="w-14 p-2 border border-red-400 rounded-md text-black bg-red-50 font-bold"
+                      value={selectedLoserBracketMatch.loser_destination_slot || ''}
+                      onChange={e => {
+                        updateLoserBracketMatch({
+                          ...selectedLoserBracketMatch,
+                          loser_destination_slot: e.target.value === "" ? undefined : (e.target.value as "A" | "B"),
+                        });
+                      }}
+                      disabled={!selectedLoserBracketMatch.loser_destination_match_id}
+                    >
+                      <option value="">-</option>
+                      <option value="A">A</option>
+                      <option value="B">B</option>
+                    </select>
+                  </div>
                 </div>
               </div>
 

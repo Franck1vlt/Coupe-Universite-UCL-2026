@@ -43,7 +43,7 @@ export function usePetanqueMatch(initialMatchId: string | null) {
                 console.log('[Petanque Hook] Fetching match data for matchId:', initialMatchId);
 
                 // 1. Récupérer les données du match
-                const matchResponse = await fetch(`http://localhost:8000/matches/${initialMatchId}`);
+                const matchResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/matches/${initialMatchId}`);
                 if (!matchResponse.ok) {
                     console.error('[Petanque Hook] Match not found:', matchResponse.status);
                     throw new Error('Match not found');
@@ -61,11 +61,11 @@ export function usePetanqueMatch(initialMatchId: string | null) {
                 // Équipe A
                 if (match.team_sport_a_id) {
                     console.log('[Petanque Hook] Fetching team_sport_a:', match.team_sport_a_id);
-                    const teamSportAResponse = await fetch(`http://localhost:8000/team-sports/${match.team_sport_a_id}`);
+                    const teamSportAResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/team-sports/${match.team_sport_a_id}`);
                     if (teamSportAResponse.ok) {
                         const teamSportAData = await teamSportAResponse.json();
                         console.log('[Petanque Hook] TeamSport A data:', teamSportAData.data);
-                        const teamAResponse = await fetch(`http://localhost:8000/teams/${teamSportAData.data.team_id}`);
+                        const teamAResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/teams/${teamSportAData.data.team_id}`);
                         if (teamAResponse.ok) {
                             const teamAData = await teamAResponse.json();
                             teamAName = teamAData.data.name;
@@ -82,11 +82,11 @@ export function usePetanqueMatch(initialMatchId: string | null) {
                 // Équipe B
                 if (match.team_sport_b_id) {
                     console.log('[Petanque Hook] Fetching team_sport_b:', match.team_sport_b_id);
-                    const teamSportBResponse = await fetch(`http://localhost:8000/team-sports/${match.team_sport_b_id}`);
+                    const teamSportBResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/team-sports/${match.team_sport_b_id}`);
                     if (teamSportBResponse.ok) {
                         const teamSportBData = await teamSportBResponse.json();
                         console.log('[Petanque Hook] TeamSport B data:', teamSportBData.data);
-                        const teamBResponse = await fetch(`http://localhost:8000/teams/${teamSportBData.data.team_id}`);
+                        const teamBResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/teams/${teamSportBData.data.team_id}`);
                         if (teamBResponse.ok) {
                             const teamBData = await teamBResponse.json();
                             teamBName = teamBData.data.name;
@@ -103,7 +103,7 @@ export function usePetanqueMatch(initialMatchId: string | null) {
                 // 3. Récupérer les informations de planification (terrain)
                 let courtName: string | undefined = undefined;
                 console.log('[Petanque Hook] Fetching schedule for match:', initialMatchId);
-                const scheduleResponse = await fetch(`http://localhost:8000/matches/${initialMatchId}/schedule`);
+                const scheduleResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/matches/${initialMatchId}/schedule`);
                 console.log('[Petanque Hook] Schedule response status:', scheduleResponse.status);
                 if (scheduleResponse.ok) {
                     const scheduleData = await scheduleResponse.json();
@@ -283,12 +283,22 @@ export function usePetanqueMatch(initialMatchId: string | null) {
             const lastMene = p.meneHistory[p.meneHistory.length - 1];
             const newHistory = p.meneHistory.slice(0, -1);
 
-            console.log(`[Petanque] Annulation de la dernière mène - Retour au score ${lastMene.scoreABefore}-${lastMene.scoreBBefore}`);
+            // Nouveau score après annulation
+            const newScoreA = lastMene.scoreABefore;
+            const newScoreB = lastMene.scoreBBefore;
+
+            // Si le score repasse sous le targetScore, enlever la victoire
+            if ((isMatchWon && (newScoreA < p.targetScore && newScoreB < p.targetScore))) {
+                setIsMatchWon(false);
+                setMatchWinner(null);
+            }
+
+            console.log(`[Petanque] Annulation de la dernière mène - Retour au score ${newScoreA}-${newScoreB}`);
 
             return {
                 ...p,
-                teamA: { ...p.teamA, score: lastMene.scoreABefore },
-                teamB: { ...p.teamB, score: lastMene.scoreBBefore },
+                teamA: { ...p.teamA, score: newScoreA },
+                teamB: { ...p.teamB, score: newScoreB },
                 cochonnetTeam: lastMene.cochonnetBefore,
                 meneHistory: newHistory,
                 pendingWinner: null,
@@ -417,6 +427,7 @@ export function usePetanqueMatch(initialMatchId: string | null) {
                 targetScore: matchData.targetScore,
                 meneCount: matchData.meneHistory.length,
                 lastUpdate: new Date().toISOString(),
+                winner: matchWinner ? (matchWinner === "A" ? matchData.teamA.name : matchData.teamB.name) : null,
             };
             localStorage.setItem("livePetanqueMatch", JSON.stringify(payload));
         } catch (e) {

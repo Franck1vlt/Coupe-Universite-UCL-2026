@@ -28,6 +28,8 @@ router = APIRouter()
 
 class TournamentMatchCreate(BaseModel):
     """Match à créer dans le tournoi"""
+    uuid: Optional[str] = None  # UUID unique du match (généré par le frontend)
+    id: Optional[int] = None  # ID SQL existant (si mise à jour)
     match_type: str = "qualification"
     bracket_type: Optional[str] = None
     team_sport_a_id: Optional[int] = None
@@ -551,6 +553,9 @@ def create_tournament_structure(
     # Format: [(match_uuid, winner_dest_uuid, loser_dest_uuid, winner_slot, loser_slot), ...]
     pending_destinations = []
 
+    # Dictionnaire pour tracker les matchs créés pendant cette transaction (UUID -> Match object)
+    created_matches_by_uuid = {}
+
     def collect_destinations(m_data):
         """Collecte les UUIDs de destination pour résolution ultérieure"""
         def get_val(obj, key, default=None):
@@ -558,21 +563,35 @@ def create_tournament_structure(
             return getattr(obj, key, default)
 
         m_uuid = get_val(m_data, 'uuid')
+        m_id = get_val(m_data, 'id')
+        m_label = get_val(m_data, 'label')
         winner_dest_uuid = get_val(m_data, 'winner_destination_match_uuid')
         loser_dest_uuid = get_val(m_data, 'loser_destination_match_uuid')
         winner_slot = get_val(m_data, 'winner_destination_slot')
         loser_slot = get_val(m_data, 'loser_destination_slot')
 
-        if m_uuid and (winner_dest_uuid or loser_dest_uuid):
-            pending_destinations.append((m_uuid, winner_dest_uuid, loser_dest_uuid, winner_slot, loser_slot))
-            print(f"[COLLECT] Match {m_uuid} -> winnerDest={winner_dest_uuid} (slot {winner_slot}), loserDest={loser_dest_uuid} (slot {loser_slot})")
+        # Debug: afficher toutes les valeurs reçues
+        print(f"[COLLECT-DEBUG] Match reçu: uuid={m_uuid}, id={m_id}, label={m_label}")
+        print(f"[COLLECT-DEBUG]   -> winnerDestUUID={winner_dest_uuid}, loserDestUUID={loser_dest_uuid}")
+        print(f"[COLLECT-DEBUG]   -> winnerSlot={winner_slot}, loserSlot={loser_slot}")
+
+        # Utiliser l'UUID ou l'ID comme identifiant
+        match_identifier = m_uuid or (str(m_id) if m_id else None) or m_label
+
+        if match_identifier and (winner_dest_uuid or loser_dest_uuid):
+            pending_destinations.append((match_identifier, winner_dest_uuid, loser_dest_uuid, winner_slot, loser_slot))
+            print(f"[COLLECT] ✅ Match {match_identifier} -> winnerDest={winner_dest_uuid} (slot {winner_slot}), loserDest={loser_dest_uuid} (slot {loser_slot})")
+        elif winner_dest_uuid or loser_dest_uuid:
+            print(f"[COLLECT] ⚠️ Match sans identifiant mais avec destinations: winnerDest={winner_dest_uuid}, loserDest={loser_dest_uuid}")
 
     # --- TRAITEMENT DES SECTIONS (PASSE 1 : Création des matchs) ---
     if structure.qualification_matches:
         p = get_or_create_phase("qualifications", 1)
         for m in structure.qualification_matches:
             collect_destinations(m)
-            upsert_match(m, p.id, "qualification")
+            match_obj = upsert_match(m, p.id, "qualification")
+            if match_obj and match_obj.uuid:
+                created_matches_by_uuid[match_obj.uuid] = match_obj
 
     if structure.pools:
         p = get_or_create_phase("pools", 2)
@@ -585,14 +604,18 @@ def create_tournament_structure(
             if hasattr(p_data, 'matches') and p_data.matches:
                 for m in p_data.matches:
                     collect_destinations(m)
-                    upsert_match(m, p.id, "pool", pool.id)
+                    match_obj = upsert_match(m, p.id, "pool", pool.id)
+                    if match_obj and match_obj.uuid:
+                        created_matches_by_uuid[match_obj.uuid] = match_obj
 
     if structure.brackets:
         phase_final = get_or_create_phase("final", 3)
         for bracket_group in structure.brackets:
             for m_data in bracket_group.matches:
                 collect_destinations(m_data)
-                upsert_match(m_data, phase_final.id, "bracket")
+                match_obj = upsert_match(m_data, phase_final.id, "bracket")
+                if match_obj and match_obj.uuid:
+                    created_matches_by_uuid[match_obj.uuid] = match_obj
 
     if structure.loser_brackets:
         phase_loser = get_or_create_phase("loser_bracket", 4)
@@ -600,7 +623,9 @@ def create_tournament_structure(
             for m_data in loser_bracket_group.matches:
                 m_dict = {**m_data.dict(), "bracket_type": "loser"}
                 collect_destinations(m_dict)
-                upsert_match(m_dict, phase_loser.id, "bracket")
+                match_obj = upsert_match(m_dict, phase_loser.id, "bracket")
+                if match_obj and match_obj.uuid:
+                    created_matches_by_uuid[match_obj.uuid] = match_obj
 
     # Flush pour s'assurer que tous les matchs ont des IDs
     db.flush()
@@ -608,6 +633,7 @@ def create_tournament_structure(
     # --- PASSE 2 : Résolution des UUIDs de destination en IDs ---
     if pending_destinations:
         print(f"[RESOLVE] Résolution de {len(pending_destinations)} destinations UUID...")
+        print(f"[RESOLVE] Matchs créés dans cette transaction: {len(created_matches_by_uuid)}")
 
         # Récupérer tous les matchs du tournoi pour construire le mapping UUID -> ID
         all_matches = (
@@ -619,18 +645,53 @@ def create_tournament_structure(
 
         # Créer les mappings UUID -> ID et ID (string) -> ID
         uuid_to_id = {}
-        for m in all_matches:
-            if m.uuid:
-                uuid_to_id[m.uuid] = m.id
-            # Aussi mapper l'ID string vers l'ID (pour les cas où l'ID frontend est déjà un ID SQL)
-            uuid_to_id[str(m.id)] = m.id
 
-        print(f"[RESOLVE] Mapping créé avec {len(uuid_to_id)} entrées")
+        # D'abord, ajouter les matchs créés dans cette transaction (ils ont la priorité)
+        for uuid_key, match_obj in created_matches_by_uuid.items():
+            if match_obj.id:
+                uuid_to_id[uuid_key] = match_obj.id
+                uuid_to_id[str(match_obj.id)] = match_obj.id
+                uuid_to_id[f"match-{match_obj.id}"] = match_obj.id
+                print(f"[RESOLVE] Mapping créé: {uuid_key} -> {match_obj.id} (transaction)")
+
+        # Ensuite, ajouter les matchs de la BDD (si pas déjà présents)
+        for m in all_matches:
+            if m.uuid and m.uuid not in uuid_to_id:
+                uuid_to_id[m.uuid] = m.id
+            if str(m.id) not in uuid_to_id:
+                uuid_to_id[str(m.id)] = m.id
+            if f"match-{m.id}" not in uuid_to_id:
+                uuid_to_id[f"match-{m.id}"] = m.id
+
+        print(f"[RESOLVE] Mapping total créé avec {len(uuid_to_id)} entrées")
+
+        # Combiner les matchs de la transaction et de la BDD pour la recherche
+        all_matches_combined = list(all_matches)
+        for match_obj in created_matches_by_uuid.values():
+            if match_obj not in all_matches_combined:
+                all_matches_combined.append(match_obj)
 
         # Résoudre chaque destination
         for (match_uuid, winner_dest_uuid, loser_dest_uuid, winner_slot, loser_slot) in pending_destinations:
-            # Trouver le match source
-            source_match = next((m for m in all_matches if m.uuid == match_uuid), None)
+            # Trouver le match source par UUID d'abord dans les matchs créés, puis dans la BDD
+            source_match = created_matches_by_uuid.get(match_uuid)
+
+            if not source_match:
+                source_match = next((m for m in all_matches_combined if m.uuid == match_uuid), None)
+
+            # Si pas trouvé par UUID, essayer par ID (format "match-{id}" ou "{id}")
+            if not source_match:
+                # Extraire l'ID si le format est "match-{id}"
+                if match_uuid and match_uuid.startswith("match-"):
+                    try:
+                        match_id = int(match_uuid.replace("match-", ""))
+                        source_match = next((m for m in all_matches_combined if m.id == match_id), None)
+                    except ValueError:
+                        pass
+                # Sinon essayer directement comme ID
+                elif match_uuid and match_uuid.isdigit():
+                    source_match = next((m for m in all_matches_combined if m.id == int(match_uuid)), None)
+
             if not source_match:
                 print(f"[RESOLVE] ⚠️ Match source non trouvé: {match_uuid}")
                 continue
@@ -638,18 +699,25 @@ def create_tournament_structure(
             updated = False
 
             # Résoudre la destination du vainqueur
-            if winner_dest_uuid and winner_dest_uuid in uuid_to_id:
-                source_match.winner_destination_match_id = uuid_to_id[winner_dest_uuid]
-                source_match.winner_destination_slot = winner_slot
-                updated = True
-                print(f"[RESOLVE] ✅ Match {source_match.label or source_match.id}: winner -> ID {uuid_to_id[winner_dest_uuid]} (slot {winner_slot})")
+            if winner_dest_uuid:
+                if winner_dest_uuid in uuid_to_id:
+                    source_match.winner_destination_match_id = uuid_to_id[winner_dest_uuid]
+                    source_match.winner_destination_slot = winner_slot
+                    updated = True
+                    print(f"[RESOLVE] ✅ Match {source_match.label or source_match.id}: winner -> ID {uuid_to_id[winner_dest_uuid]} (slot {winner_slot})")
+                else:
+                    print(f"[RESOLVE] ⚠️ Destination vainqueur non trouvée: {winner_dest_uuid}")
+                    print(f"[RESOLVE]    Clés disponibles: {list(uuid_to_id.keys())[:10]}...")
 
             # Résoudre la destination du perdant
-            if loser_dest_uuid and loser_dest_uuid in uuid_to_id:
-                source_match.loser_destination_match_id = uuid_to_id[loser_dest_uuid]
-                source_match.loser_destination_slot = loser_slot
-                updated = True
-                print(f"[RESOLVE] ✅ Match {source_match.label or source_match.id}: loser -> ID {uuid_to_id[loser_dest_uuid]} (slot {loser_slot})")
+            if loser_dest_uuid:
+                if loser_dest_uuid in uuid_to_id:
+                    source_match.loser_destination_match_id = uuid_to_id[loser_dest_uuid]
+                    source_match.loser_destination_slot = loser_slot
+                    updated = True
+                    print(f"[RESOLVE] ✅ Match {source_match.label or source_match.id}: loser -> ID {uuid_to_id[loser_dest_uuid]} (slot {loser_slot})")
+                else:
+                    print(f"[RESOLVE] ⚠️ Destination perdant non trouvée: {loser_dest_uuid}")
 
             if updated:
                 source_match.updated_at = datetime.utcnow()
@@ -696,13 +764,28 @@ def get_tournament_structure(
     db.expire_all()
 
     phases = db.query(TournamentPhase).filter(TournamentPhase.tournament_id == tournament_id).all()
-    
+
+    # Récupérer TOUS les matchs du tournoi pour créer le mapping ID -> UUID
+    all_tournament_matches = (
+        db.query(Match)
+        .join(TournamentPhase)
+        .filter(TournamentPhase.tournament_id == tournament_id)
+        .all()
+    )
+
+    # Créer le mapping ID -> UUID
+    id_to_uuid = {m.id: m.uuid for m in all_tournament_matches if m.uuid}
+
     qualification_matches = []
     pools_data = []
     bracket_matches = []
     loser_bracket_matches = []
 
     def match_to_dict_internal(m):
+        # Résoudre les UUIDs de destination depuis les IDs
+        winner_dest_uuid = id_to_uuid.get(m.winner_destination_match_id) if m.winner_destination_match_id else None
+        loser_dest_uuid = id_to_uuid.get(m.loser_destination_match_id) if m.loser_destination_match_id else None
+
         return {
             "id": m.id,
             "uuid": getattr(m, 'uuid', None),
@@ -714,6 +797,9 @@ def get_tournament_structure(
             # --- DESTINATIONS ET SLOTS ---
             "winner_destination_match_id": m.winner_destination_match_id,
             "loser_destination_match_id": m.loser_destination_match_id,
+            # UUIDs de destination (pour le frontend)
+            "winner_destination_match_uuid": winner_dest_uuid,
+            "loser_destination_match_uuid": loser_dest_uuid,
             "winner_destination_slot": getattr(m, 'winner_destination_slot', None),
             "loser_destination_slot": getattr(m, 'loser_destination_slot', None),
             "winner_points": m.winner_points if m.winner_points is not None else 0,
@@ -743,14 +829,16 @@ def get_tournament_structure(
         if "qualif" in p_type:
             qualification_matches.extend([match_to_dict_internal(m) for m in matches])
             
-        # 2. Gestion des Poules
-        elif "poule" in p_type:
+        # 2. Gestion des Poules (supporte "pools" et "poule")
+        elif "poule" in p_type or "pool" in p_type:
             pools = db.query(Pool).filter(Pool.phase_id == phase.id).all()
             for pool in pools:
                 pool_matches = [m for m in matches if m.pool_id == pool.id]
                 pools_data.append({
                     "id": pool.id,
                     "name": pool.name,
+                    "qualified_to_finals": pool.qualified_to_finals if hasattr(pool, 'qualified_to_finals') else 2,
+                    "qualified_to_loser_bracket": pool.qualified_to_loser_bracket if hasattr(pool, 'qualified_to_loser_bracket') else 0,
                     "matches": [match_to_dict_internal(m) for m in pool_matches]
                 })
                 
@@ -779,83 +867,153 @@ def propagate_tournament_results(
 ):
     """
     Propager automatiquement les résultats des matchs terminés vers les matchs suivants.
-    Remplace les codes sources (WQ1, P1-1, etc.) par les vrais team_sport_id des gagnants.
+    
+    Utilise DEUX mécanismes:
+    1. winner_destination_match_id / loser_destination_match_id (NOUVEAU)
+    2. team_a_source / team_b_source avec codes (LEGACY)
     """
     tournament = db.query(Tournament).filter(Tournament.id == tournament_id).first()
     if not tournament:
         raise NotFoundError(f"Tournament {tournament_id} not found")
     
-    # Récupérer la phase
-    phase = db.query(TournamentPhase).filter(
+    # ✅ FIX: Récupérer TOUTES les phases
+    phases = db.query(TournamentPhase).filter(
         TournamentPhase.tournament_id == tournament_id
-    ).first()
+    ).all()
     
-    if not phase:
+    if not phases:
         return create_success_response({
             "tournament_id": tournament_id,
             "propagated_matches": 0
-        }, message="No phase found")
+        }, message="No phases found")
     
-    # Récupérer tous les matchs
-    all_matches = db.query(Match).filter(Match.phase_id == phase.id).all()
+    phase_ids = [p.id for p in phases]
+    all_matches = db.query(Match).filter(Match.phase_id.in_(phase_ids)).all()
     
-    # Créer un mapping des matchs par ID et par label
     matches_by_id = {m.id: m for m in all_matches}
-    matches_by_label = {m.label: m for m in all_matches if m.label}
-    
-    # Créer un mapping des poules
-    pools = db.query(Pool).filter(Pool.phase_id == phase.id).all()
-    pools_by_name = {p.name: p for p in pools}
-    
     propagated_count = 0
     
-    # Fonction pour résoudre un code source en team_sport_id
+    print(f"[PROPAGATION] Tournoi {tournament_id}: {len(all_matches)} matchs dans {len(phases)} phases")
+    
+    # =========================================================================
+    # MÉCANISME 1: Propagation via winner/loser_destination_match_id
+    # =========================================================================
+    for match in all_matches:
+        if match.status != "completed":
+            continue
+        if match.score_a is None or match.score_b is None:
+            continue
+        
+        # Déterminer vainqueur et perdant
+        if match.score_a > match.score_b:
+            winner_team_id = match.team_sport_a_id
+            loser_team_id = match.team_sport_b_id
+        elif match.score_b > match.score_a:
+            winner_team_id = match.team_sport_b_id
+            loser_team_id = match.team_sport_a_id
+        else:
+            continue  # Égalité
+        
+        # --- Propager le VAINQUEUR ---
+        if match.winner_destination_match_id and winner_team_id:
+            dest_match = matches_by_id.get(match.winner_destination_match_id)
+            if dest_match:
+                slot = match.winner_destination_slot or "A"
+                
+                # Logique intelligente: si le slot A est déjà pris, utiliser B
+                if slot == "A":
+                    if dest_match.team_sport_a_id is None or dest_match.team_sport_a_id != winner_team_id:
+                        if dest_match.team_sport_a_id is None:
+                            dest_match.team_sport_a_id = winner_team_id
+                        elif dest_match.team_sport_b_id is None:
+                            dest_match.team_sport_b_id = winner_team_id
+                        else:
+                            print(f"[PROPAGATION] ⚠️ Slots pleins pour match {dest_match.id}")
+                            continue
+                        dest_match.updated_at = datetime.utcnow()
+                        propagated_count += 1
+                        print(f"[PROPAGATION] ✅ Winner {winner_team_id} -> Match {dest_match.id}")
+                elif slot == "B":
+                    if dest_match.team_sport_b_id is None or dest_match.team_sport_b_id != winner_team_id:
+                        if dest_match.team_sport_b_id is None:
+                            dest_match.team_sport_b_id = winner_team_id
+                        elif dest_match.team_sport_a_id is None:
+                            dest_match.team_sport_a_id = winner_team_id
+                        else:
+                            print(f"[PROPAGATION] ⚠️ Slots pleins pour match {dest_match.id}")
+                            continue
+                        dest_match.updated_at = datetime.utcnow()
+                        propagated_count += 1
+                        print(f"[PROPAGATION] ✅ Winner {winner_team_id} -> Match {dest_match.id}")
+        
+        # --- Propager le PERDANT ---
+        if match.loser_destination_match_id and loser_team_id:
+            dest_match = matches_by_id.get(match.loser_destination_match_id)
+            if dest_match:
+                slot = match.loser_destination_slot or "A"
+                
+                if slot == "A":
+                    if dest_match.team_sport_a_id is None:
+                        dest_match.team_sport_a_id = loser_team_id
+                        dest_match.updated_at = datetime.utcnow()
+                        propagated_count += 1
+                        print(f"[PROPAGATION] ✅ Loser {loser_team_id} -> Match {dest_match.id} slot A")
+                    elif dest_match.team_sport_b_id is None:
+                        dest_match.team_sport_b_id = loser_team_id
+                        dest_match.updated_at = datetime.utcnow()
+                        propagated_count += 1
+                        print(f"[PROPAGATION] ✅ Loser {loser_team_id} -> Match {dest_match.id} slot B (fallback)")
+                elif slot == "B":
+                    if dest_match.team_sport_b_id is None:
+                        dest_match.team_sport_b_id = loser_team_id
+                        dest_match.updated_at = datetime.utcnow()
+                        propagated_count += 1
+                        print(f"[PROPAGATION] ✅ Loser {loser_team_id} -> Match {dest_match.id} slot B")
+                    elif dest_match.team_sport_a_id is None:
+                        dest_match.team_sport_a_id = loser_team_id
+                        dest_match.updated_at = datetime.utcnow()
+                        propagated_count += 1
+                        print(f"[PROPAGATION] ✅ Loser {loser_team_id} -> Match {dest_match.id} slot A (fallback)")
+    
+    # =========================================================================
+    # MÉCANISME 2: Propagation via codes source (LEGACY)
+    # =========================================================================
+    pools = []
+    for phase in phases:
+        pools.extend(db.query(Pool).filter(Pool.phase_id == phase.id).all())
+    pools_by_name = {p.name: p for p in pools}
+    
     def resolve_source_code(source_code: str) -> Optional[int]:
         if not source_code:
             return None
         
-        # Codes de type "WQ1" = Winner of Qualification 1
+        # WQ1 = Winner Qualification 1
         if source_code.startswith("WQ"):
-            # Extraire le numéro du match
             try:
                 match_num = int(source_code[2:])
-                # Chercher le match de qualification correspondant
                 qual_match = next((m for m in all_matches 
                                   if m.match_type == "qualification" 
                                   and m.match_order == match_num
                                   and m.status == "completed"), None)
-                if qual_match and qual_match.score_a is not None and qual_match.score_b is not None:
+                if qual_match and qual_match.score_a is not None:
                     return qual_match.team_sport_a_id if qual_match.score_a > qual_match.score_b else qual_match.team_sport_b_id
-            except (ValueError, IndexError):
+            except:
                 pass
         
-        # Codes de type "LQ1" = Loser of Qualification 1
-        elif source_code.startswith("LQ"):
+        # LQ1 = Loser Qualification 1
+        elif source_code.startswith("LQ") and not source_code.startswith("LQF"):
             try:
                 match_num = int(source_code[2:])
                 qual_match = next((m for m in all_matches 
                                   if m.match_type == "qualification" 
                                   and m.match_order == match_num
                                   and m.status == "completed"), None)
-                if qual_match and qual_match.score_a is not None and qual_match.score_b is not None:
+                if qual_match and qual_match.score_a is not None:
                     return qual_match.team_sport_b_id if qual_match.score_a > qual_match.score_b else qual_match.team_sport_a_id
-            except (ValueError, IndexError):
+            except:
                 pass
         
-        # Codes de type "WQF1" = Winner of Quarterfinal 1
-        elif source_code.startswith("WQF"):
-            try:
-                match_num = int(source_code[3:])
-                qf_match = next((m for m in all_matches 
-                               if m.bracket_type == "quarterfinal" 
-                               and m.match_order == match_num
-                               and m.status == "completed"), None)
-                if qf_match and qf_match.score_a is not None and qf_match.score_b is not None:
-                    return qf_match.team_sport_a_id if qf_match.score_a > qf_match.score_b else qf_match.team_sport_b_id
-            except (ValueError, IndexError):
-                pass
-        
-        # Codes de type "WSF1" = Winner of Semifinal 1
+        # WSF1 = Winner Semifinal 1
         elif source_code.startswith("WSF"):
             try:
                 match_num = int(source_code[3:])
@@ -863,12 +1021,12 @@ def propagate_tournament_results(
                                if m.bracket_type == "semifinal" 
                                and m.match_order == match_num
                                and m.status == "completed"), None)
-                if sf_match and sf_match.score_a is not None and sf_match.score_b is not None:
+                if sf_match and sf_match.score_a is not None:
                     return sf_match.team_sport_a_id if sf_match.score_a > sf_match.score_b else sf_match.team_sport_b_id
-            except (ValueError, IndexError):
+            except:
                 pass
         
-        # Codes de type "LSF1" = Loser of Semifinal 1
+        # LSF1 = Loser Semifinal 1
         elif source_code.startswith("LSF"):
             try:
                 match_num = int(source_code[3:])
@@ -876,59 +1034,35 @@ def propagate_tournament_results(
                                if m.bracket_type == "semifinal" 
                                and m.match_order == match_num
                                and m.status == "completed"), None)
-                if sf_match and sf_match.score_a is not None and sf_match.score_b is not None:
+                if sf_match and sf_match.score_a is not None:
                     return sf_match.team_sport_b_id if sf_match.score_a > sf_match.score_b else sf_match.team_sport_a_id
-            except (ValueError, IndexError):
-                pass
-        
-        # Codes de type "P1-1" = Poule 1, position 1
-        elif source_code.startswith("P") and "-" in source_code:
-            try:
-                parts = source_code[1:].split("-")
-                pool_num = int(parts[0])
-                position = int(parts[1])
-                
-                # Chercher la poule correspondante
-                pool_name = f"Poule {pool_num}"
-                pool = pools_by_name.get(pool_name)
-                
-                if pool:
-                    # Calculer le classement de la poule
-                    pool_matches = [m for m in all_matches if m.pool_id == pool.id and m.status == "completed"]
-                    team_pools = db.query(TeamPool).filter(TeamPool.pool_id == pool.id).all()
-                    
-                    # Calculer les points de chaque équipe
-                    team_points = {}
-                    for tp in team_pools:
-                        team_id = tp.team_sport_id
-                        points = 0
-                        goal_diff = 0
-                        
-                        for match in pool_matches:
-                            if match.team_sport_a_id == team_id:
-                                if match.score_a > match.score_b:
-                                    points += 3
-                                elif match.score_a == match.score_b:
-                                    points += 1
-                                goal_diff += (match.score_a - match.score_b)
-                            elif match.team_sport_b_id == team_id:
-                                if match.score_b > match.score_a:
-                                    points += 3
-                                elif match.score_a == match.score_b:
-                                    points += 1
-                                goal_diff += (match.score_b - match.score_a)
-                        
-                        team_points[team_id] = (points, goal_diff)
-                    
-                    # Trier par points puis par différence de buts
-                    sorted_teams = sorted(team_points.items(), key=lambda x: (x[1][0], x[1][1]), reverse=True)
-                    
-                    if position <= len(sorted_teams):
-                        return sorted_teams[position - 1][0]
-            except (ValueError, IndexError):
+            except:
                 pass
         
         return None
+    
+    # Propager via codes source
+    for match in all_matches:
+        if match.team_a_source and not match.team_sport_a_id:
+            resolved = resolve_source_code(match.team_a_source)
+            if resolved:
+                match.team_sport_a_id = resolved
+                match.updated_at = datetime.utcnow()
+                propagated_count += 1
+        
+        if match.team_b_source and not match.team_sport_b_id:
+            resolved = resolve_source_code(match.team_b_source)
+            if resolved:
+                match.team_sport_b_id = resolved
+                match.updated_at = datetime.utcnow()
+                propagated_count += 1
+    
+    db.commit()
+    
+    return create_success_response({
+        "tournament_id": tournament_id,
+        "propagated_matches": propagated_count
+    }, message=f"Successfully propagated {propagated_count} match results")
     
     # Parcourir tous les matchs et propager les résultats
     for match in all_matches:

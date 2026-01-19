@@ -49,7 +49,7 @@ export default function HandballTableMarquagePage() {
   // Récupérer les plannings de tous les terrains (pour filtrer les dispos)
   const fetchCourtSchedules = async () => {
     try {
-      const res = await fetch("http://localhost:8000/match-schedules?skip=0&limit=200", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/match-schedules?skip=0&limit=200`, {
         method: "GET",
         headers: { "Accept": "application/json" }
       });
@@ -145,7 +145,7 @@ export default function HandballTableMarquagePage() {
   const fetchTeams = async () => {
     setLoadingTeams(true);
     try {
-      const res = await fetch("http://localhost:8000/teams?skip=0&limit=100", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/teams?skip=0&limit=100`, {
         method: "GET",
         headers: { "Accept": "application/json" }
       });
@@ -168,7 +168,7 @@ export default function HandballTableMarquagePage() {
   const fetchCourts = async () => {
     setLoadingCourts(true);
     try {
-      const res = await fetch("http://localhost:8000/courts?skip=0&limit=100", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/courts?skip=0&limit=100`, {
         method: "GET",
         headers: { "Accept": "application/json" }
       });

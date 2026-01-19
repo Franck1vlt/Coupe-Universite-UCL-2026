@@ -45,6 +45,7 @@ type TournamentMatch = {
   loserDestinationMatchId?: string | number | null;
   winnerDestinationSlot?: "A" | "B" | null;
   loserDestinationSlot?: "A" | "B" | null;
+  poolId?: string; // ID de la poule pour les matchs de poule
 };
 
 type Pool = {
@@ -202,7 +203,7 @@ export default function TournamentViewPage() {
     const loadTeamNames = async () => {
       try {
         // Charger toutes les équipes
-        const teamsRes = await fetch(`http://localhost:8000/teams`);
+        const teamsRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/teams`);
         if (teamsRes.ok) {
           const teamsData = await teamsRes.json();
           const teams = teamsData.data?.items || teamsData.data || [];
@@ -211,7 +212,7 @@ export default function TournamentViewPage() {
           const mapping: Record<number, string> = {};
           
           for (const team of teams) {
-            const sportsRes = await fetch(`http://localhost:8000/teams/${team.id}/sports`);
+            const sportsRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/teams/${team.id}/sports`);
             if (sportsRes.ok) {
               const sportsData = await sportsRes.json();
               const teamSports = sportsData.data || [];
@@ -239,7 +240,7 @@ export default function TournamentViewPage() {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(`http://localhost:8000/sports/${sportId}`, {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/sports/${sportId}`, {
           method: "GET",
           headers: { Accept: "application/json" },
         });
@@ -283,7 +284,7 @@ export default function TournamentViewPage() {
       const loadTournamentMatches = async () => {
               try {
                 // 1. Récupérer le tournoi spécifique
-                const tournamentsResponse = await fetch(`http://localhost:8000/tournaments?sport_id=${id}`);
+                const tournamentsResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/tournaments?sport_id=${id}`);
                 if (!tournamentsResponse.ok) throw new Error("Impossible de charger le tournoi");
                 
                 const tournamentsData = await tournamentsResponse.json();
@@ -293,14 +294,14 @@ export default function TournamentViewPage() {
                 if (!tournament) throw new Error("Aucun tournoi trouvé pour ce sport.");
 
                 // 2. Charger la STRUCTURE du tournoi
-                const response = await fetch(`http://localhost:8000/tournaments/${tournament.id}/structure`);
+                const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/tournaments/${tournament.id}/structure`);
                 if (!response.ok) throw new Error("Impossible de charger la structure");
                 
                 const structureData = await response.json();
                 const data = structureData.data || structureData;
 
                 // Helper de mapping
-                const mapMatch = (m: any, forcedType?: TournamentMatchType): TournamentMatch => {
+                const mapMatch = (m: any, forcedType?: TournamentMatchType, poolId?: string): TournamentMatch => {
                   let type: TournamentMatchType = forcedType || "qualifications";
                   if (!forcedType) {
                       if (m.match_type === "qualification") {
@@ -367,6 +368,7 @@ export default function TournamentViewPage() {
                     winnerDestinationSlot: m.winner_destination_slot,
                     loserDestinationMatchId: m.loser_destination_match_id,
                     loserDestinationSlot: m.loser_destination_slot,
+                    poolId: poolId,
                   };
                 };
 
@@ -377,11 +379,13 @@ export default function TournamentViewPage() {
                 const poolsData: Pool[] = [];
                 if (data.pools) {
                   data.pools.forEach((p: any) => {
-                    p.matches?.forEach((m: any) => collected.push(mapMatch(m, "poule")));
+                    const poolIdStr = p.id?.toString() || "";
+                    // Passer le poolId à mapMatch pour associer les matchs à leur poule
+                    p.matches?.forEach((m: any) => collected.push(mapMatch(m, "poule", poolIdStr)));
 
                     // Ajouter la poule à la liste
                     poolsData.push({
-                      id: p.id?.toString() || "",
+                      id: poolIdStr,
                       name: p.name || "",
                       teams: [], // Les équipes seront récupérées via l'API standings
                       qualifiedToFinals: p.qualified_to_finals || 2,
@@ -401,7 +405,7 @@ export default function TournamentViewPage() {
                 
                 if (hasCompletedMatches) {
                   console.log("🔄 Propagation automatique des résultats...");
-                  const propagateRes = await fetch(`http://localhost:8000/tournaments/${tournament.id}/propagate-results`, {
+                  const propagateRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/tournaments/${tournament.id}/propagate-results`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' }
                   });
@@ -412,15 +416,16 @@ export default function TournamentViewPage() {
                     if (propData.data?.propagated_matches > 0) {
                       console.log(`✅ ${propData.data.propagated_matches} matchs mis à jour. Rechargement...`);
                       
-                      const refreshRes = await fetch(`http://localhost:8000/tournaments/${tournament.id}/structure`);
+                      const refreshRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/tournaments/${tournament.id}/structure`);
                       const refreshData = await refreshRes.json();
                       const newData = refreshData.data || refreshData;
 
                       // Créer une nouvelle fonction mapMatch avec le mapping mis à jour
-                      const mapMatchRefresh = (m: any, forcedType?: TournamentMatchType): TournamentMatch => {
+                      const mapMatchRefresh = (m: any, forcedType?: TournamentMatchType, poolId?: string): TournamentMatch => {
                         let type: TournamentMatchType = forcedType || "qualifications";
                         if (!forcedType) {
                           if (m.match_type === "qualification") type = "qualifications";
+                          else if (m.match_type === "pool" || m.match_type === "poule") type = "poule";
                           else if (m.bracket_type === "loser") type = "loser-bracket";
                           else if (m.match_type === "bracket") {
                             if (m.bracket_type === "quarterfinal") type = "quarts";
@@ -458,12 +463,16 @@ export default function TournamentViewPage() {
                           winnerDestinationSlot: m.winner_destination_slot,
                           loserDestinationMatchId: m.loser_destination_match_id,
                           loserDestinationSlot: m.loser_destination_slot,
+                          poolId: poolId,
                         };
                       };
 
                       const refreshed: TournamentMatch[] = [];
                       if (newData.qualification_matches) newData.qualification_matches.forEach((m: any) => refreshed.push(mapMatchRefresh(m, "qualifications")));
-                      if (newData.pools) newData.pools.forEach((p: any) => p.matches?.forEach((m: any) => refreshed.push(mapMatchRefresh(m, "poule"))));
+                      if (newData.pools) newData.pools.forEach((p: any) => {
+                        const pId = p.id?.toString() || "";
+                        p.matches?.forEach((m: any) => refreshed.push(mapMatchRefresh(m, "poule", pId)));
+                      });
                       if (newData.bracket_matches) newData.bracket_matches.forEach((m: any) => refreshed.push(mapMatchRefresh(m)));
                       if (newData.loser_bracket_matches) newData.loser_bracket_matches.forEach((m: any) => refreshed.push(mapMatchRefresh(m, "loser-bracket")));
 
@@ -493,7 +502,7 @@ export default function TournamentViewPage() {
       
       try {
         // Récupérer le tournoi
-        const tournamentsResponse = await fetch(`http://localhost:8000/tournaments?sport_id=${params.id}`);
+        const tournamentsResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/tournaments?sport_id=${params.id}`);
         const tournamentsData = await tournamentsResponse.json();
         const items = tournamentsData.data?.items || [];
         const tournament = items.length > 0 ? items[0] : null;
@@ -501,7 +510,7 @@ export default function TournamentViewPage() {
         if (!tournament) return;
         
         // Récupérer la structure
-        const structureResponse = await fetch(`http://localhost:8000/tournaments/${tournament.id}/structure`);
+        const structureResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/tournaments/${tournament.id}/structure`);
         const structureData = await structureResponse.json();
         const data = structureData.data || structureData;
         
@@ -519,7 +528,7 @@ export default function TournamentViewPage() {
         console.log(`🔧 Auto-assignation: ${matchesNeedingTeams.length} matchs ont besoin d'équipes`);
         
         // Récupérer les team-sports disponibles
-        const teamSportsResponse = await fetch(`http://localhost:8000/sports/${params.id}/team-sports`);
+        const teamSportsResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/sports/${params.id}/team-sports`);
         const teamSportsData = await teamSportsResponse.json();
         const teamSports = teamSportsData.data || [];
         
@@ -536,7 +545,7 @@ export default function TournamentViewPage() {
           const teamA = teamSports[teamIndex];
           const teamB = teamSports[teamIndex + 1];
           
-          const response = await fetch(`http://localhost:8000/matches/${match.id}`, {
+          const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/matches/${match.id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -580,25 +589,26 @@ export default function TournamentViewPage() {
     const newPoolRankings = new Map<string, RankingEntry[]>();
 
     pools.forEach((pool) => {
-      // 1. On récupère les matchs dont le label contient le nom de la poule (ex: "Poule A")
-      const poolMatches = matches.filter(m => 
-        m.type === "poule" && m.label.includes(pool.name)
+      // 1. On récupère les matchs de cette poule via poolId (plus fiable que le label)
+      const poolMatches = matches.filter(m =>
+        m.type === "poule" && m.poolId === pool.id
       );
+
+      console.log(`🏆 Pool "${pool.name}" (id: ${pool.id}): ${poolMatches.length} matchs trouvés`);
 
       const stats: Record<string, RankingEntry> = {};
 
-      // 2. Initialiser les équipes de la poule
-      // Si pool.teams est vide, on les extrait des matchs
-      const teamsInPool = pool.teams.length > 0 ? pool.teams : 
-        Array.from(new Set(poolMatches.flatMap(m => [m.teamA, m.teamB])));
+      // 2. Initialiser les équipes de la poule à partir des matchs
+      const teamsInPool = Array.from(new Set(poolMatches.flatMap(m => [m.teamA, m.teamB])))
+        .filter(t => t && t !== "À définir" && t !== "En attente");
 
       teamsInPool.forEach(teamName => {
         stats[teamName] = {
-          position: 0, team: teamName, played: 0, won: 0, drawn: 0, lost: 0, points: 0, scoreDiff: 0 
+          position: 0, team: teamName, played: 0, won: 0, drawn: 0, lost: 0, points: 0, scoreDiff: 0
         };
       });
 
-      // 3. Calcul des points (3, 1, 0)
+      // 3. Calcul des points (3 victoire, 1 nul, 0 défaite)
       poolMatches.forEach((m) => {
         if (m.status !== "terminé" || m.scoreA === undefined || m.scoreB === undefined) return;
 
@@ -614,19 +624,22 @@ export default function TournamentViewPage() {
           stats[teamA].points += 3;
           stats[teamA].won++;
           stats[teamB].lost++;
+          console.log(`  ✅ ${teamA} bat ${teamB} (${scoreA}-${scoreB}) → ${teamA} +3 pts`);
         } else if (scoreB > scoreA) {
           stats[teamB].points += 3;
           stats[teamB].won++;
           stats[teamA].lost++;
+          console.log(`  ✅ ${teamB} bat ${teamA} (${scoreB}-${scoreA}) → ${teamB} +3 pts`);
         } else {
           stats[teamA].points += 1;
           stats[teamB].points += 1;
           stats[teamA].drawn++;
           stats[teamB].drawn++;
+          console.log(`  🤝 Match nul ${teamA} vs ${teamB} (${scoreA}-${scoreB}) → +1 pt chacun`);
         }
       });
 
-      // 4. Tri par points puis différence de buts
+      // 4. Tri par points puis différence de buts/scores
       const sorted = Object.values(stats).sort((a, b) => {
         if (b.points !== a.points) return b.points - a.points;
         return (b.scoreDiff || 0) - (a.scoreDiff || 0);
@@ -634,6 +647,8 @@ export default function TournamentViewPage() {
 
       sorted.forEach((e, i) => e.position = i + 1);
       newPoolRankings.set(pool.name, sorted);
+
+      console.log(`📊 Classement ${pool.name}:`, sorted.map(s => `${s.position}. ${s.team} (${s.points} pts)`));
     });
 
     setPoolRankings(newPoolRankings);
@@ -651,7 +666,7 @@ export default function TournamentViewPage() {
 
       try {
         // Récupérer le tournoi
-        const tournamentsResponse = await fetch(`http://localhost:8000/tournaments?sport_id=${params.id}`);
+        const tournamentsResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/tournaments?sport_id=${params.id}`);
         const tournamentsData = await tournamentsResponse.json();
         const items = tournamentsData.data?.items || [];
         const tournament = items.length > 0 ? items[0] : null;
@@ -659,7 +674,7 @@ export default function TournamentViewPage() {
         if (!tournament) return;
 
         // Récupérer le classement final depuis l'API
-        const rankingResponse = await fetch(`http://localhost:8000/tournaments/${tournament.id}/final-ranking`);
+        const rankingResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/tournaments/${tournament.id}/final-ranking`);
         if (!rankingResponse.ok) {
           console.warn('Impossible de charger le classement final');
           return;
@@ -695,7 +710,7 @@ export default function TournamentViewPage() {
     if (window.confirm('Êtes-vous sûr de vouloir réinitialiser tous les matchs ? Cette action est irréversible.')) {
       try {
         // 1. Trouver le tournoi
-        const tournamentsResponse = await fetch(`http://localhost:8000/tournaments?sport_id=${params.id}`);
+        const tournamentsResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/tournaments?sport_id=${params.id}`);
         if (!tournamentsResponse.ok) {
           throw new Error("Impossible de charger le tournoi");
         }
@@ -711,7 +726,7 @@ export default function TournamentViewPage() {
         console.log('📝 Tournoi trouvé:', tournament.id);
         
         // 2. Récupérer TOUS les matchs du tournoi
-        const structureResponse = await fetch(`http://localhost:8000/tournaments/${tournament.id}/structure`);
+        const structureResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/tournaments/${tournament.id}/structure`);
         if (!structureResponse.ok) {
           throw new Error("Impossible de charger la structure du tournoi");
         }
@@ -770,7 +785,7 @@ export default function TournamentViewPage() {
               resetPayload.team_sport_b_id = null;
             }
             
-            const resetResponse = await fetch(`http://localhost:8000/matches/${match.id}`, {
+            const resetResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/matches/${match.id}`, {
               method: 'PATCH',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(resetPayload),
@@ -798,7 +813,7 @@ export default function TournamentViewPage() {
         
         // 4. Appeler l'endpoint de réinitialisation du backend s'il existe
         try {
-          const backendResetResponse = await fetch(`http://localhost:8000/tournaments/${tournament.id}/reset-matches`, {
+          const backendResetResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/tournaments/${tournament.id}/reset-matches`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -837,7 +852,7 @@ export default function TournamentViewPage() {
     
     try {
       // 1. Récupérer le tournoi
-      const tournamentsResponse = await fetch(`http://localhost:8000/tournaments?sport_id=${params.id}`);
+      const tournamentsResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/tournaments?sport_id=${params.id}`);
       const tournamentsData = await tournamentsResponse.json();
       const tournament = tournamentsData.data?.items[0];
       
@@ -848,7 +863,7 @@ export default function TournamentViewPage() {
       console.log('📝 Tournoi:', tournament.id);
       
       // 2. Récupérer la structure
-      const structureResponse = await fetch(`http://localhost:8000/tournaments/${tournament.id}/structure`);
+      const structureResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/tournaments/${tournament.id}/structure`);
       const structureData = await structureResponse.json();
       const data = structureData.data || structureData;
       
@@ -937,7 +952,7 @@ export default function TournamentViewPage() {
     
     try {
       // Utiliser l'endpoint avec le sport_id directement
-      const tournamentsResponse = await fetch(`http://localhost:8000/tournaments?sport_id=${params.id}`);
+      const tournamentsResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/tournaments?sport_id=${params.id}`);
       if (!tournamentsResponse.ok) {
         throw new Error("Impossible de charger le tournoi");
       }
@@ -953,7 +968,7 @@ export default function TournamentViewPage() {
       console.log('📝 Tournoi trouvé:', tournament.id);
       
       // Appeler l'API pour propager les résultats
-      const propagateResponse = await fetch(`http://localhost:8000/tournaments/${tournament.id}/propagate-results`, {
+      const propagateResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/tournaments/${tournament.id}/propagate-results`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

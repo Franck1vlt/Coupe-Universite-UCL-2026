@@ -17,6 +17,7 @@ interface MatchData {
     redCards2?: number;
     chrono?: string;
     lastUpdate?: string;
+    winner?: string;
 }
 
 export default function FootballTableSpectatorPage() {
@@ -156,6 +157,15 @@ return (
                         <span className="card-icon ml-2">🟥</span> {matchData.redCards1 || 0}
                     </div>
                 </div>
+
+                {/* Vainqueur Overlay */}
+                {matchData.winner && (
+    <div className="vainqueur-overlay">
+        <div className="vainqueur-banner animate-vainqueur">
+            🏆 Vainqueur : {matchData.winner} 🏆
+        </div>
+    </div>
+)}
 
             </section>
         </main>

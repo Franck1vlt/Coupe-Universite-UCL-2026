@@ -1,0 +1,72 @@
+name: CI/CD - Coupe de l'Université
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  ci-cd:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ======================
+      # BACKEND TESTS (FastAPI)
+      # ======================
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.11
+
+      - name: Install backend dependencies
+        run: |
+          pip install -r backend/requirements.txt
+          pip install pytest pytest-asyncio
+
+      - name: Run backend tests
+        run: |
+          cd backend
+          pytest --maxfail=1 --disable-warnings
+
+      # ======================
+      # FRONTEND ADMIN TESTS
+      # ======================
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Install frontend-admin deps
+        run: npm ci --prefix frontend-admin
+
+      - name: Run frontend-admin tests
+        run: npm test --prefix frontend-admin
+
+      # ======================
+      # FRONTEND PUBLIC TESTS
+      # ======================
+      - name: Install frontend-public deps
+        run: npm ci --prefix frontend-public
+
+      - name: Run frontend-public tests
+        run: npm test --prefix frontend-public
+
+      # ======================
+      # DEPLOYMENT
+      # ======================
+      - name: Deploy via SSH (Docker Compose)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: 22
+          script: |
+            set -e
+            cd /var/www/coupe-universitaire
+            git pull origin main
+            docker compose up -d --build

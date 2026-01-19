@@ -85,3 +85,34 @@
 .score-change {
     animation: scoreUpdate 0.5s ease-in-out;
 }
+
+.vainqueur-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(255,255,255,0.96);
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: all;
+}
+
+.vainqueur-banner {
+    color: #d4af37;
+    font-size: 6vw;
+    font-weight: bold;
+    padding: 3vw 6vw;
+    border-radius: 2vw;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+    border: 6px solid #d4af37;
+    background: #fffbe6;
+    text-align: center;
+    opacity: 0.97;
+    animation: vainqueur-pop 1.2s cubic-bezier(.68,-0.55,.27,1.55) both;
+}
+
+@keyframes vainqueur-pop {
+    0% { transform: scale(0.7); opacity: 0; }
+    60% { transform: scale(1.15); opacity: 1; }
+    100% { transform: scale(1); opacity: 0.97; }
+}

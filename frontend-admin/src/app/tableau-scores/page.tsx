@@ -52,7 +52,7 @@ export default function TableauScoresPage() {
   // Fonction pour récupérer les équipes
   const fetchTeams = async (): Promise<Team[]> => {
     try {
-      const response = await fetch('http://localhost:8000/teams');
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/teams`);
       if (!response.ok) {
         throw new Error('Erreur lors de la récupération des équipes');
       }
@@ -67,7 +67,7 @@ export default function TableauScoresPage() {
   // Fonction pour récupérer tous les tournois
   const fetchTournaments = async (): Promise<Tournament[]> => {
     try {
-      const response = await fetch('http://localhost:8000/tournaments');
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/tournaments`);
       if (!response.ok) {
         throw new Error('Erreur lors de la récupération des tournois');
       }
@@ -75,7 +75,7 @@ export default function TableauScoresPage() {
       const tournamentsData = data.success ? data.data.items : [];
 
       // Récupérer les sports pour avoir les noms
-      const sportsResponse = await fetch('http://localhost:8000/sports');
+      const sportsResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/sports`);
       const sportsData = await sportsResponse.json();
       const sports = sportsData.success ? sportsData.data.items : [];
 
@@ -96,7 +96,7 @@ export default function TableauScoresPage() {
   // Fonction pour récupérer le classement final global
   const fetchGlobalRanking = async (): Promise<TeamRankingData[]> => {
     try {
-      const response = await fetch('http://localhost:8000/final-ranking');
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/final-ranking`);
       if (!response.ok) {
         throw new Error('Erreur lors de la récupération du classement final');
       }
@@ -134,7 +134,7 @@ export default function TableauScoresPage() {
   // Fonction pour récupérer le classement d'un tournoi spécifique
   const fetchTournamentRanking = async (tournamentId: number): Promise<TeamRankingData[]> => {
     try {
-      const response = await fetch(`http://localhost:8000/tournaments/${tournamentId}/final-ranking`);
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/tournaments/${tournamentId}/final-ranking`);
       if (!response.ok) {
         throw new Error('Erreur lors de la récupération du classement du tournoi');
       }

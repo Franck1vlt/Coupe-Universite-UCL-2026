@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { signOut } from "next-auth/react";
 
 const links = [
   {
@@ -98,7 +101,28 @@ const links = [
 
 export default function StaffHome() {
   return (
-    <main className="min-h-screen bg-gray-100 flex flex-col items-center justify-center px-4 py-8">
+    <main className="min-h-screen bg-gray-100 flex flex-col items-center justify-center px-4 py-8 relative">
+      {/* Bouton de déconnexion */}
+      <button
+        onClick={() => signOut({ callbackUrl: "/login" })}
+        className="absolute top-4 right-4 p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+        title="Se déconnecter"
+      >
+        <svg
+          className="h-6 w-6"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+          />
+        </svg>
+      </button>
+
       <header className="mb-12 text-center">
         <img
           src="/img/coupe.png"

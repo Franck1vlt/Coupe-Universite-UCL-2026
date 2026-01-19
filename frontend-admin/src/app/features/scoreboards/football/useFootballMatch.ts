@@ -57,7 +57,7 @@ export function useFootballMatch(initialMatchId: string | null) {
         async function fetchMatchData() {
             // Récupérer d'abord le statut du match
             try {
-                const statusResponse = await fetch(`http://localhost:8000/matches/${initialMatchId}/status`);
+                const statusResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/matches/${initialMatchId}/status`);
                 if (statusResponse.ok) {
                     const statusData = await statusResponse.json();
                     console.log('[Football Hook] Current match status:', statusData.data?.status);
@@ -69,7 +69,7 @@ export function useFootballMatch(initialMatchId: string | null) {
                 console.log('[Football Hook] Fetching match data for matchId:', initialMatchId);
 
                 // 1. Récupérer les données du match
-                const matchResponse = await fetch(`http://localhost:8000/matches/${initialMatchId}`);
+                const matchResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/matches/${initialMatchId}`);
                 if (!matchResponse.ok) {
                     console.error('[Football Hook] Match not found:', matchResponse.status);
                     throw new Error('Match not found');
@@ -87,11 +87,11 @@ export function useFootballMatch(initialMatchId: string | null) {
                 // Équipe A
                 if (match.team_sport_a_id) {
                     console.log('[Football Hook] Fetching team_sport_a:', match.team_sport_a_id);
-                    const teamSportAResponse = await fetch(`http://localhost:8000/team-sports/${match.team_sport_a_id}`);
+                    const teamSportAResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/team-sports/${match.team_sport_a_id}`);
                     if (teamSportAResponse.ok) {
                         const teamSportAData = await teamSportAResponse.json();
                         console.log('[Football Hook] TeamSport A data:', teamSportAData.data);
-                        const teamAResponse = await fetch(`http://localhost:8000/teams/${teamSportAData.data.team_id}`);
+                        const teamAResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/teams/${teamSportAData.data.team_id}`);
                         if (teamAResponse.ok) {
                             const teamAData = await teamAResponse.json();
                             teamAName = teamAData.data.name;
@@ -108,11 +108,11 @@ export function useFootballMatch(initialMatchId: string | null) {
                 // Équipe B
                 if (match.team_sport_b_id) {
                     console.log('[Football Hook] Fetching team_sport_b:', match.team_sport_b_id);
-                    const teamSportBResponse = await fetch(`http://localhost:8000/team-sports/${match.team_sport_b_id}`);
+                    const teamSportBResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/team-sports/${match.team_sport_b_id}`);
                     if (teamSportBResponse.ok) {
                         const teamSportBData = await teamSportBResponse.json();
                         console.log('[Football Hook] TeamSport B data:', teamSportBData.data);
-                        const teamBResponse = await fetch(`http://localhost:8000/teams/${teamSportBData.data.team_id}`);
+                        const teamBResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/teams/${teamSportBData.data.team_id}`);
                         if (teamBResponse.ok) {
                             const teamBData = await teamBResponse.json();
                             teamBName = teamBData.data.name;
@@ -129,7 +129,7 @@ export function useFootballMatch(initialMatchId: string | null) {
                 // 3. Récupérer les informations de planification (terrain)
                 let courtName: string | undefined = undefined;
                 console.log('[Football Hook] Fetching schedule for match:', initialMatchId);
-                const scheduleResponse = await fetch(`http://localhost:8000/matches/${initialMatchId}/schedule`);
+                const scheduleResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/matches/${initialMatchId}/schedule`);
                 console.log('[Football Hook] Schedule response status:', scheduleResponse.status);
                 if (scheduleResponse.ok) {
                     const scheduleData = await scheduleResponse.json();
@@ -226,11 +226,64 @@ export function useFootballMatch(initialMatchId: string | null) {
         }
     };
 
+    // 1. Synchronisation automatique SANS winner
+    useEffect(() => {
+        try {
+            const payload = {
+                team1: matchData.teamA.name || "ÉQUIPE A",
+                team2: matchData.teamB.name || "ÉQUIPE B",
+                matchType: matchData.matchType || "Match",
+                court: matchData.court || court || "Terrain",
+                score1: matchData.teamA.score,
+                score2: matchData.teamB.score,
+                yellowCards1: Math.max(0, matchData.teamA.yellowCards),
+                yellowCards2: Math.max(0, matchData.teamB.yellowCards),
+                redCards1: Math.max(0, matchData.teamA.redCards),
+                redCards2: Math.max(0, matchData.teamB.redCards),
+                chrono: formattedTime,
+                lastUpdate: new Date().toISOString(),
+                // PAS de winner ici
+            };
+            localStorage.setItem("liveFootballMatch", JSON.stringify(payload));
+        } catch (e) {
+            // Ignore storage errors
+        }
+    }, [matchData, formattedTime]);
+
+    // 2. Ajoute winner dans handleEnd
     const handleEnd = async () => {
         stopChrono();
 
-        // Soumettre les résultats du match (scores + status completed en une seule requête)
-        // Cela déclenche automatiquement la propagation des équipes vers les matchs suivants
+        // Détermination du vainqueur
+        let winner = undefined;
+        if (matchData.teamA.score > matchData.teamB.score) {
+            winner = matchData.teamA.name || "ÉQUIPE A";
+        } else if (matchData.teamB.score > matchData.teamA.score) {
+            winner = matchData.teamB.name || "ÉQUIPE B";
+        }
+        // Met à jour le localStorage avec le vainqueur
+        try {
+            const payload = {
+                team1: matchData.teamA.name || "ÉQUIPE A",
+                team2: matchData.teamB.name || "ÉQUIPE B",
+                matchType: matchData.matchType || "Match",
+                court: matchData.court || court || "Terrain",
+                score1: matchData.teamA.score,
+                score2: matchData.teamB.score,
+                yellowCards1: Math.max(0, matchData.teamA.yellowCards),
+                yellowCards2: Math.max(0, matchData.teamB.yellowCards),
+                redCards1: Math.max(0, matchData.teamA.redCards),
+                redCards2: Math.max(0, matchData.teamB.redCards),
+                chrono: formattedTime,
+                lastUpdate: new Date().toISOString(),
+                winner,
+            };
+            localStorage.setItem("liveFootballMatch", JSON.stringify(payload));
+        } catch (e) {
+            // Ignore storage errors
+        }
+
+        // Soumettre les résultats du match
         await submitMatchResult();
     };
 
@@ -318,6 +371,15 @@ export function useFootballMatch(initialMatchId: string | null) {
     /** ---------- SYNC TO LOCAL STORAGE ---------- */
     useEffect(() => {
         try {
+            // Détermination du vainqueur
+            let winner = undefined;
+            if (matchData.teamA.score > matchData.teamB.score) {
+                winner = matchData.teamA.name || "ÉQUIPE A";
+            } else if (matchData.teamB.score > matchData.teamA.score) {
+                winner = matchData.teamB.name || "ÉQUIPE B";
+            }
+            // Si égalité, winner reste undefined/null
+
             const payload = {
                 team1: matchData.teamA.name || "ÉQUIPE A",
                 team2: matchData.teamB.name || "ÉQUIPE B",

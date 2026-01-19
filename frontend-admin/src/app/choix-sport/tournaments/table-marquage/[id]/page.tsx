@@ -55,7 +55,7 @@ export default function TableMarquagePage({ params }: PageProps) {
       console.log("Pas de matchId ou pas numérique", { isNumeric, matchId });
       return;
     }
-    fetch(`http://localhost:8000/matches/${matchId}`)
+    fetch(`${process.env.NEXT_PUBLIC_API_URL}/matches/${matchId}`)
       .then(async (res) => {
         if (!res.ok) throw new Error('Match not found');
         const match = await res.json();
@@ -84,22 +84,22 @@ export default function TableMarquagePage({ params }: PageProps) {
       // Si c'est un ID numérique, on récupère le sport depuis l'API
       try {
         // 1. Récupérer le match pour obtenir phase_id
-        const matchResponse = await fetch(`http://localhost:8000/matches/${matchId}`);
+        const matchResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/matches/${matchId}`);
         if (!matchResponse.ok) throw new Error('Match not found');
         const matchData: MatchData = await matchResponse.json();
         
         // 2. Récupérer la phase pour obtenir tournament_id
-        const phaseResponse = await fetch(`http://localhost:8000/tournament-phases/${matchData.data.phase_id}`);
+        const phaseResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/tournament-phases/${matchData.data.phase_id}`);
         if (!phaseResponse.ok) throw new Error('Phase not found');
         const phaseData: PhaseData = await phaseResponse.json();
         
         // 3. Récupérer le tournoi pour obtenir sport_id
-        const tournamentResponse = await fetch(`http://localhost:8000/tournaments/${phaseData.data.tournament_id}`);
+        const tournamentResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/tournaments/${phaseData.data.tournament_id}`);
         if (!tournamentResponse.ok) throw new Error('Tournament not found');
         const tournamentData: TournamentData = await tournamentResponse.json();
         
         // 4. Récupérer le sport pour obtenir le code
-        const sportResponse = await fetch(`http://localhost:8000/sports/${tournamentData.data.sport_id}`);
+        const sportResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/sports/${tournamentData.data.sport_id}`);
         if (!sportResponse.ok) throw new Error('Sport not found');
         const sportData: SportData = await sportResponse.json();
         

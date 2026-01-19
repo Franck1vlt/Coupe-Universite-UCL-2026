@@ -21,6 +21,7 @@ interface MatchData {
     targetScore?: number;
     meneCount?: number;
     lastUpdate?: string;
+    winner?: string;
 }
 
 export default function PetanqueTableSpectatorPage() {
@@ -98,7 +99,9 @@ export default function PetanqueTableSpectatorPage() {
         }
     }
 
-return (
+    const winnerName = matchData.winner;
+
+    return (
         <main className="min-h-screen w-full bg-white flex items-center justify-center p-4 overflow-hidden">
             <section className="score-board-container gap-8">
 
@@ -164,6 +167,15 @@ return (
                         <div className="current-player-section">
                             <div className="current-player-text">
                                 🎯 A {matchData.cochonnetTeam === "A" ? matchData.team1 : matchData.team2} de lancer le cochonnet
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Banner du vainqueur */}
+                    {winnerName && (
+                        <div className="vainqueur-overlay">
+                            <div className="vainqueur-banner animate-vainqueur">
+                                🏆 Vainqueur : {winnerName} 🏆
                             </div>
                         </div>
                     )}

@@ -46,7 +46,7 @@ export function useTournamentApi(tournamentId: number | null) {
     setError(null);
 
     try {
-      const response = await fetch(`http://localhost:8000/tournaments/${tournamentId}/structure`);
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/tournaments/${tournamentId}/structure`);
       
       if (!response.ok) {
         throw new Error(`Erreur ${response.status}`);
@@ -159,7 +159,7 @@ export function useTournamentApi(tournamentId: number | null) {
       };
 
       const response = await fetch(
-        `http://localhost:8000/tournament_structure/${tournamentId}/structure`,
+        `${process.env.NEXT_PUBLIC_API_URL}/tournament_structure/${tournamentId}/structure`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },

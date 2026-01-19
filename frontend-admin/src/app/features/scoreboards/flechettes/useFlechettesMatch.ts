@@ -43,7 +43,7 @@ export function useFlechettesMatch(initialMatchId: string | null) {
                 console.log('[Flechettes Hook] Fetching match data for matchId:', initialMatchId);
 
                 // 1. Récupérer les données du match
-                const matchResponse = await fetch(`http://localhost:8000/matches/${initialMatchId}`);
+                const matchResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/matches/${initialMatchId}`);
                 if (!matchResponse.ok) {
                     console.error('[Flechettes Hook] Match not found:', matchResponse.status);
                     throw new Error('Match not found');
@@ -61,11 +61,11 @@ export function useFlechettesMatch(initialMatchId: string | null) {
                 // Équipe A
                 if (match.team_sport_a_id) {
                     console.log('[Flechettes Hook] Fetching team_sport_a:', match.team_sport_a_id);
-                    const teamSportAResponse = await fetch(`http://localhost:8000/team-sports/${match.team_sport_a_id}`);
+                    const teamSportAResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/team-sports/${match.team_sport_a_id}`);
                     if (teamSportAResponse.ok) {
                         const teamSportAData = await teamSportAResponse.json();
                         console.log('[Flechettes Hook] TeamSport A data:', teamSportAData.data);
-                        const teamAResponse = await fetch(`http://localhost:8000/teams/${teamSportAData.data.team_id}`);
+                        const teamAResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/teams/${teamSportAData.data.team_id}`);
                         if (teamAResponse.ok) {
                             const teamAData = await teamAResponse.json();
                             teamAName = teamAData.data.name;
@@ -82,11 +82,11 @@ export function useFlechettesMatch(initialMatchId: string | null) {
                 // Équipe B
                 if (match.team_sport_b_id) {
                     console.log('[Flechettes Hook] Fetching team_sport_b:', match.team_sport_b_id);
-                    const teamSportBResponse = await fetch(`http://localhost:8000/team-sports/${match.team_sport_b_id}`);
+                    const teamSportBResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/team-sports/${match.team_sport_b_id}`);
                     if (teamSportBResponse.ok) {
                         const teamSportBData = await teamSportBResponse.json();
                         console.log('[Flechettes Hook] TeamSport B data:', teamSportBData.data);
-                        const teamBResponse = await fetch(`http://localhost:8000/teams/${teamSportBData.data.team_id}`);
+                        const teamBResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/teams/${teamSportBData.data.team_id}`);
                         if (teamBResponse.ok) {
                             const teamBData = await teamBResponse.json();
                             teamBName = teamBData.data.name;
@@ -103,7 +103,7 @@ export function useFlechettesMatch(initialMatchId: string | null) {
                 // 3. Récupérer les informations de planification (terrain)
                 let courtName: string | undefined = undefined;
                 console.log('[Flechettes Hook] Fetching schedule for match:', initialMatchId);
-                const scheduleResponse = await fetch(`http://localhost:8000/matches/${initialMatchId}/schedule`);
+                const scheduleResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/matches/${initialMatchId}/schedule`);
                 console.log('[Flechettes Hook] Schedule response status:', scheduleResponse.status);
                 if (scheduleResponse.ok) {
                     const scheduleData = await scheduleResponse.json();
@@ -489,6 +489,15 @@ export function useFlechettesMatch(initialMatchId: string | null) {
     /** ---------- SYNC TO LOCAL STORAGE ---------- */
     useEffect(() => {
         try {
+            // Détermination du vainqueur
+            let winner = undefined;
+            const setsToWin = matchData.gameMode === "BO5" ? 3 : 2;
+            if (matchData.teamA.sets === setsToWin) {
+                winner = matchData.teamA.name || "ÉQUIPE A";
+            } else if (matchData.teamB.sets === setsToWin) {
+                winner = matchData.teamB.name || "ÉQUIPE B";
+            }
+
             const payload = {
                 team1: matchData.teamA.name || "ÉQUIPE A",
                 team2: matchData.teamB.name || "ÉQUIPE B",
@@ -503,6 +512,7 @@ export function useFlechettesMatch(initialMatchId: string | null) {
                 currentPlayer: getCurrentPlayer(),
                 currentThrows: matchData.currentThrows || [],
                 lastUpdate: new Date().toISOString(),
+                winner, // <-- AJOUTE CETTE LIGNE
             };
             localStorage.setItem("liveFlechettesMatch", JSON.stringify(payload));
         } catch (e) {

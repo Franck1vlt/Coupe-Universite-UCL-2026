@@ -36,7 +36,7 @@ export default function CourtsPage() {
   const updatingRef = useRef<HTMLInputElement>(null);
 
   // *** Backend URL ***
-  const API_BASE_URL = "http://localhost:8000";
+  const API_BASE_URL = `${process.env.NEXT_PUBLIC_API_URL}`;
 
   // Charger les terrains depuis l'API
   const fetchCourts = async () => {

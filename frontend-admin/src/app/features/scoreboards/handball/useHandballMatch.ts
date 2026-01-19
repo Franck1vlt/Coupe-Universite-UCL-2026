@@ -32,7 +32,7 @@ export function useHandballMatch(initialMatchId: string | null) {
                 console.log('[Handball Hook] Fetching match data for matchId:', initialMatchId);
 
                 // 1. Récupérer les données du match
-                const matchResponse = await fetch(`http://localhost:8000/matches/${initialMatchId}`);
+                const matchResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/matches/${initialMatchId}`);
                 if (!matchResponse.ok) {
                     console.error('[Handball Hook] Match not found:', matchResponse.status);
                     throw new Error('Match not found');
@@ -45,7 +45,7 @@ export function useHandballMatch(initialMatchId: string | null) {
                 let tournamentId: number | undefined = undefined;
                 if (match.phase_id) {
                     console.log('[Handball Hook] Fetching tournament phase:', match.phase_id);
-                    const phaseResponse = await fetch(`http://localhost:8000/tournament-phases/${match.phase_id}`);
+                    const phaseResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/tournament-phases/${match.phase_id}`);
                     if (phaseResponse.ok) {
                         const phaseData = await phaseResponse.json();
                         tournamentId = phaseData.data.tournament_id;
@@ -62,11 +62,11 @@ export function useHandballMatch(initialMatchId: string | null) {
                 // Équipe A
                 if (match.team_sport_a_id) {
                     console.log('[Handball Hook] Fetching team_sport_a:', match.team_sport_a_id);
-                    const teamSportAResponse = await fetch(`http://localhost:8000/team-sports/${match.team_sport_a_id}`);
+                    const teamSportAResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/team-sports/${match.team_sport_a_id}`);
                     if (teamSportAResponse.ok) {
                         const teamSportAData = await teamSportAResponse.json();
                         console.log('[Handball Hook] TeamSport A data:', teamSportAData.data);
-                        const teamAResponse = await fetch(`http://localhost:8000/teams/${teamSportAData.data.team_id}`);
+                        const teamAResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/teams/${teamSportAData.data.team_id}`);
                         if (teamAResponse.ok) {
                             const teamAData = await teamAResponse.json();
                             teamAName = teamAData.data.name;
@@ -83,11 +83,11 @@ export function useHandballMatch(initialMatchId: string | null) {
                 // Équipe B
                 if (match.team_sport_b_id) {
                     console.log('[Handball Hook] Fetching team_sport_b:', match.team_sport_b_id);
-                    const teamSportBResponse = await fetch(`http://localhost:8000/team-sports/${match.team_sport_b_id}`);
+                    const teamSportBResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/team-sports/${match.team_sport_b_id}`);
                     if (teamSportBResponse.ok) {
                         const teamSportBData = await teamSportBResponse.json();
                         console.log('[Handball Hook] TeamSport B data:', teamSportBData.data);
-                        const teamBResponse = await fetch(`http://localhost:8000/teams/${teamSportBData.data.team_id}`);
+                        const teamBResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/teams/${teamSportBData.data.team_id}`);
                         if (teamBResponse.ok) {
                             const teamBData = await teamBResponse.json();
                             teamBName = teamBData.data.name;
@@ -104,7 +104,7 @@ export function useHandballMatch(initialMatchId: string | null) {
                 // 3. Récupérer les informations de planification (terrain)
                 let courtName: string | undefined = undefined;
                 console.log('[Handball Hook] Fetching schedule for match:', initialMatchId);
-                const scheduleResponse = await fetch(`http://localhost:8000/matches/${initialMatchId}/schedule`);
+                const scheduleResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/matches/${initialMatchId}/schedule`);
                 console.log('[Handball Hook] Schedule response status:', scheduleResponse.status);
                 if (scheduleResponse.ok) {
                     const scheduleData = await scheduleResponse.json();

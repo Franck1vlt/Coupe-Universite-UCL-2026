@@ -85,7 +85,7 @@ export default function GestionSports() {
     setError(null);
     try {
       // On veut bien récupérer la propriété data.items de la réponse FastAPI
-      const res = await fetch("http://localhost:8000/sports?skip=0&limit=100", { method: "GET", headers: { "Accept": "application/json" } });
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/sports?skip=0&limit=100`, { method: "GET", headers: { "Accept": "application/json" } });
       if (!res.ok) throw new Error("Impossible de charger les sports.");
       const data = await res.json();
       // Récupération correcte du tableau des sports
@@ -120,7 +120,7 @@ export default function GestionSports() {
     }
     const score_type_api = uiToApiScoreType(inputTypeScore);
     try {
-      const url = `http://localhost:8000/sports?name=${encodeURIComponent(nom)}&score_type=${encodeURIComponent(
+      const url = `${process.env.NEXT_PUBLIC_API_URL}/sports?name=${encodeURIComponent(nom)}&score_type=${encodeURIComponent(
         score_type_api
       )}`;
       const res = await fetch(url, {
@@ -150,7 +150,7 @@ export default function GestionSports() {
     setRemoving(sportId);
     setError(null);
     try {
-      const res = await fetch(`http://localhost:8000/sports/${sportId}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/sports/${sportId}`, {
         method: "DELETE",
         headers: { Accept: "application/json" },
       });
@@ -166,14 +166,14 @@ export default function GestionSports() {
     }
   };
 
-  // Modifie un sport (PUT) -  http://localhost:8000/sports/{sport_id}
+  // Modifie un sport (PUT) -  ${process.env.NEXT_PUBLIC_API_URL}/sports/{sport_id}
   const [updating, setUpdating] = useState<number | null>(null);
 
   const handleUpdateSport = async (sportId: number, name: string, score_type: ApiScoreType) => {
     setUpdating(sportId);
     setError(null);
     try {
-      const url = `http://localhost:8000/sports/${sportId}?name=${encodeURIComponent(name)}&score_type=${encodeURIComponent(score_type)}`;
+      const url = `${process.env.NEXT_PUBLIC_API_URL}/sports/${sportId}?name=${encodeURIComponent(name)}&score_type=${encodeURIComponent(score_type)}`;
       const res = await fetch(url, {
         method: "PUT",
         headers: { Accept: "application/json" },

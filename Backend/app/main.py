@@ -2646,121 +2646,9 @@ async def get_match_set(set_id: int, db: Session = Depends(get_db)):
 # ============================================================================
 # ROUTES POUR LA STRUCTURE DES TOURNOIS ET LA PROPAGATION DES RÉSULTATS
 # ============================================================================
-
-@app.get("/tournaments/{tournament_id}/structure", tags=["Tournaments"])
-async def get_tournament_structure(
-    tournament_id: int,
-    db: Session = Depends(get_db)
-):
-    """
-    Récupérer la structure complète d'un tournoi
-    """
-    from app.models.tournament import Tournament
-    from app.models.tournamentphase import TournamentPhase
-    from app.models.pool import Pool
-    from app.models.match import Match
-    from app.models.teampool import TeamPool
-    from app.models.matchschedule import MatchSchedule
-    from app.models.court import Court
-    from app.models.teamsport import TeamSport
-    from app.models.team import Team
-    
-    tournament = db.query(Tournament).filter(Tournament.id == tournament_id).first()
-    if not tournament:
-        raise NotFoundError(f"Tournament {tournament_id} not found")
-    
-    # Récupérer la phase principale
-    phase = db.query(TournamentPhase).filter(
-        TournamentPhase.tournament_id == tournament_id
-    ).first()
-    
-    if not phase:
-        return create_success_response({
-            "tournament_id": tournament_id,
-            "qualification_matches": [],
-            "pools": [],
-            "bracket_matches": [],
-            "loser_bracket_matches": []
-        })
-    
-    # Forcer le refresh des données depuis la BDD (évite les problèmes de cache de session)
-    db.expire_all()
-    
-    # Récupérer tous les matchs
-    all_matches = db.query(Match).filter(Match.phase_id == phase.id).all()
-    
-    qualification_matches = [m for m in all_matches if m.match_type == "qualification"]
-    bracket_matches = [m for m in all_matches if m.match_type == "bracket"]
-    loser_bracket_matches = [m for m in all_matches if m.match_type == "loser_bracket"]
-    
-    # Récupérer les poules avec leurs matchs
-    pools = db.query(Pool).filter(Pool.phase_id == phase.id).all()
-    pools_data = []
-    
-    for pool in pools:
-        pool_matches = [m for m in all_matches if m.pool_id == pool.id]
-        team_pools = db.query(TeamPool).filter(TeamPool.pool_id == pool.id).all()
-        team_ids = [tp.team_sport_id for tp in team_pools]
-        
-        pools_data.append({
-            "id": pool.id,
-            "name": pool.name,
-            "display_order": pool.order,
-            "qualified_to_finals": pool.qualified_to_finals,
-            "qualified_to_loser_bracket": pool.qualified_to_loser_bracket,
-            "teams": team_ids,
-            "matches": [
-                {
-                    "id": m.id,
-                    "match_type": m.match_type,
-                    "bracket_type": m.bracket_type,
-                    "team_sport_a_id": m.team_sport_a_id,
-                    "team_sport_b_id": m.team_sport_b_id,
-                    "team_a_source": m.team_a_source,
-                    "team_b_source": m.team_b_source,
-                    "label": m.label,
-                    "match_order": m.match_order,
-                    "score_a": m.score_a,
-                    "score_b": m.score_b,
-                    "status": m.status,
-                    "court": m.court, 
-                    "date": m.date,      
-                    "time": m.time,       
-                    "scheduled_datetime": m.scheduled_datetime if hasattr(m, "scheduled_datetime") else None,
-                    "duration": get_match_duration(db, m.id)
-                }
-                for m in pool_matches
-            ]
-        })
-    
-    def match_to_dict(m):
-        return {
-            "id": m.id,
-            "match_type": m.match_type,
-            "bracket_type": m.bracket_type,
-            "team_sport_a_id": m.team_sport_a_id,
-            "team_sport_b_id": m.team_sport_b_id,
-            "team_a_source": m.team_a_source,
-            "team_b_source": m.team_b_source,
-            "label": m.label,
-            "match_order": m.match_order,
-            "score_a": m.score_a,
-            "score_b": m.score_b,
-            "status": m.status,
-            "court": m.court, 
-            "date": m.date,      
-            "time": m.time,     
-            "scheduled_datetime": m.scheduled_datetime if hasattr(m, "scheduled_datetime") else None,
-            "duration": get_match_duration(db, m.id)
-        }
-    
-    return create_success_response({
-        "tournament_id": tournament_id,
-        "qualification_matches": [match_to_dict(m) for m in qualification_matches],
-        "pools": pools_data,
-        "bracket_matches": [match_to_dict(m) for m in bracket_matches],
-        "loser_bracket_matches": [match_to_dict(m) for m in loser_bracket_matches]
-    })
+# NOTE: La route GET /tournaments/{tournament_id}/structure est définie dans
+# app/routers/tournament_structure.py et inclut les UUIDs de destination.
+# Cette version locale a été supprimée pour éviter la duplication.
 
 
 def get_match_court_name(db: Session, match_id: int) -> str:
@@ -3091,7 +2979,10 @@ def get_matches_by_tournament(
     """
     matches = db.query(Match).filter(Match.tournament_id == tournament_id).all()
 
+    # Créer le mapping ID -> UUID pour résoudre les destinations
+    id_to_uuid = {m.id: m.uuid for m in matches if m.uuid}
+
     return {
         "success": True,
-        "data": [match_to_dict(m) for m in matches]
+        "data": [match_to_dict(m, id_to_uuid) for m in matches]
     }

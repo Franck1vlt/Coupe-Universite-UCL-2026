@@ -143,3 +143,15 @@ SELECT id, pool_id, match_type, team_a_source, team_b_source FROM Match WHERE po
 SELECT id, team_sport_a_id, team_sport_b_id, team_a_source, team_b_source FROM Match;
 
 SELECT * FROM TeamSport WHERE team_id = 8;
+
+-- Vérifie avec cette requête :
+SELECT 
+    id,
+    label,
+    winner_destination_match_id,
+    loser_destination_match_id,
+    winner_destination_slot,
+    loser_destination_slot
+FROM Match
+WHERE tournament_id = 1
+ORDER BY id;

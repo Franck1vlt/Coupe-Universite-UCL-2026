@@ -30,7 +30,7 @@ export function useBasketballMatch(initialMatchId: string | null) {
             try {
                 console.log('[Basketball Hook] 📝 Fetching match data for matchId:', initialMatchId);
                 
-                const matchResponse = await fetch(`http://localhost:8000/matches/${initialMatchId}`);
+                const matchResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/matches/${initialMatchId}`);
                 if (!matchResponse.ok) throw new Error('Match not found');
                 const matchResult = await matchResponse.json();
                 const match = matchResult.data;
@@ -47,7 +47,7 @@ export function useBasketballMatch(initialMatchId: string | null) {
                 if (match.phase_id) {
                     try {
                         console.log('[Basketball Hook] 📝 Fetching tournament ID via phase_id:', match.phase_id);
-                        const phaseResponse = await fetch(`http://localhost:8000/tournament-phases/${match.phase_id}`);
+                        const phaseResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/tournament-phases/${match.phase_id}`);
                         if (phaseResponse.ok) {
                             const phaseData = await phaseResponse.json();
                             tournamentId = phaseData.data.tournament_id;
@@ -61,10 +61,10 @@ export function useBasketballMatch(initialMatchId: string | null) {
                 // Équipe A
                 if (match.team_sport_a_id) {
                     console.log('[Basketball Hook] 📝 Fetching team A, team_sport_id:', match.team_sport_a_id);
-                    const teamSportAResponse = await fetch(`http://localhost:8000/team-sports/${match.team_sport_a_id}`);
+                    const teamSportAResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/team-sports/${match.team_sport_a_id}`);
                     if (teamSportAResponse.ok) {
                         const teamSportAData = await teamSportAResponse.json();
-                        const teamAResponse = await fetch(`http://localhost:8000/teams/${teamSportAData.data.team_id}`);
+                        const teamAResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/teams/${teamSportAData.data.team_id}`);
                         if (teamAResponse.ok) {
                             const teamAData = await teamAResponse.json();
                             teamAName = teamAData.data.name;
@@ -80,10 +80,10 @@ export function useBasketballMatch(initialMatchId: string | null) {
                 // Équipe B
                 if (match.team_sport_b_id) {
                     console.log('[Basketball Hook] 📝 Fetching team B, team_sport_id:', match.team_sport_b_id);
-                    const teamSportBResponse = await fetch(`http://localhost:8000/team-sports/${match.team_sport_b_id}`);
+                    const teamSportBResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/team-sports/${match.team_sport_b_id}`);
                     if (teamSportBResponse.ok) {
                         const teamSportBData = await teamSportBResponse.json();
-                        const teamBResponse = await fetch(`http://localhost:8000/teams/${teamSportBData.data.team_id}`);
+                        const teamBResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/teams/${teamSportBData.data.team_id}`);
                         if (teamBResponse.ok) {
                             const teamBData = await teamBResponse.json();
                             teamBName = teamBData.data.name;
@@ -96,11 +96,11 @@ export function useBasketballMatch(initialMatchId: string | null) {
                     console.log('[Basketball Hook] 📝 Team B (source):', teamBName);
                 }
 
-                const scheduleResponse = await fetch(`http://localhost:8000/matches/${initialMatchId}/schedule`);
+                const scheduleResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/matches/${initialMatchId}/schedule`);
                 if (scheduleResponse.ok) {
                     const scheduleData = await scheduleResponse.json();
                     if (scheduleData.data?.court_id) {
-                        const courtResponse = await fetch(`http://localhost:8000/courts/${scheduleData.data.court_id}`);
+                        const courtResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/courts/${scheduleData.data.court_id}`);
                         if (courtResponse.ok) {
                             const courtData = await courtResponse.json();
                             setCourt(courtData.data.name || "");

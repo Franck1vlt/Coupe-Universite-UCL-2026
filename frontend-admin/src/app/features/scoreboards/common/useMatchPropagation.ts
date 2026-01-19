@@ -38,7 +38,7 @@ export interface SubmitResultOptions {
 export async function getTournamentIdFromMatch(matchId: string): Promise<number | null> {
     try {
         // 1. Récupérer le match pour obtenir phase_id
-        const matchResponse = await fetch(`http://localhost:8000/matches/${matchId}`);
+        const matchResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/matches/${matchId}`);
         if (!matchResponse.ok) {
             console.error('[useMatchPropagation] Match not found:', matchId);
             return null;
@@ -48,7 +48,7 @@ export async function getTournamentIdFromMatch(matchId: string): Promise<number 
 
         // 2. Récupérer la phase pour obtenir tournament_id
         if (match.phase_id) {
-            const phaseResponse = await fetch(`http://localhost:8000/tournament-phases/${match.phase_id}`);
+            const phaseResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/tournament-phases/${match.phase_id}`);
             if (phaseResponse.ok) {
                 const phaseData = await phaseResponse.json();
                 return phaseData.data.tournament_id;
@@ -77,7 +77,7 @@ export async function propagateTournamentResults(tournamentId: string | number):
     try {
         console.log('[useMatchPropagation] Starting propagation for tournament:', tournamentId);
 
-        const response = await fetch(`http://localhost:8000/tournaments/${tournamentId}/propagate-results`, {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/tournaments/${tournamentId}/propagate-results`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -126,7 +126,7 @@ export async function updateMatchStatus(
     status: 'scheduled' | 'in_progress' | 'completed'
 ): Promise<boolean> {
     try {
-        const response = await fetch(`http://localhost:8000/matches/${matchId}/status`, {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/matches/${matchId}/status`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ status }),
@@ -165,7 +165,7 @@ export async function submitMatchResultWithPropagation(
         console.log('[useMatchPropagation] Payload:', payload);
 
         // 1. Récupérer les données actuelles du match pour avoir les team_sport_ids
-        const matchResponse = await fetch(`http://localhost:8000/matches/${matchId}`);
+        const matchResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/matches/${matchId}`);
         if (!matchResponse.ok) {
             throw new Error('Could not fetch match data');
         }
@@ -193,7 +193,7 @@ export async function submitMatchResultWithPropagation(
         console.log('[useMatchPropagation] Final payload:', finalPayload);
 
         // 3. Envoyer la mise à jour du match (cela déclenche la propagation côté backend)
-        const updateResponse = await fetch(`http://localhost:8000/matches/${matchId}`, {
+        const updateResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/matches/${matchId}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(finalPayload),
