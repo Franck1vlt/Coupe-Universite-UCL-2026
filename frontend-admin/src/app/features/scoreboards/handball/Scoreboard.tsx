@@ -433,18 +433,22 @@ export default function HandballTableMarquagePage() {
             <button onClick={addSecond}>+1s</button>
             <button onClick={handleSwipe}>Swipe</button>
             <button
-              onClick={() => {
-                handleEnd();
-                const tournamentId = matchData.tournamentId;
-                console.log('[Handball] MatchData complet:', matchData);
-                console.log('[Handball] TournamentId from matchData:', tournamentId);
-                console.log('[Handball] MatchId:', matchId);
-                if (!tournamentId) {
-                  alert("Impossible de retrouver l'ID du tournoi pour la redirection.");
-                  return;
+              onClick={async () => {
+                try {
+                  await handleEnd();
+                  const tournamentId = matchData.tournamentId;
+                  console.log('[Handball] MatchData complet:', matchData);
+                  console.log('[Handball] TournamentId from matchData:', tournamentId);
+                  console.log('[Handball] MatchId:', matchId);
+                  if (!tournamentId) {
+                    alert("Impossible de retrouver l'ID du tournoi pour la redirection.");
+                    return;
+                  }
+                  console.log('[Handball] Redirecting to tournament:', tournamentId);
+                  window.location.href = `/choix-sport/tournaments/${tournamentId}`;
+                } catch (error) {
+                  console.error('[Handball] Error ending match:', error);
                 }
-                console.log('[Handball] Redirecting to tournament:', tournamentId);
-                window.location.href = `/choix-sport/tournaments/${tournamentId}`;
               }}
             >
               END

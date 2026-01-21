@@ -491,8 +491,9 @@ export default function TournamentsPage() {
       setMatches(qualMatches);
 
       // 4. RECONSTRUCTION DU BRACKET (PHASE FINALE)
+      // Exclure les loser brackets (bracket_type contenant "loser")
       const bracketMatchesRaw = allMatchesRaw.filter(
-        (m: any) => m.match_type === "bracket"
+        (m: any) => m.match_type === "bracket" && (!m.bracket_type || !m.bracket_type.includes("loser"))
       );
       
       if (bracketMatchesRaw.length > 0) {
@@ -568,8 +569,10 @@ export default function TournamentsPage() {
       setPools(reconstructedPools);
 
       // 6. RECONSTRUCTION DES LOSER BRACKETS
+      // Les loser brackets sont enregistrés avec match_type="bracket" et bracket_type contenant "loser"
+      // (ex: "loser", "loser_round_1", "loser_round_2", etc.)
       const loserMatchesRaw = allMatchesRaw.filter(
-        (m: any) => m.match_type === "loser_bracket"
+        (m: any) => m.match_type === "loser_bracket" || (m.bracket_type && m.bracket_type.includes("loser"))
       );
 
       
@@ -1068,16 +1071,19 @@ export default function TournamentsPage() {
         for (let j = i + 1; j < pool.teams.length; j++) {
           const teamA = pool.teams[i];
           const teamB = pool.teams[j];
-          
+
           // Cherche si ce match existait déjà
-          const existing = oldMatches.find(m => 
-              (m.teamA === teamA && m.teamB === teamB) || 
+          const existing = oldMatches.find(m =>
+              (m.teamA === teamA && m.teamB === teamB) ||
               (m.teamA === teamB && m.teamB === teamA)
           );
 
+          // Utiliser l'UUID existant ou en créer un nouveau pour garantir l'unicité
+          const matchUuid = existing?.uuid || uuidv4();
+
           newMatches.push({
-            id: existing?.id || `${pool.id}-${i}-${j}`,
-            uuid: existing?.uuid || uuidv4(), // Garde l'UUID existant ou en crée un nouveau
+            id: existing?.id || matchUuid, // Utiliser l'UUID comme ID si pas d'ID existant
+            uuid: matchUuid,
             teamA: teamA,
             teamB: teamB,
             date: existing?.date || "",
@@ -1090,7 +1096,7 @@ export default function TournamentsPage() {
           });
         }
       }
-      
+
       const updatedPool = {
         ...pool,
         matches: newMatches
@@ -1643,6 +1649,8 @@ export default function TournamentsPage() {
           pools: pools.map((pool, pIdx) => ({
             name: pool.name,
             display_order: pIdx + 1,
+            qualified_to_finals: pool.qualifiedToFinals ?? 2,
+            qualified_to_loser_bracket: pool.qualifiedToLoserBracket ?? 0,
             matches: pool.matches.map((m) => {
               // LOG POUR DEBUGGER LES POULES
               console.log(`📤 Poule Match ${m.id} - winnerPoints: ${m.winnerPoints}, loserPoints: ${m.loserPoints}`);
@@ -1698,17 +1706,19 @@ export default function TournamentsPage() {
             }),
           })),
 
-          loserBrackets: loserBrackets.map((lb) => ({
+          loser_brackets: loserBrackets.map((lb) => ({
             name: lb.name,
             matches: lb.matches.map((m) => {
               // LOG POUR DEBUGGER LE LOSER BRACKET
-              console.log(`📤 Loser Match ${m.id} - winnerPoints: ${m.winnerPoints}, loserPoints: ${m.loserPoints}`);
+              // Les matchs de loser bracket utilisent loserBracketMatchType, pas bracketMatchType
+              const loserType = m.loserBracketMatchType || m.bracketMatchType;
+              console.log(`📤 Loser Match ${m.id} - loserBracketMatchType: ${loserType}, winnerPoints: ${m.winnerPoints}, loserPoints: ${m.loserPoints}`);
 
               return {
                 uuid: m.uuid,
                 id: (m.id && /^\d+$/.test(m.id)) ? parseInt(m.id) : null,
-                match_type: "bracket", // Note: Le type reste souvent "bracket" ou "loser_bracket" selon votre implémentation SQL
-                bracket_type: mapBracketTypeToSQL(m.bracketMatchType), // Assurez-vous que mapBracketTypeToSQL gère les types loser
+                match_type: "bracket",
+                bracket_type: mapBracketTypeToSQL(loserType) || "loser", // Utiliser loserBracketMatchType, fallback sur "loser"
                 label: m.label || m.winnerCode,
                 status: mapStatus(m.status),
                 court: m.court || null,
@@ -3788,7 +3798,7 @@ export default function TournamentsPage() {
                   <label className="block text-sm font-medium text-black mb-1">Date</label>
                   <input
                     type="date"
-                    value={selectedPoolMatch.date}
+                    value={selectedPoolMatch.date || ''}
                     onChange={(e) => updatePoolMatch({...selectedPoolMatch, date: e.target.value})}
                     className="w-full p-2 border border-gray-300 rounded-md focus:ring-purple-500 focus:border-purple-500 text-black"
                   />
@@ -3797,7 +3807,7 @@ export default function TournamentsPage() {
                   <label className="block text-sm font-medium text-black mb-1">Heure</label>
                   <input
                     type="time"
-                    value={selectedPoolMatch.time}
+                    value={selectedPoolMatch.time || ''}
                     onChange={(e) => updatePoolMatch({...selectedPoolMatch, time: e.target.value})}
                     className="w-full p-2 border border-gray-300 rounded-md focus:ring-purple-500 focus:border-purple-500 text-black"
                   />

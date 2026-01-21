@@ -306,21 +306,21 @@ export default function TournamentViewPage() {
                   if (!forcedType) {
                       if (m.match_type === "qualification") {
                         type = "qualifications";
-                      } 
-                      // AJOUTER CETTE CONDITION :
+                      }
                       else if (m.match_type === "pool" || m.match_type === "poule") {
                         type = "poule";
-                      } 
-                      else if (m.bracket_type === "loser") {
+                      }
+                      // Vérifier si bracket_type contient "loser" (ex: "loser", "loser_round_1", etc.)
+                      else if (m.bracket_type && m.bracket_type.includes("loser")) {
                         type = "loser-bracket";
-                      } 
+                      }
                       else if (m.match_type === "bracket") {
                         if (m.bracket_type === "quarterfinal") type = "quarts";
                         else if (m.bracket_type === "semifinal") type = "demi-finale";
                         else if (m.bracket_type === "final") type = "finale";
                         else if (m.bracket_type === "third_place") type = "petite-finale";
                         else type = "quarts";
-                      } 
+                      }
                       else {
                         // Valeur par défaut si aucun type n'est reconnu
                         type = "qualifications";
@@ -355,6 +355,15 @@ export default function TournamentViewPage() {
                   const teamAValue = resolveTeamName(m.team_sport_a_id, m.team_a_source);
                   const teamBValue = resolveTeamName(m.team_sport_b_id, m.team_b_source);
 
+                  // Extraire date et time depuis scheduled_datetime ou les champs directs
+                  let matchDate = m.date || "";
+                  let matchTime = m.time || "";
+                  if (m.scheduled_datetime) {
+                    const parts = m.scheduled_datetime.split('T');
+                    matchDate = parts[0] || matchDate;
+                    matchTime = parts[1]?.slice(0, 5) || matchTime;
+                  }
+
                   return {
                     id: m.id?.toString() || "",
                     label: m.label || `Match ${m.match_order || ""}`,
@@ -364,6 +373,9 @@ export default function TournamentViewPage() {
                     status: m.status === "upcoming" ? "planifié" : m.status === "in_progress" ? "en-cours" : m.status === "completed" ? "terminé" : "planifié",
                     scoreA: m.score_a,
                     scoreB: m.score_b,
+                    date: matchDate,
+                    time: matchTime,
+                    court: m.court || "",
                     winnerDestinationMatchId: m.winner_destination_match_id,
                     winnerDestinationSlot: m.winner_destination_slot,
                     loserDestinationMatchId: m.loser_destination_match_id,
@@ -426,7 +438,8 @@ export default function TournamentViewPage() {
                         if (!forcedType) {
                           if (m.match_type === "qualification") type = "qualifications";
                           else if (m.match_type === "pool" || m.match_type === "poule") type = "poule";
-                          else if (m.bracket_type === "loser") type = "loser-bracket";
+                          // Vérifier si bracket_type contient "loser" (ex: "loser", "loser_round_1", etc.)
+                          else if (m.bracket_type && m.bracket_type.includes("loser")) type = "loser-bracket";
                           else if (m.match_type === "bracket") {
                             if (m.bracket_type === "quarterfinal") type = "quarts";
                             else if (m.bracket_type === "semifinal") type = "demi-finale";
@@ -450,6 +463,15 @@ export default function TournamentViewPage() {
                         const teamAValue = resolveTeamNameRefresh(m.team_sport_a_id, m.team_a_source);
                         const teamBValue = resolveTeamNameRefresh(m.team_sport_b_id, m.team_b_source);
 
+                        // Extraire date et time depuis scheduled_datetime ou les champs directs
+                        let matchDate = m.date || "";
+                        let matchTime = m.time || "";
+                        if (m.scheduled_datetime) {
+                          const parts = m.scheduled_datetime.split('T');
+                          matchDate = parts[0] || matchDate;
+                          matchTime = parts[1]?.slice(0, 5) || matchTime;
+                        }
+
                         return {
                           id: m.id?.toString() || "",
                           label: m.label || `Match ${m.match_order || ""}`,
@@ -459,6 +481,9 @@ export default function TournamentViewPage() {
                           status: m.status === "upcoming" ? "planifié" : m.status === "in_progress" ? "en-cours" : m.status === "completed" ? "terminé" : "planifié",
                           scoreA: m.score_a,
                           scoreB: m.score_b,
+                          date: matchDate,
+                          time: matchTime,
+                          court: m.court || "",
                           winnerDestinationMatchId: m.winner_destination_match_id,
                           winnerDestinationSlot: m.winner_destination_slot,
                           loserDestinationMatchId: m.loser_destination_match_id,
@@ -1206,7 +1231,18 @@ export default function TournamentViewPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {matches.map((match) => {
+          {[...matches].sort((a, b) => {
+            // Trier par date et heure (les plus proches en premier)
+            const dateTimeA = a.date && a.time ? new Date(`${a.date}T${a.time}`) : null;
+            const dateTimeB = b.date && b.time ? new Date(`${b.date}T${b.time}`) : null;
+
+            // Les matchs sans date vont à la fin
+            if (!dateTimeA && !dateTimeB) return 0;
+            if (!dateTimeA) return 1;
+            if (!dateTimeB) return -1;
+
+            return dateTimeA.getTime() - dateTimeB.getTime();
+          }).map((match) => {
             const isTermine = match.status === "terminé";
             return (
             <button

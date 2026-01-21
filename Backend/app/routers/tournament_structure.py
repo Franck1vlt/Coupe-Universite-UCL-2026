@@ -598,9 +598,20 @@ def create_tournament_structure(
         for p_data in structure.pools:
             pool = db.query(Pool).filter(Pool.phase_id == p.id, Pool.name == p_data.name).first()
             if not pool:
-                pool = Pool(phase_id=p.id, name=p_data.name, order=p_data.display_order)
+                # ✅ FIX: Inclure qualified_to_finals et qualified_to_loser_bracket lors de la création
+                pool = Pool(
+                    phase_id=p.id, 
+                    name=p_data.name, 
+                    order=p_data.display_order,
+                    qualified_to_finals=p_data.qualified_to_finals,
+                    qualified_to_loser_bracket=p_data.qualified_to_loser_bracket
+                )
                 db.add(pool)
                 db.flush()
+            else:
+                # ✅ FIX: Mettre à jour les valeurs si la poule existe déjà
+                pool.qualified_to_finals = p_data.qualified_to_finals
+                pool.qualified_to_loser_bracket = p_data.qualified_to_loser_bracket
             if hasattr(p_data, 'matches') and p_data.matches:
                 for m in p_data.matches:
                     collect_destinations(m)
@@ -618,11 +629,16 @@ def create_tournament_structure(
                     created_matches_by_uuid[match_obj.uuid] = match_obj
 
     if structure.loser_brackets:
-        phase_loser = get_or_create_phase("loser_bracket", 4)
+        # Utiliser "elimination" comme phase_type car c'est une valeur autorisée par la contrainte CHECK
+        # Les loser brackets sont différenciés par bracket_type="loser" sur les matchs
+        phase_loser = get_or_create_phase("elimination", 4)
         for loser_bracket_group in structure.loser_brackets:
             for m_data in loser_bracket_group.matches:
-                m_dict = {**m_data.dict(), "bracket_type": "loser"}
+                # Garder le bracket_type envoyé par le frontend (ex: loser_round_1) ou forcer "loser"
+                original_bracket_type = m_data.bracket_type if m_data.bracket_type else "loser"
+                m_dict = {**m_data.dict(), "bracket_type": original_bracket_type}
                 collect_destinations(m_dict)
+                # Utiliser match_type "bracket" avec bracket_type contenant "loser" pour identifier les loser brackets
                 match_obj = upsert_match(m_dict, phase_loser.id, "bracket")
                 if match_obj and match_obj.uuid:
                     created_matches_by_uuid[match_obj.uuid] = match_obj
@@ -843,9 +859,16 @@ def get_tournament_structure(
                 })
                 
         # 3. Gestion des Brackets (élimination, finale, etc.)
+        # Note: Les matchs loser bracket sont identifiés par:
+        # - phase_type == "loser_bracket" OU
+        # - bracket_type == "loser"
+        elif "loser" in p_type:
+            # Phase loser_bracket : tous les matchs vont dans loser_bracket_matches
+            loser_bracket_matches.extend([match_to_dict_internal(m) for m in matches])
         else:
             for m in matches:
-                if m.match_type == "loser_bracket":
+                # Vérifier si c'est un match loser bracket par son bracket_type
+                if m.bracket_type == "loser":
                     loser_bracket_matches.append(match_to_dict_internal(m))
                 else:
                     bracket_matches.append(match_to_dict_internal(m))
