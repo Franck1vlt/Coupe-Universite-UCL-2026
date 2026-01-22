@@ -30,7 +30,7 @@ export function useTournamentApi(tournamentId: number | null) {
       "petite-finale": "third_place",
       "loser-round-1": "loser_round_1",
       "loser-round-2": "loser_round_2",
-      "loser-round-3": "loser_round_3",
+      "loser-petite-finale": "loser_third_place",
       "loser-finale": "loser_final",
     };
     return map[bracketType] || null;

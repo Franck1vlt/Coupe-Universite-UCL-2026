@@ -9,6 +9,8 @@ const HALF_TIME_DURATION = 10 * 60; // 10 minutes en secondes
 
 export function useHandballMatch(initialMatchId: string | null) {
     console.log('[Handball Hook] ========== VERSION 2.0 - With phase_id support ==========');
+    const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    
     const [matchData, setMatchData] = useState<MatchDataWithTournament>({
         matchId: initialMatchId || "",
         teamA: { name: "Team A", logo_url: "", score: 0, yellowCards: 0, redCards: 0, penalties: 0 },
@@ -271,24 +273,67 @@ export function useHandballMatch(initialMatchId: string | null) {
         }
     };
 
-    /** ---------- POINTS ---------- */
-    const addPoint = (team: "A" | "B") =>
-        setMatchData((p: MatchDataWithTournament) => {
-            const k = teamKey(team);
-            return {
-                ...p,
-                [k]: { ...p[k], score: p[k].score + 1 },
-            };
-        });
+    // Fonction de synchronisation globale (Score + Chrono)
+    const syncMatchStatus = async (scoreA: number, scoreB: number, currentChrono: string) => {
+        if (!initialMatchId) return;
+        try {
+            await fetch(`${API_URL}/matches/${initialMatchId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    score_a: scoreA,
+                    score_b: scoreB,
+                    time: currentChrono // On utilise le champ 'time' du modèle Match
+                })
+            });
+        } catch (e) {
+            console.error("Erreur de synchro", e);
+        }
+    };
 
-    const subPoint = (team: "A" | "B") =>
-        setMatchData((p: MatchDataWithTournament) => {
-            const k = teamKey(team);
-            return {
-                ...p,
-                [k]: { ...p[k], score: Math.max(0, p[k].score - 1) },
-            };
-        });
+    // Correction du +1 (on évite de mettre la logique de fetch DANS le setter)
+    const addPoint = (team: "A" | "B") => {
+        let newScoreA = matchData.teamA.score;
+        let newScoreB = matchData.teamB.score;
+
+        if (team === "A") newScoreA += 1;
+        else newScoreB += 1;
+
+        // 1. Mise à jour visuelle immédiate
+        setMatchData(prev => ({
+            ...prev,
+            teamA: { ...prev.teamA, score: team === "A" ? prev.teamA.score + 1 : prev.teamA.score },
+            teamB: { ...prev.teamB, score: team === "B" ? prev.teamB.score + 1 : prev.teamB.score },
+        }));
+
+        // 2. Envoi au serveur
+        syncMatchStatus(newScoreA, newScoreB, formattedTime);
+    };
+
+    const subPoint = (team: "A" | "B") => {
+        let newScoreA = matchData.teamA.score;
+        let newScoreB = matchData.teamB.score;
+        if (team === "A") newScoreA = Math.max(0, newScoreA - 1);
+        else newScoreB = Math.max(0, newScoreB - 1);
+        // 1. Mise à jour visuelle immédiate
+        setMatchData(prev => ({
+            ...prev,
+            teamA: { ...prev.teamA, score: team === "A" ? Math.max(0, prev.teamA.score - 1) : prev.teamA.score },
+            teamB: { ...prev.teamB, score: team === "B" ? Math.max(0, prev.teamB.score - 1) : prev.teamB.score },
+        }));
+        // 2. Envoi au serveur
+        syncMatchStatus(newScoreA, newScoreB, formattedTime);
+    };
+
+    // Synchro automatique du chrono toutes les 10 secondes
+    useEffect(() => {
+        if (matchData.chrono.running) {
+            const syncInterval = setInterval(() => {
+                syncMatchStatus(matchData.teamA.score, matchData.teamB.score, formattedTime);
+            }, 10000); // Toutes les 10 secondes
+            return () => clearInterval(syncInterval);
+        }
+    }, [matchData.chrono.running, formattedTime]);
 
     /** ---------- CARTONS ---------- */
     const addYellowCard = (team: "A" | "B") =>

@@ -2199,6 +2199,10 @@ async def get_match(match_id: int, db: Session = Depends(get_db)):
         message="Match récupéré avec succès"
     )
 
+# NOTE: L'ancien endpoint update_match_score a été supprimé car il était en doublon
+# avec update_match (ligne ~2280) et ne gérait pas le status, causant un bug
+# où le status 'completed' n'était jamais envoyé à la BDD.
+
 from app.schemas.match import MatchCreate, MatchUpdate
 
 @app.post("/matches", tags=["Matches"], status_code=status.HTTP_201_CREATED)

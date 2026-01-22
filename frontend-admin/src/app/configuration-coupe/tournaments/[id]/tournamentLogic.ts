@@ -21,7 +21,7 @@ export type Match = {
   poolTeams?: string[];
   poolMatches?: string[];
   bracketMatchType?: "quarts" | "demi" | "finale" | "petite-finale";
-  loserBracketMatchType?: "loser-round-1" | "loser-round-2" | "loser-round-3" | "loser-finale";
+  loserBracketMatchType?: "loser-round-1" | "loser-round-2" | "loser-petite-finale" | "loser-finale";
   winnerDestination?: string;
   loserDestination?: string;
 };
@@ -51,7 +51,7 @@ export type Bracket = {
 export type LoserBracket = {
   id: string;
   name: string;
-  enabledRounds: ("loser-round-1" | "loser-round-2" | "loser-round-3" | "loser-finale")[];
+  enabledRounds: ("loser-round-1" | "loser-round-2" | "loser-petite-finale" | "loser-finale")[];
   teams: string[];
   matches: Match[];
   position: { x: number; y: number };

@@ -1400,22 +1400,24 @@ export default function TournamentViewPage() {
                     <div key={poolName} className="border border-gray-200 rounded-lg overflow-hidden">
                         <div className="bg-purple-50 px-4 py-3 border-b border-purple-100">
                         <h3 className="font-semibold text-black">{poolName}</h3>
-                        {(qualifiedToFinals > 0 || qualifiedToLoserBracket > 0) && (
-                          <div className="flex gap-4 mt-1 text-xs text-black">
-                            {qualifiedToFinals > 0 && (
-                              <span className="flex items-center gap-1">
-                                <span className="w-3 h-3 bg-green-100 border border-green-400 rounded"></span>
-                                {qualifiedToFinals} qualifié{qualifiedToFinals > 1 ? 's' : ''} phase finale
-                              </span>
-                            )}
-                            {qualifiedToLoserBracket > 0 && (
-                              <span className="flex items-center gap-1">
-                                <span className="w-3 h-3 bg-orange-100 border border-orange-400 rounded"></span>
-                                {qualifiedToLoserBracket} qualifié{qualifiedToLoserBracket > 1 ? 's' : ''} loser bracket
-                              </span>
-                            )}
-                          </div>
-                        )}
+                        <div className="flex flex-wrap gap-4 mt-1 text-xs text-black">
+                          {qualifiedToFinals > 0 && (
+                            <span className="flex items-center gap-1">
+                              <span className="w-3 h-3 bg-green-100 border border-green-400 rounded"></span>
+                              {qualifiedToFinals} qualifié{qualifiedToFinals > 1 ? 's' : ''} phase finale
+                            </span>
+                          )}
+                          {qualifiedToLoserBracket > 0 && (
+                            <span className="flex items-center gap-1">
+                              <span className="w-3 h-3 bg-orange-100 border border-orange-400 rounded"></span>
+                              {qualifiedToLoserBracket} qualifié{qualifiedToLoserBracket > 1 ? 's' : ''} loser bracket
+                            </span>
+                          )}
+                          <span className="flex items-center gap-1">
+                            <span className="w-3 h-3 bg-blue-100 border border-blue-400 rounded"></span>
+                            3ème (repêchage possible)
+                          </span>
+                        </div>
                         </div>
                         <div className="overflow-x-auto">
                         <table className="w-full">
@@ -1451,8 +1453,11 @@ export default function TournamentViewPage() {
                                 bgColor = "bg-green-50 hover:bg-green-100 border-l-4 border-green-500";
                               } else if (entry.position <= qualifiedToFinals + qualifiedToLoserBracket) {
                                 bgColor = "bg-orange-50 hover:bg-orange-100 border-l-4 border-orange-500";
+                              } else if (entry.position === 3) {
+                                // Meilleur 3ème - couleur bleue pour indiquer qu'il peut être repêché
+                                bgColor = "bg-blue-50 hover:bg-blue-100 border-l-4 border-blue-500";
                               }
-                              
+
                               return (
                                 <tr key={entry.team} className={bgColor}>
                                 <td className="px-4 py-3 text-sm font-medium text-black">

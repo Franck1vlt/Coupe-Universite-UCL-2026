@@ -10,7 +10,7 @@ export type Sport = {
 export type MatchType = "qualifications" | "poule" | "phase-finale" | "loser-bracket";
 export type MatchStatus = "planifié" | "en-cours" | "terminé" | "annulé";
 export type BracketMatchType = "quarts" | "demi" | "finale" | "petite-finale";
-export type LoserBracketMatchType = "loser-round-1" | "loser-round-2" | "loser-round-3" | "loser-finale";
+export type LoserBracketMatchType = "loser-round-1" | "loser-round-2" | "loser-petite-finale" | "loser-finale";
 
 export type Match = {
   id: string;

@@ -807,6 +807,9 @@ def get_tournament_structure(
             "uuid": getattr(m, 'uuid', None),
             "match_type": m.match_type,
             "bracket_type": m.bracket_type,
+            # ✅ IMPORTANT: Inclure les team_sport_id pour que le frontend puisse résoudre les noms
+            "team_sport_a_id": m.team_sport_a_id,
+            "team_sport_b_id": m.team_sport_b_id,
             "team_a_source": m.team_a_source,
             "team_b_source": m.team_b_source,
 
@@ -860,15 +863,15 @@ def get_tournament_structure(
                 
         # 3. Gestion des Brackets (élimination, finale, etc.)
         # Note: Les matchs loser bracket sont identifiés par:
-        # - phase_type == "loser_bracket" OU
-        # - bracket_type == "loser"
-        elif "loser" in p_type:
-            # Phase loser_bracket : tous les matchs vont dans loser_bracket_matches
+        # - phase_type contenant "loser" ou "elimination" OU
+        # - bracket_type contenant "loser"
+        elif "loser" in p_type or "elimination" in p_type:
+            # Phase loser_bracket ou elimination : tous les matchs vont dans loser_bracket_matches
             loser_bracket_matches.extend([match_to_dict_internal(m) for m in matches])
         else:
             for m in matches:
-                # Vérifier si c'est un match loser bracket par son bracket_type
-                if m.bracket_type == "loser":
+                # Vérifier si c'est un match loser bracket par son bracket_type (contient "loser")
+                if m.bracket_type and "loser" in m.bracket_type.lower():
                     loser_bracket_matches.append(match_to_dict_internal(m))
                 else:
                     bracket_matches.append(match_to_dict_internal(m))
@@ -999,13 +1002,87 @@ def propagate_tournament_results(
                         print(f"[PROPAGATION] ✅ Loser {loser_team_id} -> Match {dest_match.id} slot A (fallback)")
     
     # =========================================================================
-    # MÉCANISME 2: Propagation via codes source (LEGACY)
+    # MÉCANISME 2: Propagation des résultats des POULES vers les brackets
     # =========================================================================
     pools = []
     for phase in phases:
         pools.extend(db.query(Pool).filter(Pool.phase_id == phase.id).all())
     pools_by_name = {p.name: p for p in pools}
-    
+
+    # Vérifier si toutes les poules sont terminées
+    pools_status = {}
+    for pool in pools:
+        all_pool_matches = [m for m in all_matches if m.pool_id == pool.id]
+        completed_pool_matches = [m for m in all_pool_matches if m.status == "completed"]
+        pools_status[pool.name] = {
+            "total": len(all_pool_matches),
+            "completed": len(completed_pool_matches),
+            "is_complete": len(all_pool_matches) > 0 and len(completed_pool_matches) == len(all_pool_matches)
+        }
+        print(f"[POOL-STATUS] {pool.name}: {completed_pool_matches}/{all_pool_matches} matchs terminés")
+
+    all_pools_complete = all(status["is_complete"] for status in pools_status.values()) if pools_status else False
+    print(f"[POOL-STATUS] Toutes les poules terminées: {all_pools_complete}")
+
+    # Calculer les classements de chaque poule
+    pool_standings = {}  # pool_name -> [(team_sport_id, points, goal_diff), ...]
+
+    for pool in pools:
+        # Récupérer tous les matchs terminés de cette poule
+        pool_matches = [m for m in all_matches if m.pool_id == pool.id and m.status == "completed"]
+
+        if not pool_matches:
+            print(f"[POOL-STANDINGS] ⚠️ {pool.name}: Aucun match terminé")
+            continue
+
+        # Calculer les stats pour chaque équipe de la poule
+        team_stats = {}  # team_sport_id -> {points, wins, draws, losses, goal_diff}
+
+        for match in pool_matches:
+            if match.score_a is None or match.score_b is None:
+                continue
+
+            team_a = match.team_sport_a_id
+            team_b = match.team_sport_b_id
+
+            if not team_a or not team_b:
+                continue
+
+            # Initialiser les stats si nécessaire
+            if team_a not in team_stats:
+                team_stats[team_a] = {"points": 0, "wins": 0, "draws": 0, "losses": 0, "goal_diff": 0}
+            if team_b not in team_stats:
+                team_stats[team_b] = {"points": 0, "wins": 0, "draws": 0, "losses": 0, "goal_diff": 0}
+
+            # Calculer les points (3 victoire, 1 nul, 0 défaite)
+            if match.score_a > match.score_b:
+                team_stats[team_a]["points"] += 3
+                team_stats[team_a]["wins"] += 1
+                team_stats[team_b]["losses"] += 1
+            elif match.score_b > match.score_a:
+                team_stats[team_b]["points"] += 3
+                team_stats[team_b]["wins"] += 1
+                team_stats[team_a]["losses"] += 1
+            else:
+                team_stats[team_a]["points"] += 1
+                team_stats[team_b]["points"] += 1
+                team_stats[team_a]["draws"] += 1
+                team_stats[team_b]["draws"] += 1
+
+            # Différence de buts
+            team_stats[team_a]["goal_diff"] += match.score_a - match.score_b
+            team_stats[team_b]["goal_diff"] += match.score_b - match.score_a
+
+        # Trier par points puis par différence de buts
+        sorted_teams = sorted(
+            team_stats.items(),
+            key=lambda x: (x[1]["points"], x[1]["goal_diff"]),
+            reverse=True
+        )
+
+        pool_standings[pool.name] = [(team_id, stats["points"], stats["goal_diff"]) for team_id, stats in sorted_teams]
+        print(f"[POOL-STANDINGS] {pool.name}: {pool_standings[pool.name]}")
+
     def resolve_source_code(source_code: str) -> Optional[int]:
         if not source_code:
             return None
@@ -1053,15 +1130,84 @@ def propagate_tournament_results(
         elif source_code.startswith("LSF"):
             try:
                 match_num = int(source_code[3:])
-                sf_match = next((m for m in all_matches 
-                               if m.bracket_type == "semifinal" 
+                sf_match = next((m for m in all_matches
+                               if m.bracket_type == "semifinal"
                                and m.match_order == match_num
                                and m.status == "completed"), None)
                 if sf_match and sf_match.score_a is not None:
                     return sf_match.team_sport_b_id if sf_match.score_a > sf_match.score_b else sf_match.team_sport_a_id
             except:
                 pass
-        
+
+        # =========================================================================
+        # CODES DE POULE: "Poule A-1", "Poule 1-2", "Pool A-1", etc.
+        # Format: <nom_poule>-<position> où position est 1, 2, 3...
+        # =========================================================================
+        import re
+
+        # Pattern pour matcher "Poule X-N" ou "Pool X-N" (avec ou sans espace)
+        pool_pattern = re.match(r'^(Poule\s*\d+|Poule\s*[A-Z]|Pool\s*\d+|Pool\s*[A-Z])-(\d+)$', source_code, re.IGNORECASE)
+
+        if pool_pattern:
+            pool_name_raw = pool_pattern.group(1).strip()
+            position = int(pool_pattern.group(2))
+
+            print(f"[RESOLVE-POOL] Tentative de résolution: {source_code} -> pool={pool_name_raw}, position={position}")
+
+            # Chercher la poule par son nom (essayer plusieurs variantes)
+            pool_name_variants = [
+                pool_name_raw,
+                pool_name_raw.replace("Pool", "Poule"),
+                pool_name_raw.replace("Poule", "Pool"),
+                f"Poule {pool_name_raw.replace('Poule', '').replace('Pool', '').strip()}",
+                f"Pool {pool_name_raw.replace('Poule', '').replace('Pool', '').strip()}"
+            ]
+
+            for variant in pool_name_variants:
+                if variant in pool_standings:
+                    standings = pool_standings[variant]
+                    if len(standings) >= position:
+                        team_id = standings[position - 1][0]  # position 1 = index 0
+                        print(f"[RESOLVE-POOL] ✅ {source_code} -> team_sport_id={team_id}")
+                        return team_id
+                    else:
+                        print(f"[RESOLVE-POOL] ⚠️ Position {position} invalide pour {variant} (seulement {len(standings)} équipes)")
+                        break
+
+            print(f"[RESOLVE-POOL] ⚠️ Poule '{pool_name_raw}' non trouvée. Poules disponibles: {list(pool_standings.keys())}")
+
+        # Pattern alternatif: "P1-1" pour "Poule 1, position 1"
+        alt_pool_pattern = re.match(r'^P(\d+)-(\d+)$', source_code)
+        if alt_pool_pattern:
+            pool_num = alt_pool_pattern.group(1)
+            position = int(alt_pool_pattern.group(2))
+
+            pool_name_variants = [f"Poule {pool_num}", f"Pool {pool_num}", f"Poule{pool_num}", f"Pool{pool_num}"]
+
+            for variant in pool_name_variants:
+                if variant in pool_standings:
+                    standings = pool_standings[variant]
+                    if len(standings) >= position:
+                        team_id = standings[position - 1][0]
+                        print(f"[RESOLVE-POOL] ✅ {source_code} -> team_sport_id={team_id}")
+                        return team_id
+
+        # Meilleur 3ème: "Meilleur-3ème" ou "Best-3rd"
+        if source_code.lower() in ["meilleur-3ème", "meilleur-3e", "best-3rd", "meilleur 3ème", "meilleur 3e"]:
+            # Collecter tous les 3èmes de toutes les poules
+            third_places = []
+            for pool_name, standings in pool_standings.items():
+                if len(standings) >= 3:
+                    team_id, points, goal_diff = standings[2]  # 3ème = index 2
+                    third_places.append((team_id, points, goal_diff, pool_name))
+
+            if third_places:
+                # Trier par points puis par goal_diff
+                third_places.sort(key=lambda x: (x[1], x[2]), reverse=True)
+                best_third = third_places[0][0]
+                print(f"[RESOLVE-POOL] ✅ Meilleur 3ème: team_sport_id={best_third}")
+                return best_third
+
         return None
     
     # Propager via codes source

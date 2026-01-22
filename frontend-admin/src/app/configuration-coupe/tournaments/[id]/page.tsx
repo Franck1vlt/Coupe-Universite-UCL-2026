@@ -22,7 +22,7 @@ type Sport = {
 type MatchType = "qualifications" | "poule" | "phase-finale" | "loser-bracket" ; 
 type MatchStatus = "planifié" | "en-cours" | "terminé" | "annulé";
 type BracketMatchType = "quarts" | "demi" | "finale" | "petite-finale";
-type LoserBracketMatchType = "loser-round-1" | "loser-round-2" | "loser-round-3" | "loser-finale";
+type LoserBracketMatchType = "loser-round-1" | "loser-round-2" | "loser-petite-finale" | "loser-finale";
 
 type Match = {
   id: string;
@@ -67,8 +67,11 @@ type Pool = {
   position: { x: number; y: number };
   qualifiedToFinals: number;
   qualifiedToLoserBracket: number;
-  useStandingPoints?: boolean; 
+  qualifiedAsBestThird?: boolean; // Le 3ème de cette poule peut-il se qualifier comme "meilleur 3ème" ?
+  bestThirdDestination?: { matchUuid: string; slot: "A" | "B" } | null; // Destination du meilleur 3ème
+  useStandingPoints?: boolean;
   standingPoints?: Record<number, number>;
+  standingDestinations?: Record<number, { matchUuid: string; slot: "A" | "B" } | null>;
 };
 
 type Bracket = {
@@ -121,12 +124,12 @@ const bracketTypeApiToReact: Record<string, BracketMatchType> = {
 const loserBracketTypeApiToReact: Record<string, LoserBracketMatchType> = {
   'loser_round_1': 'loser-round-1',
   'loser_round_2': 'loser-round-2',
-  'loser_round_3': 'loser-round-3',
+  'loser_round_3': 'loser-petite-finale',
   'loser_final': 'loser-finale',
   // Fallbacks si déjà en français
   'loser-round-1': 'loser-round-1',
   'loser-round-2': 'loser-round-2',
-  'loser-round-3': 'loser-round-3',
+  'loser-petite-finale': 'loser-petite-finale',
   'loser-finale': 'loser-finale'
 };
 
@@ -174,7 +177,7 @@ const calculateLoserBracketMatchPosition = (
   const columnOffsets: Record<LoserBracketMatchType, number> = {
     'loser-round-1': 0,
     'loser-round-2': 280,
-    'loser-round-3': 560,
+    'loser-petite-finale': 560,
     'loser-finale': 840
   };
   
@@ -471,7 +474,7 @@ export default function TournamentsPage() {
         teamA: m.team_a_source || "",
         teamB: m.team_b_source || "",
         label: m.label || "",
-        status: m.status === "upcoming" ? "planifié" : (m.status === "in_progress" ? "en-cours" : "terminé"),
+        status: (m.status === "upcoming" ? "planifié" : (m.status === "in_progress" ? "en-cours" : "terminé")) as MatchStatus,
         date: m.date || "",
         time: m.time || "",
         court: m.court || "",
@@ -663,9 +666,9 @@ export default function TournamentsPage() {
                     date: m.scheduled_datetime ? m.scheduled_datetime.split('T')[0] : (m.date ?? ""),
                     time: m.scheduled_datetime ? (m.scheduled_datetime.split('T')[1]?.slice(0,5) ?? "") : (m.time ?? ""),
                     court: m.court ?? "",
-                    status: m.status === "completed" ? "terminé" : m.status === "in_progress" ? "en-cours" : "planifié",
+                    status: (m.status === "completed" ? "terminé" : m.status === "in_progress" ? "en-cours" : "planifié") as MatchStatus,
                     duration: m.duration || 90,
-                    type: "qualifications",
+                    type: "qualifications" as MatchType,
                     scoreA: m.score_a,
                     scoreB: m.score_b,
                     winnerCode: m.label,
@@ -680,33 +683,128 @@ export default function TournamentsPage() {
                   }));
 
                   // 2. Charger les Poules (si présentes dans la structure)
-                  let apiPools: Pool[] = (structureData.data.pools || []).map((p: any) => ({
+                  let apiPools: Pool[] = (structureData.data.pools || []).map((p: any, pIdx: number) => ({
                     id: p.id.toString(),
                     name: p.name,
                     teams: [],
-                    matches: (p.matches || []).map((m: any) => ({
+                    matches: (p.matches || []).map((m: any, mIdx: number) => ({
                       id: m.id.toString(),
-                      uuid: m.uuid,
-                      label: m.label,
+                      uuid: m.uuid || uuidv4(),
+                      label: m.label || "",
                       teamA: m.team_a_source ?? "",
                       teamB: m.team_b_source ?? "",
-                      status: m.status === "completed" ? "terminé" : "planifié",
-                      type: "poule",
+                      status: (m.status === "completed" ? "terminé" : "planifié") as MatchStatus,
+                      type: "poule" as MatchType,
                       scoreA: m.score_a,
                       scoreB: m.score_b,
+                      date: m.date || "",
+                      time: m.time || "",
+                      court: m.court || "",
+                      duration: m.duration || 90,
                       winnerPoints: m.winner_points ?? 0,
                       loserPoints: m.loser_points ?? 0,
                       winner_destination_match_id: m.winner_destination_match_uuid || null,
                       loser_destination_match_id: m.loser_destination_match_uuid || null,
                       winner_destination_slot: m.winner_destination_slot || undefined,
                       loser_destination_slot: m.loser_destination_slot || undefined,
-                      position: { x: 0, y: 0 },
+                      position: { x: 0, y: mIdx * 80 },
                     })),
-                    position: p.position || { x: 100, y: 100 },
+                    position: p.position || { x: 100 + pIdx * 350, y: 100 },
                     qualifiedToFinals: p.qualified_to_finals || 2,
+                    qualifiedToLoserBracket: p.qualified_to_loser_bracket || 0,
                   }));
 
-                  // 3. FALLBACK : Si pas de poules ou de brackets, on charge tout via /matches
+                  // 3. Charger les Brackets depuis la structure
+                  const apiBracketMatches = (structureData.data.bracket_matches || []).map((m: any, index: number) => {
+                    const mappedType = bracketTypeApiToReact[m.bracket_type] || "finale";
+                    let status: MatchStatus = "planifié";
+                    if (m.status === "completed") status = "terminé";
+                    else if (m.status === "in_progress") status = "en-cours";
+                    else if (m.status === "cancelled") status = "annulé";
+                    return {
+                      id: m.id.toString(),
+                      uuid: m.uuid || uuidv4(),
+                      label: m.label,
+                      teamA: m.team_a_source || "",
+                      teamB: m.team_b_source || "",
+                      type: "phase-finale" as MatchType,
+                      bracketMatchType: mappedType as BracketMatchType,
+                      status,
+                      scoreA: m.score_a,
+                      scoreB: m.score_b,
+                      date: m.date || "",
+                      time: m.time || "",
+                      court: m.court || "",
+                      duration: m.duration || 90,
+                      winnerPoints: m.winner_points ?? 0,
+                      loserPoints: m.loser_points ?? 0,
+                      winner_destination_match_id: m.winner_destination_match_uuid || null,
+                      loser_destination_match_id: m.loser_destination_match_uuid || null,
+                      winner_destination_slot: m.winner_destination_slot || undefined,
+                      loser_destination_slot: m.loser_destination_slot || undefined,
+                      position: calculateBracketMatchPosition(mappedType as BracketMatchType, index, structureData.data.bracket_matches.length)
+                    };
+                  });
+
+                  // 4. Charger les Loser Brackets depuis la structure
+                  const apiLoserBracketMatches = (structureData.data.loser_bracket_matches || []).map((m: any, index: number) => {
+                    const mappedType = loserBracketTypeApiToReact[m.bracket_type] || "loser-round-1";
+                    let status: MatchStatus = "planifié";
+                    if (m.status === "completed") status = "terminé";
+                    else if (m.status === "in_progress") status = "en-cours";
+                    else if (m.status === "cancelled") status = "annulé";
+                    return {
+                      id: m.id.toString(),
+                      uuid: m.uuid || uuidv4(),
+                      label: m.label,
+                      teamA: m.team_a_source || "",
+                      teamB: m.team_b_source || "",
+                      type: "loser-bracket" as MatchType,
+                      loserBracketMatchType: mappedType as LoserBracketMatchType,
+                      status,
+                      scoreA: m.score_a,
+                      scoreB: m.score_b,
+                      date: m.date || "",
+                      time: m.time || "",
+                      court: m.court || "",
+                      duration: m.duration || 90,
+                      winnerPoints: m.winner_points ?? 0,
+                      loserPoints: m.loser_points ?? 0,
+                      winner_destination_match_id: m.winner_destination_match_uuid || null,
+                      loser_destination_match_id: m.loser_destination_match_uuid || null,
+                      winner_destination_slot: m.winner_destination_slot || undefined,
+                      loser_destination_slot: m.loser_destination_slot || undefined,
+                      position: calculateLoserBracketMatchPosition(mappedType as LoserBracketMatchType, index)
+                    };
+                  });
+
+                  // Appliquer les brackets et loser brackets depuis la structure si disponibles
+                  if (apiBracketMatches.length > 0) {
+                    setBrackets([{
+                      id: "bracket-1",
+                      name: "Phase Finale",
+                      enabledRounds: Array.from(new Set(apiBracketMatches.map((m: any) => m.bracketMatchType).filter(Boolean))) as BracketMatchType[],
+                      teams: [],
+                      matches: apiBracketMatches,
+                      position: { x: 600, y: 100 },
+                      loserToLoserBracket: false
+                    }]);
+                  }
+
+                  if (apiLoserBracketMatches.length > 0) {
+                    setLoserBrackets([{
+                      id: "loser-bracket-1",
+                      name: "Loser Bracket",
+                      enabledRounds: Array.from(new Set(apiLoserBracketMatches.map((m: any) => m.loserBracketMatchType).filter(Boolean))) as LoserBracketMatchType[],
+                      teams: [],
+                      matches: apiLoserBracketMatches,
+                      position: { x: 100, y: 500 },
+                      winnerPoints: 0,
+                      loserPoints: 0
+                    }]);
+                  }
+
+                  // 5. FALLBACK : Si pas de poules ou de brackets, on charge tout via /matches
                   const matchesRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/tournaments/${tournament.id}/matches`);
                   let allMatchesRaw: any[] = [];
                   if (matchesRes.ok) {
@@ -727,15 +825,21 @@ export default function TournamentsPage() {
                         id: pId,
                         name: `Poule ${idx + 1}`,
                         teams: [],
-                        matches: groupedByPool[pId].map((m: any) => ({
+                        matches: groupedByPool[pId].map((m: any, mIdx: number) => ({
                           id: m.id.toString(),
-                          uuid: m.uuid,
+                          uuid: m.uuid || uuidv4(),
+                          label: m.label || "",
                           teamA: m.team_a_source || "",
                           teamB: m.team_b_source || "",
-                          status: m.status === "completed" ? "terminé" : "planifié",
-                          type: "poule",
+                          status: (m.status === "completed" ? "terminé" : "planifié") as MatchStatus,
+                          type: "poule" as MatchType,
                           scoreA: m.score_a,
                           scoreB: m.score_b,
+                          date: m.date || "",
+                          time: m.time || "",
+                          court: m.court || "",
+                          duration: m.duration || 90,
+                          position: { x: 0, y: mIdx * 80 }
                         })),
                         position: { x: 100 + (idx * 350), y: 100 },
                         qualifiedToFinals: 2,
@@ -743,8 +847,11 @@ export default function TournamentsPage() {
                       }));
                     }
 
-                    // RECONSTRUCTION DU BRACKET
-                    const bracketMatchesRaw = allMatchesRaw.filter((m: any) => m.match_type === "bracket" || m.match_type === "phase-finale");
+                    // RECONSTRUCTION DU BRACKET (exclure les loser brackets)
+                    const bracketMatchesRaw = allMatchesRaw.filter((m: any) =>
+                      (m.match_type === "bracket" || m.match_type === "phase-finale") &&
+                      (!m.bracket_type || !m.bracket_type.toLowerCase().includes("loser"))
+                    );
                     if (bracketMatchesRaw.length > 0) {
                       const formattedBracketMatches = bracketMatchesRaw.map((m: any, index: number) => {
                         const mappedType = bracketTypeApiToReact[m.bracket_type] || "finale";
@@ -761,9 +868,9 @@ export default function TournamentsPage() {
                           label: m.label,
                           teamA: m.team_a_source || "",
                           teamB: m.team_b_source || "",
-                          type: "phase-finale",
-                          bracketMatchType: mappedType,
-                          status, // <-- typé MatchStatus
+                          type: "phase-finale" as MatchType,
+                          bracketMatchType: mappedType as BracketMatchType,
+                          status,
                           scoreA: m.score_a,
                           scoreB: m.score_b,
                           date: m.date || "",
@@ -794,6 +901,59 @@ export default function TournamentsPage() {
                       }]);
                     } else {
                       setBrackets([]); // On vide si aucun match de bracket trouvé
+                    }
+
+                    // RECONSTRUCTION DES LOSER BRACKETS
+                    const loserBracketMatchesRaw = allMatchesRaw.filter((m: any) =>
+                      m.match_type === "loser_bracket" ||
+                      (m.bracket_type && m.bracket_type.toLowerCase().includes("loser"))
+                    );
+                    if (loserBracketMatchesRaw.length > 0) {
+                      const formattedLoserMatches = loserBracketMatchesRaw.map((m: any, index: number) => {
+                        const mappedType = loserBracketTypeApiToReact[m.bracket_type] || "loser-round-1";
+                        let status: MatchStatus = "planifié";
+                        if (m.status === "completed") status = "terminé";
+                        else if (m.status === "in_progress") status = "en-cours";
+                        else if (m.status === "cancelled") status = "annulé";
+                        else status = "planifié";
+
+                        return {
+                          id: m.id.toString(),
+                          uuid: m.uuid || uuidv4(),
+                          label: m.label,
+                          teamA: m.team_a_source || "",
+                          teamB: m.team_b_source || "",
+                          type: "loser-bracket" as MatchType,
+                          loserBracketMatchType: mappedType as LoserBracketMatchType,
+                          status,
+                          scoreA: m.score_a,
+                          scoreB: m.score_b,
+                          date: m.date || "",
+                          time: m.time || "",
+                          court: m.court || "",
+                          duration: m.duration || 90,
+                          winnerPoints: m.winner_points ?? 0,
+                          loserPoints: m.loser_points ?? 0,
+                          winner_destination_match_id: m.winner_destination_match_uuid || null,
+                          loser_destination_match_id: m.loser_destination_match_uuid || null,
+                          winner_destination_slot: m.winner_destination_slot || undefined,
+                          loser_destination_slot: m.loser_destination_slot || undefined,
+                          position: calculateLoserBracketMatchPosition(mappedType as LoserBracketMatchType, index)
+                        };
+                      });
+
+                      setLoserBrackets([{
+                        id: "loser-bracket-1",
+                        name: "Loser Bracket",
+                        enabledRounds: Array.from(new Set(formattedLoserMatches.map(m => m.loserBracketMatchType).filter(Boolean))) as LoserBracketMatchType[],
+                        teams: [],
+                        matches: formattedLoserMatches,
+                        position: { x: 100, y: 500 },
+                        winnerPoints: 0,
+                        loserPoints: 0
+                      }]);
+                    } else {
+                      setLoserBrackets([]);
                     }
                   }
 
@@ -920,7 +1080,7 @@ export default function TournamentsPage() {
           date: "",
           time: "",
           court: "",
-          status: "planifié",
+          status: "planifié" as MatchStatus,
           duration: 90,
           type: type,
           position: { x: Math.max(0, x - 144), y: Math.max(0, y - 80) },
@@ -964,9 +1124,9 @@ export default function TournamentsPage() {
         date: "",
         time: "",
         court: "",
-        status: "planifié",
+        status: "planifié" as MatchStatus,
         duration: 90,
-        type: "qualifications",
+        type: "qualifications" as MatchType,
         position: { x: baseX, y: baseY + (i - currentQualifs.length) * 90 },
         winnerPoints: 0,
         loserPoints: 0,
@@ -1009,6 +1169,128 @@ export default function TournamentsPage() {
     }
   };
 
+  // Fonction pour propager les résultats des poules vers les phases finales
+  const propagatePoolResultsToBrackets = (updatedPools: Pool[]) => {
+    // Vérifier si toutes les poules ont terminé tous leurs matchs
+    const allPoolsComplete = updatedPools.every(pool =>
+      pool.matches.length > 0 && pool.matches.every(m => m.status === "terminé")
+    );
+
+    if (!allPoolsComplete) return;
+
+    // Calculer le classement de chaque poule
+    const poolStandings: Map<string, { team: string; points: number; scoreDiff: number }[]> = new Map();
+    updatedPools.forEach(pool => {
+      const standings = calculatePoolStandings(pool);
+      poolStandings.set(pool.name, standings);
+    });
+
+    // Trouver le meilleur 3ème parmi les poules qui ont cette option
+    let bestThird: string | null = null;
+    let bestThirdStats = { points: -1, scoreDiff: -Infinity };
+    updatedPools.forEach(pool => {
+      if (pool.qualifiedAsBestThird) {
+        const standings = poolStandings.get(pool.name);
+        if (standings && standings.length >= 3) {
+          const third = standings[2];
+          if (third.points > bestThirdStats.points ||
+              (third.points === bestThirdStats.points && third.scoreDiff > bestThirdStats.scoreDiff)) {
+            bestThird = third.team;
+            bestThirdStats = { points: third.points, scoreDiff: third.scoreDiff };
+          }
+        }
+      }
+    });
+
+    // Mettre à jour les matchs de phase finale avec les équipes qualifiées
+    const newBrackets = brackets.map(bracket => {
+      const updatedMatches = bracket.matches.map(match => {
+        let newTeamA = match.teamA;
+        let newTeamB = match.teamB;
+
+        // Résoudre teamA si c'est un code de poule (ex: "Poule A-1")
+        const poolMatchA = match.teamA.match(/^(.+)-(\d+)$/);
+        if (poolMatchA) {
+          const poolName = poolMatchA[1];
+          const position = parseInt(poolMatchA[2], 10);
+          const standings = poolStandings.get(poolName);
+          if (standings && standings.length >= position) {
+            newTeamA = standings[position - 1].team;
+          }
+        } else if (match.teamA === "Meilleur-3ème" && bestThird) {
+          newTeamA = bestThird;
+        }
+
+        // Résoudre teamB si c'est un code de poule
+        const poolMatchB = match.teamB.match(/^(.+)-(\d+)$/);
+        if (poolMatchB) {
+          const poolName = poolMatchB[1];
+          const position = parseInt(poolMatchB[2], 10);
+          const standings = poolStandings.get(poolName);
+          if (standings && standings.length >= position) {
+            newTeamB = standings[position - 1].team;
+          }
+        } else if (match.teamB === "Meilleur-3ème" && bestThird) {
+          newTeamB = bestThird;
+        }
+
+        if (newTeamA !== match.teamA || newTeamB !== match.teamB) {
+          return { ...match, teamA: newTeamA, teamB: newTeamB };
+        }
+        return match;
+      });
+
+      return { ...bracket, matches: updatedMatches };
+    });
+
+    // Mettre à jour les loser brackets aussi
+    const newLoserBrackets = loserBrackets.map(lb => {
+      const updatedMatches = lb.matches.map(match => {
+        let newTeamA = match.teamA;
+        let newTeamB = match.teamB;
+
+        const poolMatchA = match.teamA.match(/^(.+)-(\d+)$/);
+        if (poolMatchA) {
+          const poolName = poolMatchA[1];
+          const position = parseInt(poolMatchA[2], 10);
+          const standings = poolStandings.get(poolName);
+          if (standings && standings.length >= position) {
+            newTeamA = standings[position - 1].team;
+          }
+        }
+
+        const poolMatchB = match.teamB.match(/^(.+)-(\d+)$/);
+        if (poolMatchB) {
+          const poolName = poolMatchB[1];
+          const position = parseInt(poolMatchB[2], 10);
+          const standings = poolStandings.get(poolName);
+          if (standings && standings.length >= position) {
+            newTeamB = standings[position - 1].team;
+          }
+        }
+
+        if (newTeamA !== match.teamA || newTeamB !== match.teamB) {
+          return { ...match, teamA: newTeamA, teamB: newTeamB };
+        }
+        return match;
+      });
+
+      return { ...lb, matches: updatedMatches };
+    });
+
+    // Appliquer les mises à jour si des changements ont été faits
+    const bracketsChanged = JSON.stringify(newBrackets) !== JSON.stringify(brackets);
+    const loserBracketsChanged = JSON.stringify(newLoserBrackets) !== JSON.stringify(loserBrackets);
+
+    if (bracketsChanged) setBrackets(newBrackets);
+    if (loserBracketsChanged) setLoserBrackets(newLoserBrackets);
+
+    if (bracketsChanged || loserBracketsChanged) {
+      console.log("✅ Équipes qualifiées propagées vers la phase finale");
+      if (bestThird) console.log(`🏆 Meilleur 3ème: ${bestThird}`);
+    }
+  };
+
   const updatePoolMatch = (updatedMatch: Match) => {
     const pool = pools.find(p => p.matches.some(m => m.id === updatedMatch.id));
     if (pool) {
@@ -1020,13 +1302,16 @@ export default function TournamentsPage() {
         ...pool,
         matches: pool.matches.map(m => m.id === updatedMatch.id ? { ...updatedMatch, court: updatedMatch.court } : m)
       };
-      updatePool(updatedPool);
+
+      // Mettre à jour la poule
+      const newPools = pools.map(p => p.id === updatedPool.id ? updatedPool : p);
+      setPools(newPools);
+      setSelectedPool(updatedPool);
       setSelectedPoolMatch({ ...updatedMatch, court: updatedMatch.court });
 
-      // Si le match vient d'être terminé, recalculer le classement de la poule
+      // Si le match vient d'être terminé, propager les résultats vers la phase finale
       if (justCompleted) {
-        // Le classement sera automatiquement recalculé par la fonction calculatePoolStandings
-        // quand on affichera la visualisation du tournoi
+        propagatePoolResultsToBrackets(newPools);
       }
     }
   };
@@ -1082,16 +1367,16 @@ export default function TournamentsPage() {
           const matchUuid = existing?.uuid || uuidv4();
 
           newMatches.push({
-            id: existing?.id || matchUuid, // Utiliser l'UUID comme ID si pas d'ID existant
+            id: existing?.id || matchUuid,
             uuid: matchUuid,
             teamA: teamA,
             teamB: teamB,
             date: existing?.date || "",
             time: existing?.time || "",
             court: existing?.court || "",
-            status: existing?.status || "planifié",
+            status: existing?.status || "planifié" as MatchStatus,
             duration: existing?.duration || 90,
-            type: "poule",
+            type: "poule" as MatchType,
             position: { x: 0, y: 0 }
           });
         }
@@ -1152,7 +1437,7 @@ export default function TournamentsPage() {
           date: existing?.date || "",
           time: existing?.time || "",
           court: existing?.court || "",
-          status: existing?.status || "planifié",
+          status: existing?.status || "planifié" as MatchStatus,
           duration: existing?.duration || 90,
         } as Match;
       };
@@ -1285,14 +1570,14 @@ export default function TournamentsPage() {
               date: existing?.date || "",
               time: existing?.time || "",
               court: existing?.court || "",
-              status: existing?.status || "planifié",
+              status: existing?.status || "planifié" as MatchStatus,
               duration: existing?.duration || 90,
           } as Match;
       };
 
       const hasRound1 = enabledRounds.includes("loser-round-1");
       const hasRound2 = enabledRounds.includes("loser-round-2");
-      const hasRound3 = enabledRounds.includes("loser-round-3");
+      const hasRound3 = enabledRounds.includes("loser-petite-finale");
       const hasFinale = enabledRounds.includes("loser-finale");
 
       const newMatches: Match[] = [];
@@ -1331,11 +1616,11 @@ export default function TournamentsPage() {
 
       // Round 3 et Finale idem...
       if (hasRound3) {
-          newMatches.push(getPersistentMatch("loser-round-3", "WLR3", {
+          newMatches.push(getPersistentMatch("loser-petite-finale", "WLPF", {
               teamA: hasRound2 ? "WLR2-1" : (loserBracket.teams[0] || ""),
               teamB: hasRound2 ? "WLR2-2" : (loserBracket.teams[1] || ""),
               type: "loser-bracket",
-              loserBracketMatchType: "loser-round-3",
+              loserBracketMatchType: "loser-petite-finale",
               winnerCode: "WLR3",
               winnerDestination: hasFinale ? "LF" : undefined,
           }));
@@ -1483,6 +1768,63 @@ export default function TournamentsPage() {
     }
   };
 
+  // Helper pour générer un label lisible pour les matchs dans les sélecteurs de destination
+  const getMatchDisplayLabel = (match: Match, poolName?: string): string => {
+    if (match.label) return match.label;
+
+    switch (match.type) {
+      case "poule":
+        return poolName ? `${poolName} - Match #${match.id}` : `Poule - Match #${match.id}`;
+      case "qualifications":
+        return `Qualif #${match.id}`;
+      case "phase-finale":
+        const bracketLabel = match.bracketMatchType ? {
+          "quarts": "Quart",
+          "demi": "Demi",
+          "petite-finale": "Petite Finale",
+          "finale": "Finale"
+        }[match.bracketMatchType] || match.bracketMatchType : "Bracket";
+        return `${bracketLabel} #${match.id}`;
+      case "loser-bracket":
+        return `Loser #${match.id}`;
+      default:
+        return `Match #${match.id}`;
+    }
+  };
+
+  // Helper pour obtenir toutes les options de destination avec labels appropriés
+  const getDestinationOptions = () => {
+    const options: { match: Match; label: string }[] = [];
+
+    // Matchs de qualifications
+    matches.forEach(m => {
+      options.push({ match: m, label: getMatchDisplayLabel(m) });
+    });
+
+    // Matchs de poules (avec nom de la poule)
+    pools.forEach(pool => {
+      pool.matches.forEach(m => {
+        options.push({ match: m, label: getMatchDisplayLabel(m, pool.name) });
+      });
+    });
+
+    // Matchs de brackets
+    brackets.forEach(bracket => {
+      bracket.matches.forEach(m => {
+        options.push({ match: m, label: getMatchDisplayLabel(m) });
+      });
+    });
+
+    // Matchs de loser brackets
+    loserBrackets.forEach(lb => {
+      lb.matches.forEach(m => {
+        options.push({ match: m, label: getMatchDisplayLabel(m) });
+      });
+    });
+
+    return options;
+  };
+
   const handleResetMatches = async () => {
     if (!window.confirm("Êtes-vous sûr de vouloir supprimer toutes les tuiles ? Cette action est irréversible.")) {
       return;
@@ -1543,7 +1885,7 @@ export default function TournamentsPage() {
       'petite-finale': 'third_place',
       'loser-round-1': 'loser_round_1',
       'loser-round-2': 'loser_round_2',
-      'loser-round-3': 'loser_round_3',
+      'loser-petite-finale': 'loser_round_3',
       'loser-finale': 'loser_final'
     };
     
@@ -1930,7 +2272,7 @@ export default function TournamentsPage() {
                     <span className="px-2 py-0.5 text-[10px] font-medium rounded-full bg-amber-50 text-black">
                       {match.loserBracketMatchType === "loser-round-1" ? "Repêchage" :
                        match.loserBracketMatchType === "loser-round-2" ? "Demi LB" :
-                       match.loserBracketMatchType === "loser-round-3" ? "7e place" :
+                       match.loserBracketMatchType === "loser-petite-finale" ? "7e place" :
                        match.loserBracketMatchType === "loser-finale" ? "5e place" : ""}
                     </span>
                   )}
@@ -2301,7 +2643,7 @@ export default function TournamentsPage() {
                       const roundLabels: Record<LoserBracketMatchType, string> = {
                         "loser-round-1": "Repêchage",
                         "loser-round-2": "Demi LB",
-                        "loser-round-3": "7e place",
+                        "loser-petite-finale": "7e place",
                         "loser-finale": "5e place"
                       };
                       return (
@@ -2362,7 +2704,7 @@ export default function TournamentsPage() {
                       const matchTypeLabels: Record<LoserBracketMatchType, string> = {
                         "loser-round-1": "Repêchage",
                         "loser-round-2": "Demi LB",
-                        "loser-round-3": "7e place",
+                        "loser-petite-finale": "7e place",
                         "loser-finale": "5e place"
                       };
                       const matchLabel = match.loserBracketMatchType ? matchTypeLabels[match.loserBracketMatchType] : "";
@@ -2640,11 +2982,11 @@ export default function TournamentsPage() {
                       }}
                     >
                       <option value="">Aucune</option>
-                      {[...matches, ...pools.flatMap(p=>p.matches), ...brackets.flatMap(b=>b.matches), ...loserBrackets.flatMap(lb=>lb.matches)]
-                        .filter(m => m.id !== selectedMatch?.id)
-                        .map(m => (
-                          <option key={m.id} value={m.uuid}>
-                            {m.label || `Match #${m.id}`}
+                      {getDestinationOptions()
+                        .filter(opt => opt.match.id !== selectedMatch?.id)
+                        .map(opt => (
+                          <option key={opt.match.id} value={opt.match.uuid}>
+                            {opt.label}
                           </option>
                         ))}
                     </select>
@@ -2680,11 +3022,11 @@ export default function TournamentsPage() {
                       }}
                     >
                       <option value="">Aucune</option>
-                      {[...matches, ...pools.flatMap(p=>p.matches), ...brackets.flatMap(b=>b.matches), ...loserBrackets.flatMap(lb=>lb.matches)]
-                        .filter(m => m.id !== selectedMatch?.id)
-                        .map(m => (
-                          <option key={m.id} value={m.uuid}>
-                            {m.label || `Match #${m.id}`}
+                      {getDestinationOptions()
+                        .filter(opt => opt.match.id !== selectedMatch?.id)
+                        .map(opt => (
+                          <option key={opt.match.id} value={opt.match.uuid}>
+                            {opt.label}
                           </option>
                         ))}
                     </select>
@@ -2826,18 +3168,97 @@ export default function TournamentsPage() {
                 </div>
               </div>
 
+              {/* Option meilleur 3ème */}
+              <div className="p-3 bg-purple-50 rounded-md space-y-2">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="best-third"
+                    checked={selectedPool.qualifiedAsBestThird || false}
+                    onChange={(e) => updatePool({...selectedPool, qualifiedAsBestThird: e.target.checked})}
+                    className="w-4 h-4 text-purple-600 rounded"
+                  />
+                  <label htmlFor="best-third" className="text-sm text-black">
+                    Meilleur 3ème qualifié
+                  </label>
+                  <span className="text-xs text-gray-500 ml-auto">
+                    (comparé aux autres poules)
+                  </span>
+                </div>
+
+                {/* Destination du meilleur 3ème - visible si checkbox cochée */}
+                {selectedPool.qualifiedAsBestThird && (
+                  <div className="pt-2 border-t border-purple-200">
+                    <label className="block text-xs font-medium text-purple-800 mb-1">
+                      Destination du meilleur 3ème
+                    </label>
+                    <div className="flex gap-1">
+                      <select
+                        className="flex-1 p-1 text-xs border border-purple-300 rounded text-black bg-white"
+                        value={selectedPool.bestThirdDestination?.matchUuid || ''}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          if (value === '') {
+                            updatePool({...selectedPool, bestThirdDestination: null});
+                          } else {
+                            updatePool({
+                              ...selectedPool,
+                              bestThirdDestination: {
+                                matchUuid: value,
+                                slot: selectedPool.bestThirdDestination?.slot || "A"
+                              }
+                            });
+                          }
+                        }}
+                      >
+                        <option value="">Aucune</option>
+                        {getDestinationOptions()
+                          .filter(opt => opt.match.type !== "poule")
+                          .map(opt => (
+                            <option key={opt.match.id} value={opt.match.uuid}>
+                              {opt.label}
+                            </option>
+                          ))}
+                      </select>
+                      <select
+                        className="w-12 p-1 text-xs border border-purple-300 rounded text-black bg-white font-bold"
+                        value={selectedPool.bestThirdDestination?.slot || ''}
+                        onChange={(e) => {
+                          if (!selectedPool.bestThirdDestination?.matchUuid) return;
+                          updatePool({
+                            ...selectedPool,
+                            bestThirdDestination: {
+                              matchUuid: selectedPool.bestThirdDestination.matchUuid,
+                              slot: (e.target.value as "A" | "B") || "A"
+                            }
+                          });
+                        }}
+                        disabled={!selectedPool.bestThirdDestination?.matchUuid}
+                      >
+                        <option value="">-</option>
+                        <option value="A">A</option>
+                        <option value="B">B</option>
+                      </select>
+                    </div>
+                    <p className="mt-1 text-xs text-purple-600">
+                      Le meilleur 3ème de toutes les poules ira vers ce match
+                    </p>
+                  </div>
+                )}
+              </div>
+
               {/* Configuration des points par position */}
               <div className="border-t pt-4 mt-4">
                 <div className="flex items-center justify-between mb-2">
                   <label className="text-sm font-bold text-gray-700">Points par position finale</label>
-                  <input 
-                    type="checkbox" 
+                  <input
+                    type="checkbox"
                     checked={selectedPool.useStandingPoints || false}
                     onChange={(e) => updatePool({...selectedPool, useStandingPoints: e.target.checked})}
                     className="w-4 h-4 text-purple-600"
                   />
                 </div>
-                
+
                 {selectedPool.useStandingPoints && (
                   <div className="space-y-2 bg-gray-50 p-2 rounded-md">
                     {selectedPool.teams.map((_, index) => {
@@ -2845,7 +3266,7 @@ export default function TournamentsPage() {
                       return (
                         <div key={position} className="flex items-center justify-between gap-2">
                           <span className="text-xs text-gray-600 w-12">{position}er :</span>
-                          <input 
+                          <input
                             type="number"
                             value={selectedPool.standingPoints?.[position] || 0}
                             onChange={(e) => {
@@ -2860,6 +3281,70 @@ export default function TournamentsPage() {
                     })}
                   </div>
                 )}
+              </div>
+
+              {/* Destination par position finale */}
+              <div className="border-t pt-4 mt-4">
+                <label className="text-sm font-bold text-gray-700 mb-2 block">Destination par position finale</label>
+                <div className="space-y-2 bg-gray-50 p-2 rounded-md">
+                  {selectedPool.teams.map((_, index) => {
+                    const position = index + 1;
+                    const currentDest = selectedPool.standingDestinations?.[position];
+                    const ordinalSuffix = position === 1 ? "er" : "e";
+                    return (
+                      <div key={position} className="flex items-center gap-2">
+                        <span className="text-xs text-gray-600 w-12">{position}{ordinalSuffix} :</span>
+                        <select
+                          className="flex-1 p-1 text-xs border rounded text-black"
+                          value={currentDest?.matchUuid || ''}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            const newDestinations = { ...(selectedPool.standingDestinations || {}) };
+                            if (value === '') {
+                              newDestinations[position] = null;
+                            } else {
+                              newDestinations[position] = {
+                                matchUuid: value,
+                                slot: currentDest?.slot || "A"
+                              };
+                            }
+                            updatePool({...selectedPool, standingDestinations: newDestinations});
+                          }}
+                        >
+                          <option value="">Aucune</option>
+                          {getDestinationOptions()
+                            .filter(opt => opt.match.type !== "poule") // Exclure les matchs de poule pour les destinations de position
+                            .map(opt => (
+                              <option key={opt.match.id} value={opt.match.uuid}>
+                                {opt.label}
+                              </option>
+                            ))}
+                        </select>
+                        <select
+                          className="w-12 p-1 text-xs border rounded text-black font-bold"
+                          value={currentDest?.slot || ''}
+                          onChange={(e) => {
+                            if (!currentDest?.matchUuid) return;
+                            const newDestinations = { ...(selectedPool.standingDestinations || {}) };
+                            newDestinations[position] = {
+                              matchUuid: currentDest.matchUuid,
+                              slot: (e.target.value as "A" | "B") || "A"
+                            };
+                            updatePool({...selectedPool, standingDestinations: newDestinations});
+                          }}
+                          disabled={!currentDest?.matchUuid}
+                        >
+                          <option value="">-</option>
+                          <option value="A">A</option>
+                          <option value="B">B</option>
+                        </select>
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="mt-1 text-xs text-gray-500">
+                  Configurez où chaque position de la poule sera envoyée
+                </p>
               </div>
 
               {/* Sélection des équipes */}
@@ -3199,9 +3684,9 @@ export default function TournamentsPage() {
                                 poolQualifiers.push(`${pool.name}-${i}`);
                               }
                             });
-                            
+
                             if (poolQualifiers.length === 0) return null;
-                            
+
                             return (
                               <>
                                 <div className="text-xs font-semibold text-black mt-2 mb-1">
@@ -3226,8 +3711,8 @@ export default function TournamentsPage() {
                                         }}
                                         className="mr-2"
                                       />
-                                      <label 
-                                        htmlFor={`bracket-pool-${code}`} 
+                                      <label
+                                        htmlFor={`bracket-pool-${code}`}
                                         className={`text-sm font-medium ${isUsedElsewhere ? 'text-gray-400 line-through' : 'text-purple-600'}`}
                                       >
                                         {code} {isUsedElsewhere && '(déjà utilisé)'}
@@ -3235,6 +3720,50 @@ export default function TournamentsPage() {
                                     </div>
                                   );
                                 })}
+                              </>
+                            );
+                          })()}
+
+                          {/* Meilleurs 3èmes des poules */}
+                          {(() => {
+                            const poolsWithBestThird = pools.filter(pool => pool.qualifiedAsBestThird);
+
+                            if (poolsWithBestThird.length === 0) return null;
+
+                            const bestThirdCode = "Meilleur-3ème";
+                            const isSelected = selectedBracket.teams.includes(bestThirdCode);
+                            const isUsedElsewhere = usedTeams.loserBrackets.has(bestThirdCode);
+
+                            return (
+                              <>
+                                <div className="text-xs font-semibold text-black mt-2 mb-1">
+                                  Meilleur 3ème
+                                </div>
+                                <div className="flex items-center">
+                                  <input
+                                    type="checkbox"
+                                    id={`bracket-best-third`}
+                                    checked={isSelected}
+                                    disabled={isUsedElsewhere}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        addTeamToBracket(selectedBracket.id, bestThirdCode);
+                                      } else {
+                                        removeTeamFromBracket(selectedBracket.id, bestThirdCode);
+                                      }
+                                    }}
+                                    className="mr-2"
+                                  />
+                                  <label
+                                    htmlFor={`bracket-best-third`}
+                                    className={`text-sm font-medium ${isUsedElsewhere ? 'text-gray-400 line-through' : 'text-amber-600'}`}
+                                  >
+                                    {bestThirdCode} {isUsedElsewhere && '(déjà utilisé)'}
+                                  </label>
+                                </div>
+                                <p className="text-xs text-gray-500 ml-5">
+                                  Parmi: {poolsWithBestThird.map(p => p.name).join(', ')}
+                                </p>
                                 <div className="border-t border-gray-200 my-2"></div>
                               </>
                             );
@@ -3379,7 +3908,7 @@ export default function TournamentsPage() {
                   {[
                     { value: "loser-round-1" as LoserBracketMatchType, label: "Repêchage" },
                     { value: "loser-round-2" as LoserBracketMatchType, label: "Demi-finales LB" },
-                    { value: "loser-round-3" as LoserBracketMatchType, label: "Match de la 7e place" },
+                    { value: "loser-petite-finale" as LoserBracketMatchType, label: "Match de la 7e place" },
                     { value: "loser-finale" as LoserBracketMatchType, label: "Match de la 5e place" }
                   ].map(({ value, label }) => {
                     const isChecked = selectedLoserBracket.enabledRounds.includes(value);
@@ -3722,7 +4251,7 @@ export default function TournamentsPage() {
                       const matchTypeLabels: Record<LoserBracketMatchType, string> = {
                         "loser-round-1": "Repêchage",
                         "loser-round-2": "Demi LB",
-                        "loser-round-3": "7e place",
+                        "loser-petite-finale": "7e place",
                         "loser-finale": "5e place"
                       };
                       const matchLabel = match.loserBracketMatchType ? matchTypeLabels[match.loserBracketMatchType] : "";
@@ -3884,90 +4413,6 @@ export default function TournamentsPage() {
                     onChange={(e) => updatePoolMatch({...selectedPoolMatch, loserPoints: parseInt(e.target.value) || 0})}
                     className="w-full p-2 text-black border border-gray-300 rounded-md focus:ring-purple-500 focus:border-purple-500"
                   />
-                </div>
-              </div>
-
-              {/* Destinations vainqueur/perdant avec slot A/B */}
-              <div className="grid grid-cols-2 gap-2 mb-2">
-                <div>
-                  <label className="block text-xs font-bold mb-1" style={{ color: '#16a34a' }}>Destination Vainqueur</label>
-                  <div className="flex gap-1">
-                    <select
-                      className="flex-1 p-2 border border-green-400 rounded-md focus:ring-green-500 focus:border-green-500 text-black bg-green-50"
-                      value={selectedPoolMatch.winner_destination_match_id || ''}
-                      onChange={e => {
-                        const value = e.target.value || null;
-                        updatePoolMatch({
-                          ...selectedPoolMatch,
-                          winner_destination_match_id: value,
-                        });
-                      }}
-                    >
-                      <option value="">Aucune</option>
-                      {[...matches, ...pools.flatMap(p=>p.matches), ...brackets.flatMap(b=>b.matches), ...loserBrackets.flatMap(lb=>lb.matches)]
-                        .filter(m => m.id !== selectedMatch?.id)
-                        .map(m => (
-                          <option key={m.id} value={m.uuid}>
-                            {m.label || `Match #${m.id}`}
-                          </option>
-                        ))}
-                    </select>
-                    <select
-                      className="w-14 p-2 border border-green-400 rounded-md text-black bg-green-50 font-bold"
-                      value={selectedPoolMatch.winner_destination_slot || ''}
-                      onChange={e => {
-                        updatePoolMatch({
-                          ...selectedPoolMatch,
-                          winner_destination_slot: e.target.value === "" ? undefined : (e.target.value as "A" | "B"),
-                        });
-                      }}
-                      disabled={!selectedPoolMatch.winner_destination_match_id}
-                    >
-                      <option value="">-</option>
-                      <option value="A">A</option>
-                      <option value="B">B</option>
-                    </select>
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold mb-1" style={{ color: '#dc2626' }}>Destination Perdant</label>
-                  <div className="flex gap-1">
-                    <select
-                      className="flex-1 p-2 border border-red-400 rounded-md focus:ring-red-500 focus:border-red-500 text-black bg-red-50"
-                      value={selectedPoolMatch.loser_destination_match_id || ''}
-                      onChange={e => {
-                        const value = e.target.value || null;
-                        updatePoolMatch({
-                          ...selectedPoolMatch,
-                          loser_destination_match_id: value,
-                        });
-                      }}
-                    >
-                      <option value="">Aucune</option>
-                      {[...matches, ...pools.flatMap(p=>p.matches), ...brackets.flatMap(b=>b.matches), ...loserBrackets.flatMap(lb=>lb.matches)]
-                        .filter(m => m.id !== selectedMatch?.id)
-                        .map(m => (
-                          <option key={m.id} value={m.uuid}>
-                            {m.label || `Match #${m.id}`}
-                          </option>
-                        ))}
-                    </select>
-                    <select
-                      className="w-14 p-2 border border-red-400 rounded-md text-black bg-red-50 font-bold"
-                      value={selectedPoolMatch.loser_destination_slot || ''}
-                      onChange={e => {
-                        updatePoolMatch({
-                          ...selectedPoolMatch,
-                          loser_destination_slot: e.target.value === "" ? undefined : (e.target.value as "A" | "B"),
-                        });
-                      }}
-                      disabled={!selectedPoolMatch.loser_destination_match_id}
-                    >
-                      <option value="">-</option>
-                      <option value="A">A</option>
-                      <option value="B">B</option>
-                    </select>
-                  </div>
                 </div>
               </div>
 
@@ -4198,11 +4643,11 @@ export default function TournamentsPage() {
                       }}
                     >
                       <option value="">Aucune</option>
-                      {[...matches, ...pools.flatMap(p=>p.matches), ...brackets.flatMap(b=>b.matches), ...loserBrackets.flatMap(lb=>lb.matches)]
-                        .filter(m => m.id !== selectedMatch?.id)
-                        .map(m => (
-                          <option key={m.id} value={m.uuid}>
-                            {m.label || `Match #${m.id}`}
+                      {getDestinationOptions()
+                        .filter(opt => opt.match.id !== selectedBracketMatch?.id)
+                        .map(opt => (
+                          <option key={opt.match.id} value={opt.match.uuid}>
+                            {opt.label}
                           </option>
                         ))}
                     </select>
@@ -4238,11 +4683,11 @@ export default function TournamentsPage() {
                       }}
                     >
                       <option value="">Aucune</option>
-                      {[...matches, ...pools.flatMap(p=>p.matches), ...brackets.flatMap(b=>b.matches), ...loserBrackets.flatMap(lb=>lb.matches)]
-                        .filter(m => m.id !== selectedMatch?.id)
-                        .map(m => (
-                          <option key={m.id} value={m.uuid}>
-                            {m.label || `Match #${m.id}`}
+                      {getDestinationOptions()
+                        .filter(opt => opt.match.id !== selectedBracketMatch?.id)
+                        .map(opt => (
+                          <option key={opt.match.id} value={opt.match.uuid}>
+                            {opt.label}
                           </option>
                         ))}
                     </select>
@@ -4322,7 +4767,7 @@ export default function TournamentsPage() {
                       ({
                         "loser-round-1": "Round 1",
                         "loser-round-2": "Round 2",
-                        "loser-round-3": "Round 3",
+                        "loser-petite-finale": "Round 3",
                         "loser-finale": "Finale Loser Bracket"
                       }[selectedLoserBracketMatch.loserBracketMatchType]) : ""}
                   </p>
@@ -4477,11 +4922,11 @@ export default function TournamentsPage() {
                       }}
                     >
                       <option value="">Aucune</option>
-                      {[...matches, ...pools.flatMap(p=>p.matches), ...brackets.flatMap(b=>b.matches), ...loserBrackets.flatMap(lb=>lb.matches)]
-                        .filter(m => m.id !== selectedMatch?.id)
-                        .map(m => (
-                          <option key={m.id} value={m.uuid}>
-                            {m.label || `Match #${m.id}`}
+                      {getDestinationOptions()
+                        .filter(opt => opt.match.id !== selectedLoserBracketMatch?.id)
+                        .map(opt => (
+                          <option key={opt.match.id} value={opt.match.uuid}>
+                            {opt.label}
                           </option>
                         ))}
                     </select>
@@ -4517,11 +4962,11 @@ export default function TournamentsPage() {
                       }}
                     >
                       <option value="">Aucune</option>
-                      {[...matches, ...pools.flatMap(p=>p.matches), ...brackets.flatMap(b=>b.matches), ...loserBrackets.flatMap(lb=>lb.matches)]
-                        .filter(m => m.id !== selectedMatch?.id)
-                        .map(m => (
-                          <option key={m.id} value={m.uuid}>
-                            {m.label || `Match #${m.id}`}
+                      {getDestinationOptions()
+                        .filter(opt => opt.match.id !== selectedLoserBracketMatch?.id)
+                        .map(opt => (
+                          <option key={opt.match.id} value={opt.match.uuid}>
+                            {opt.label}
                           </option>
                         ))}
                     </select>
