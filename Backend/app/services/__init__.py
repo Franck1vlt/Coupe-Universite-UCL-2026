@@ -19,6 +19,7 @@ from app.services.matchschedule_service import MatchScheduleService
 from app.services.court_service import CourtService
 from app.services.player_service import PlayerService
 from app.services.user_service import UserService
+from app.services.live_score_service import LiveScoreManager, LiveScoreData, live_score_manager
 
 __all__ = [
     "BaseService",
@@ -38,4 +39,7 @@ __all__ = [
     "CourtService",
     "PlayerService",
     "UserService",
+    "LiveScoreManager",
+    "LiveScoreData",
+    "live_score_manager",
 ]

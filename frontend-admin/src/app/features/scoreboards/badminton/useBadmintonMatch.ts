@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { MatchData } from "./types";
 import { submitMatchResultWithPropagation, updateMatchStatus as updateStatus } from "../common/useMatchPropagation";
+import { useLiveScoreSync } from "../common/useLiveScoreSync";
 
 // Ajout du type tournamentId si besoin
 type MatchDataWithTournament = MatchData & { 
@@ -36,6 +37,9 @@ export function useBadmintonMatch(initialMatchId: string | null) {
 
     const intervalRef = useRef<number | null>(null);
     const [court, setCourt] = useState<string>("");
+
+    // Hook pour synchronisation live vers backend SSE
+    const { sendLiveScore, cleanup: cleanupLiveScore } = useLiveScoreSync();
 
     // UN SEUL useEffect pour récupérer les données du match
     useEffect(() => {
@@ -360,7 +364,7 @@ export function useBadmintonMatch(initialMatchId: string | null) {
     };
     
 
-    /** ---------- SYNC TO LOCAL STORAGE ---------- */
+    /** ---------- SYNC TO LOCAL STORAGE + BACKEND SSE ---------- */
     useEffect(() => {
         try {
             const payload = {
@@ -372,15 +376,27 @@ export function useBadmintonMatch(initialMatchId: string | null) {
                 sets1: matchData.teamA.sets,
                 sets2: matchData.teamB.sets,
                 chrono: formattedTime,
-                serviceTeam: matchData.serviceTeam, 
-                matchGround: court || "Terrain",    
+                serviceTeam: matchData.serviceTeam,
+                matchGround: court || "Terrain",
+                logo1: matchData.teamA.logo_url || "",
+                logo2: matchData.teamB.logo_url || "",
                 lastUpdate: new Date().toISOString(),
             };
+            // Sync to localStorage (for same-device spectator)
             localStorage.setItem("liveBadmintonMatch", JSON.stringify(payload));
+
+            // Sync to backend SSE (for cross-device split-screen spectators)
+            if (initialMatchId) {
+                sendLiveScore({
+                    matchId: initialMatchId,
+                    sport: 'badminton',
+                    payload,
+                });
+            }
         } catch (e) {
             // Ignore storage errors
         }
-    }, [matchData, formattedTime, court]);
+    }, [matchData, formattedTime, court, initialMatchId, sendLiveScore]);
 
     // Cleanup à l'unmount
     useEffect(() => {
@@ -389,8 +405,12 @@ export function useBadmintonMatch(initialMatchId: string | null) {
                 window.clearInterval(intervalRef.current);
                 intervalRef.current = null;
             }
+            // Cleanup live score sync
+            if (initialMatchId) {
+                cleanupLiveScore(initialMatchId);
+            }
         };
-    }, []);
+    }, [initialMatchId, cleanupLiveScore]);
 
     /** ---------- SWIPE / INVERSION DES ÉQUIPES ---------- */
     const swapSides = () =>

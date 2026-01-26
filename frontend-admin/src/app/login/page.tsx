@@ -50,7 +50,7 @@ export default function LoginPage() {
             priority
             className="w-24 h-auto mb-4"
           />
-          <h1 className="text-2xl font-bold text-slate-800">Organisation</h1>
+          <h1 className="text-2xl font-bold text-slate-800">STAFF Fédé UCL</h1>
         </header>
 
         <form className="space-y-6" onSubmit={handleSubmit}>

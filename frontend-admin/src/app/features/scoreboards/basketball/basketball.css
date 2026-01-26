@@ -350,12 +350,10 @@ input:checked + .slider:before {
 
 .basketball-root .scoreboard {
     text-align: center;
-    padding: 20px;
+    padding: 10px;
     height: auto;
     color: #fff;
-    padding: 20px;
     text-align: center;
-    margin: 30px auto;
     transform: scale(1.05);
     transform-origin: top center;
 }

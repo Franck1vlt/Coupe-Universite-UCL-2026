@@ -19,11 +19,11 @@ class Settings(BaseSettings):
     API_V1_PREFIX: str = "/api/v1"
     
     # Base de données
-    DATABASE_URL: str = os.getenv("SQLite_DATABASE_URL")
+    DATABASE_URL: str = "sqlite:///./data/coupe_ucl_2026.db"
     DATABASE_PATH: Optional[str] = None  # Pour Docker (chemin absolu)
-    
+
     # Sécurité
-    SECRET_KEY: str = os.getenv("SECRET_KEY")
+    SECRET_KEY: str = "dev-secret-key-change-in-production"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
@@ -47,11 +47,11 @@ class Settings(BaseSettings):
     ALLOWED_EMAIL_DOMAINS: List[str] = []
     ALLOWED_EMAILS: List[str] = []
     
-    # URLs attendues (à fournir dans le .env)
-    API_URL: str
-    ADMIN_FRONTEND_NEXTJS_URL: str
-    PUBLIC_FRONTEND_NEXTJS_URL: str
-    SQLite_DATABASE_URL: str
+    # URLs attendues (à fournir dans le .env ou valeurs par défaut)
+    API_URL: str = "http://localhost:8000"
+    ADMIN_FRONTEND_NEXTJS_URL: str = "http://localhost:3000"
+    PUBLIC_FRONTEND_NEXTJS_URL: str = "http://localhost:3100"
+    SQLite_DATABASE_URL: str = "sqlite:///./data/coupe_ucl_2026.db"
 
     class Config:
         env_file = ".env"

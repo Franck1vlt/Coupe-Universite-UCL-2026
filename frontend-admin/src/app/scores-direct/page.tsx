@@ -181,7 +181,7 @@ export default function ScoresDirectPage() {
           <p className="text-gray-400 text-sm mt-2">Le live démarrera dès le coup d'envoi du prochain match.</p>
         </div>
       ) : (
-        <div className="grid gap-6">
+        <div className="grid grid-cols-2 gap-8">
           {matches.map((match) => (
             <div key={match.id} className="bg-white rounded-xl shadow-lg mb-6 overflow-hidden">
               

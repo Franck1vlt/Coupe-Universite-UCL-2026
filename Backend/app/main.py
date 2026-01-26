@@ -24,6 +24,7 @@ from typing import Optional, List
 from sqlalchemy.orm import Session
 from app.db import get_db, init_db
 from app.config import settings
+from app.auth.permissions import require_admin, require_admin_or_staff, require_admin_staff_or_technician
 from app.exceptions import (
     AppException,
     app_exception_handler,
@@ -56,6 +57,9 @@ app = FastAPI(
     docs_url="/docs" if settings.DEBUG else None,
     redoc_url="/redoc" if settings.DEBUG else None,
     openapi_url="/openapi.json" if settings.DEBUG else None,
+    swagger_ui_init_oauth={
+        "usePkceWithAuthorizationCodeGrant": False,
+    },
 )
 
 # Variables globales pour gérer l'arrêt propre
@@ -96,14 +100,22 @@ app.add_exception_handler(SQLAlchemyError, sqlalchemy_exception_handler)
 app.add_exception_handler(Exception, general_exception_handler)
 
 
-# Import du router courts_status
+# Import des routers
 from app.routers import tournament_structure
+from app.routers import courts_status
+from app.routers import auth as auth_router
+
+# Router d'authentification
+app.include_router(auth_router.router, tags=["Authentication"])
+
+# Router des tournois
 app.include_router(
-    tournament_structure.router, 
+    tournament_structure.router,
     prefix="",
     tags=["Tournaments"]
 )
-from app.routers import courts_status
+
+# Router des terrains
 app.include_router(courts_status.router, tags=["Courts"])
 
 @app.on_event("startup")
@@ -1018,29 +1030,29 @@ async def delete_court(court_id: int, db: Session = Depends(get_db)):
 from app.models.tournament import Tournament
 from app.schemas.tournament import TournamentResponse
 
-# @app.get("/tournaments", tags=["Tournaments"])
-# async def get_tournaments(
-#     skip: int = 0,
-#     limit: int = 100,
-#     sport_id: Optional[int] = Query(None, description="Filtrer par sport"),
-#     status: Optional[str] = Query(None, description="Filtrer par statut"),
-#     db: Session = Depends(get_db),
-# ):
-#     """Liste tous les tournois avec filtres optionnels"""
-#     query = db.query(Tournament)
-    
-#     if sport_id is not None:
-#         query = query.filter(Tournament.sport_id == sport_id)
-#     if status is not None:
-#         query = query.filter(Tournament.status == status)
-    
-#     total = query.count()
-#     tournaments = query.offset(skip).limit(limit).all()
-    
-#     return create_success_response(
-#         data={"items": [TournamentResponse.model_validate(t).model_dump(mode="json") for t in tournaments], "total": total, "skip": skip, "limit": limit},
-#         message="Liste des tournois récupérée avec succès"
-#     )
+@app.get("/tournaments", tags=["Tournaments"])
+async def get_tournaments(
+    skip: int = 0,
+    limit: int = 100,
+    sport_id: Optional[int] = Query(None, description="Filtrer par sport"),
+    status: Optional[str] = Query(None, description="Filtrer par statut"),
+    db: Session = Depends(get_db),
+):
+    """Liste tous les tournois avec filtres optionnels"""
+    query = db.query(Tournament)
+
+    if sport_id is not None:
+        query = query.filter(Tournament.sport_id == sport_id)
+    if status is not None:
+        query = query.filter(Tournament.status == status)
+
+    total = query.count()
+    tournaments = query.offset(skip).limit(limit).all()
+
+    return create_success_response(
+        data=[TournamentResponse.model_validate(t).model_dump(mode="json") for t in tournaments],
+        message="Liste des tournois récupérée avec succès"
+    )
 
 @app.get("/tournaments/{tournament_id}", tags=["Tournaments"])
 async def get_tournament_by_id(
@@ -2990,3 +3002,147 @@ def get_matches_by_tournament(
         "success": True,
         "data": [match_to_dict(m, id_to_uuid) for m in matches]
     }
+
+
+# ============================================================================
+# LIVE SCORE ENDPOINTS (SSE - Server-Sent Events)
+# Pour synchronisation temps réel entre marqueurs et écrans spectateurs
+# ============================================================================
+
+from fastapi.responses import StreamingResponse
+from app.services.live_score_service import live_score_manager, LiveScoreData
+from pydantic import BaseModel
+from typing import Dict, Any
+import json
+
+
+class LiveScoreUpdate(BaseModel):
+    """Schema for live score update payload"""
+    sport: str  # volleyball, badminton, petanque, flechettes
+    data: Dict[str, Any]  # Sport-specific score data
+
+
+@app.post("/matches/{match_id}/live-score", tags=["LiveScore"])
+async def update_live_score(
+    match_id: int,
+    update: LiveScoreUpdate,
+    db: Session = Depends(get_db)
+):
+    """
+    Update live score for a match (called by scorer tablets).
+    Broadcasts the update to all connected spectator screens via SSE.
+
+    - **match_id**: The match ID
+    - **sport**: Sport type (volleyball, badminton, petanque, flechettes)
+    - **data**: Sport-specific score data (teams, scores, sets, service, etc.)
+    """
+    # Verify match exists
+    match = db.query(Match).filter(Match.id == match_id).first()
+    if not match:
+        raise NotFoundError(f"Match {match_id} not found")
+
+    # Update live score in memory and broadcast to subscribers
+    score_data = await live_score_manager.update_score(
+        match_id=match_id,
+        sport=update.sport,
+        data=update.data
+    )
+
+    return create_success_response(
+        data=score_data.to_dict(),
+        message=f"Live score updated for match {match_id}"
+    )
+
+
+@app.get("/matches/{match_id}/live-score", tags=["LiveScore"])
+async def get_live_score(
+    match_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Get current live score for a match (polling fallback).
+
+    Returns the in-memory live score if available, or null if no live data.
+    """
+    # Verify match exists
+    match = db.query(Match).filter(Match.id == match_id).first()
+    if not match:
+        raise NotFoundError(f"Match {match_id} not found")
+
+    score_data = await live_score_manager.get_score(match_id)
+
+    return create_success_response(
+        data=score_data.to_dict() if score_data else None,
+        message="Live score retrieved" if score_data else "No live score data"
+    )
+
+
+@app.get("/live-scores/stream", tags=["LiveScore"])
+async def stream_live_scores(
+    match_ids: str = Query(..., description="Comma-separated match IDs (e.g., '1,2,3,4')")
+):
+    """
+    SSE endpoint for real-time live score streaming.
+    Connect to receive live score updates for multiple matches.
+
+    - **match_ids**: Comma-separated list of match IDs to subscribe to
+
+    Returns a Server-Sent Events stream with score updates.
+    Event format: `data: {"event": "score_update", "match_id": 1, "sport": "volleyball", "data": {...}}`
+    """
+    # Parse match IDs
+    try:
+        parsed_match_ids = [int(mid.strip()) for mid in match_ids.split(",") if mid.strip()]
+    except ValueError:
+        raise BadRequestError("Invalid match_ids format. Use comma-separated integers.")
+
+    if not parsed_match_ids:
+        raise BadRequestError("At least one match_id is required")
+
+    if len(parsed_match_ids) > 4:
+        raise BadRequestError("Maximum 4 matches allowed per stream")
+
+    async def event_generator():
+        """Generate SSE events for subscribed matches"""
+        queue = await live_score_manager.subscribe(parsed_match_ids)
+
+        try:
+            # Send initial state for all subscribed matches
+            initial_scores = await live_score_manager.get_scores(parsed_match_ids)
+            for match_id, score_data in initial_scores.items():
+                yield score_data.to_sse_event()
+
+            # Send keepalive comment
+            yield ": keepalive\n\n"
+
+            # Stream updates as they arrive
+            while True:
+                try:
+                    # Wait for next update with timeout (for keepalive)
+                    score_data: LiveScoreData = await asyncio.wait_for(
+                        queue.get(),
+                        timeout=30.0  # Send keepalive every 30s
+                    )
+                    yield score_data.to_sse_event()
+                except asyncio.TimeoutError:
+                    # Send keepalive comment to prevent connection timeout
+                    yield ": keepalive\n\n"
+                except asyncio.CancelledError:
+                    logger.info(f"SSE stream cancelled for matches {parsed_match_ids}")
+                    break
+
+        except Exception as e:
+            logger.error(f"SSE stream error: {e}")
+        finally:
+            await live_score_manager.unsubscribe(queue, parsed_match_ids)
+            logger.debug(f"SSE stream closed for matches {parsed_match_ids}")
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable nginx buffering
+        }
+    )

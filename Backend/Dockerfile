@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.13-slim
 
 # Empêche Python de générer des fichiers .pyc
 ENV PYTHONDONTWRITEBYTECODE=1

@@ -1,4 +1,4 @@
-version: "3.9"
+version: '3.10'
 
 services:
   traefik:
@@ -10,7 +10,7 @@ services:
       - "443:443"
       - "8080:8080"  # Dashboard Traefik
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - //var/run/docker.sock:/var/run/docker.sock:ro
       - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
       - ./traefik/acme.json:/etc/traefik/acme.json
     networks:
@@ -24,16 +24,15 @@ services:
     volumes:
       - ./data:/app/data
     environment:
-      - DATABASE_PATH=/app/data/database.db
+      - DATABASE_PATH=/app/data/coupe_ucl_2026.db
     expose:
       - "8000"
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.backend.rule=PathPrefix(`/api`)"
-      - "traefik.http.routers.backend.entrypoints=web"
+      - "traefik.http.routers.backend.rule=Host(`api.${DOMAIN}`)"
+      - "traefik.http.routers.backend.entrypoints=websecure"
+      - "traefik.http.routers.backend.tls.certresolver=letsencrypt"
       - "traefik.http.services.backend.loadbalancer.server.port=8000"
-      - "traefik.http.middlewares.strip-api.stripprefix.prefixes=/api"
-      - "traefik.http.routers.backend.middlewares=strip-api"
     networks:
       - coupe-network
 
@@ -46,9 +45,9 @@ services:
       - "3100"
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.public.rule=PathPrefix(`/`)"
-      - "traefik.http.routers.public.entrypoints=web"
-      - "traefik.http.routers.public.priority=1"
+      - "traefik.http.routers.public.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.public.entrypoints=websecure"
+      - "traefik.http.routers.public.tls.certresolver=letsencrypt"
       - "traefik.http.services.public.loadbalancer.server.port=3100"
     networks:
       - coupe-network
@@ -62,8 +61,9 @@ services:
       - "3000"
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.admin.rule=PathPrefix(`/admin`)"
-      - "traefik.http.routers.admin.entrypoints=web"
+      - "traefik.http.routers.admin.rule=Host(`admin.${DOMAIN}`)"
+      - "traefik.http.routers.admin.entrypoints=websecure"
+      - "traefik.http.routers.admin.tls.certresolver=letsencrypt"
       - "traefik.http.services.admin.loadbalancer.server.port=3000"
     networks:
       - coupe-network

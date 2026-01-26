@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { MatchData, MeneHistory } from "./types";
 import { submitMatchResultWithPropagation, updateMatchStatus as updateStatus } from "../common/useMatchPropagation";
+import { useLiveScoreSync } from "../common/useLiveScoreSync";
 
 type MatchDataWithTournament = MatchData & { tournamentId?: string | number; court?: string };
 
@@ -33,6 +34,9 @@ export function usePetanqueMatch(initialMatchId: string | null) {
     const [court, setCourt] = useState<string>("");
     const [isMatchWon, setIsMatchWon] = useState<boolean>(false);
     const [matchWinner, setMatchWinner] = useState<"A" | "B" | null>(null);
+
+    // Hook pour synchronisation live vers backend SSE
+    const { sendLiveScore, cleanup: cleanupLiveScore } = useLiveScoreSync();
 
     // Récupérer les données du match depuis l'API
     useEffect(() => {
@@ -405,17 +409,36 @@ export function usePetanqueMatch(initialMatchId: string | null) {
             targetScore: score,
         }));
 
-    /** ---------- SYNC TO LOCAL STORAGE ---------- */
+    /** ---------- SYNC TO LOCAL STORAGE + BACKEND SSE + PERSISTANCE BDD ---------- */
+    // Fonction pour persister le score en direct dans la BDD
+    const persistLiveScore = async () => {
+        if (!initialMatchId) return;
+        try {
+            await fetch(`${process.env.NEXT_PUBLIC_API_URL}/matches/${initialMatchId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    score_a: matchData.teamA.score,
+                    score_b: matchData.teamB.score,
+                    sets_a: matchData.teamA.sets,
+                    sets_b: matchData.teamB.sets,
+                    // Ajoute d'autres champs si besoin (ex: meneHistory, status, etc)
+                }),
+            });
+        } catch (e) {
+            console.error('[Petanque Hook] Erreur persistance score live:', e);
+        }
+    };
+
     useEffect(() => {
         try {
             const payload = {
                 team1: matchData.teamA.name || "ÉQUIPE A",
                 team2: matchData.teamB.name || "ÉQUIPE B",
-                logoA: matchData.teamA.logo_url || "",
-                logoB: matchData.teamB.logo_url || "",
+                logo1: matchData.teamA.logo_url || "",
+                logo2: matchData.teamB.logo_url || "",
                 matchType: matchData.matchType || "Match",
-                tournamentId: matchData.tournamentId,
-                matchGround: matchData.court,
+                matchGround: court || "Terrain",
                 scoreA: matchData.teamA.score,
                 scoreB: matchData.teamB.score,
                 setsA: matchData.teamA.sets,
@@ -429,11 +452,24 @@ export function usePetanqueMatch(initialMatchId: string | null) {
                 lastUpdate: new Date().toISOString(),
                 winner: matchWinner ? (matchWinner === "A" ? matchData.teamA.name : matchData.teamB.name) : null,
             };
+            // Sync to localStorage (for same-device spectator)
             localStorage.setItem("livePetanqueMatch", JSON.stringify(payload));
+
+            // Sync to backend SSE (for cross-device split-screen spectators)
+            if (initialMatchId) {
+                sendLiveScore({
+                    matchId: initialMatchId,
+                    sport: 'petanque',
+                    payload,
+                });
+            }
+
+            // Persistance en BDD à chaque changement de score/sets/buts
+            persistLiveScore();
         } catch (e) {
             // Ignore storage errors
         }
-    }, [matchData]);
+    }, [matchData, court, matchWinner, initialMatchId, sendLiveScore]);
 
     // Cleanup à l'unmount
     useEffect(() => {
@@ -442,8 +478,12 @@ export function usePetanqueMatch(initialMatchId: string | null) {
                 window.clearInterval(intervalRef.current);
                 intervalRef.current = null;
             }
+            // Cleanup live score sync
+            if (initialMatchId) {
+                cleanupLiveScore(initialMatchId);
+            }
         };
-    }, []);
+    }, [initialMatchId, cleanupLiveScore]);
 
     /** ---------- SWIPE / INVERSION DES ÉQUIPES ---------- */
     const swapSides = () =>

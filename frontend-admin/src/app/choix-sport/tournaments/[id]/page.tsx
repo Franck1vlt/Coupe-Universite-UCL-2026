@@ -1135,6 +1135,21 @@ export default function TournamentViewPage() {
                     <div className="text-xs text-red-500">Remettre à zéro tous les scores</div>
                   </div>
                 </button>
+                <button
+                  onClick={() => {
+                    setShowMenu(false);
+                    router.push(`/choix-sport/tournaments/${params.id}/split-screen`);
+                  }}
+                  className="w-full text-left px-4 py-3 hover:bg-purple-50 transition flex items-center gap-3 border-t border-gray-100"
+                >
+                  <svg className="w-5 h-5 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM14 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4zM14 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
+                  </svg>
+                  <div>
+                    <div className="font-medium text-black">Écran Multi-Matchs</div>
+                    <div className="text-xs text-purple-600">Afficher 2-4 matchs en simultané</div>
+                  </div>
+                </button>
               </div>
             )}
           </div>

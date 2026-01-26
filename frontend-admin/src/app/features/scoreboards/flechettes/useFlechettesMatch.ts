@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { MatchData } from "./types";
 import { submitMatchResultWithPropagation, updateMatchStatus as updateStatus } from "../common/useMatchPropagation";
+import { useLiveScoreSync } from "../common/useLiveScoreSync";
 
 type MatchDataWithTournament = MatchData & { tournamentId?: string | number; court?: string };
 
@@ -33,6 +34,9 @@ export function useFlechettesMatch(initialMatchId: string | null) {
 
     const intervalRef = useRef<number | null>(null);
     const [court, setCourt] = useState<string>("");
+
+    // Hook pour synchronisation live vers backend SSE
+    const { sendLiveScore, cleanup: cleanupLiveScore } = useLiveScoreSync();
 
     // Récupérer les données du match depuis l'API
     useEffect(() => {
@@ -486,7 +490,7 @@ export function useFlechettesMatch(initialMatchId: string | null) {
         });
     };
 
-    /** ---------- SYNC TO LOCAL STORAGE ---------- */
+    /** ---------- SYNC TO LOCAL STORAGE + BACKEND SSE ---------- */
     useEffect(() => {
         try {
             // Détermination du vainqueur
@@ -502,8 +506,9 @@ export function useFlechettesMatch(initialMatchId: string | null) {
                 team1: matchData.teamA.name || "ÉQUIPE A",
                 team2: matchData.teamB.name || "ÉQUIPE B",
                 matchType: matchData.matchType || "Match",
-                tournamentId: matchData.tournamentId,
-                matchGround: matchData.court,
+                matchGround: court || "Terrain",
+                logo1: matchData.teamA.logo_url || "",
+                logo2: matchData.teamB.logo_url || "",
                 scoreA: matchData.teamA.score,
                 scoreB: matchData.teamB.score,
                 setsA: matchData.teamA.sets,
@@ -512,13 +517,23 @@ export function useFlechettesMatch(initialMatchId: string | null) {
                 currentPlayer: getCurrentPlayer(),
                 currentThrows: matchData.currentThrows || [],
                 lastUpdate: new Date().toISOString(),
-                winner, // <-- AJOUTE CETTE LIGNE
+                winner,
             };
+            // Sync to localStorage (for same-device spectator)
             localStorage.setItem("liveFlechettesMatch", JSON.stringify(payload));
+
+            // Sync to backend SSE (for cross-device split-screen spectators)
+            if (initialMatchId) {
+                sendLiveScore({
+                    matchId: initialMatchId,
+                    sport: 'flechettes',
+                    payload,
+                });
+            }
         } catch (e) {
             // Ignore storage errors
         }
-    }, [matchData]);
+    }, [matchData, court, initialMatchId, sendLiveScore]);
 
     // Cleanup à l'unmount
     useEffect(() => {
@@ -527,8 +542,12 @@ export function useFlechettesMatch(initialMatchId: string | null) {
                 window.clearInterval(intervalRef.current);
                 intervalRef.current = null;
             }
+            // Cleanup live score sync
+            if (initialMatchId) {
+                cleanupLiveScore(initialMatchId);
+            }
         };
-    }, []);
+    }, [initialMatchId, cleanupLiveScore]);
 
     /** ---------- SWIPE / INVERSION DES ÉQUIPES ---------- */
     const swapSides = () =>
