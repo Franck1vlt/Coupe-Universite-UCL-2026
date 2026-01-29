@@ -3,7 +3,7 @@ import { MatchData } from "./types";
 import { submitMatchResultWithPropagation, updateMatchStatus as updateStatus } from "../common/useMatchPropagation";
 import { useLiveScoreSync } from "../common/useLiveScoreSync";
 
-type MatchDataWithTournament = MatchData & { tournamentId?: string | number; court?: string };
+type MatchDataWithTournament = MatchData & { tournamentId?: string | number; court?: string; numericId?: number };
 
 export function useFlechettesMatch(initialMatchId: string | null) {
     const [matchData, setMatchData] = useState<MatchDataWithTournament>({
@@ -144,7 +144,8 @@ export function useFlechettesMatch(initialMatchId: string | null) {
                     teamB: { ...prev.teamB, name: teamBName, logo_url: teamBLogo },
                     matchType: matchType,
                     tournamentId: match.tournament_id || match.tournamentId || (match.tournament && (match.tournament.id || match.tournament.tournament_id)) || undefined,
-                    court: courtName
+                    court: courtName  || match.court || match.matchGround || "",
+                    numericId: match.id
                 }));
 
                 console.log('[Flechettes Hook] Match data updated successfully');
@@ -524,8 +525,9 @@ export function useFlechettesMatch(initialMatchId: string | null) {
 
             // Sync to backend SSE (for cross-device split-screen spectators)
             if (initialMatchId) {
+                const sseMatchId = matchData.numericId?.toString() || initialMatchId;
                 sendLiveScore({
-                    matchId: initialMatchId,
+                    matchId: sseMatchId,
                     sport: 'flechettes',
                     payload,
                 });

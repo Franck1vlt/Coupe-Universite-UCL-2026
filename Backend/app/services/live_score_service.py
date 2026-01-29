@@ -96,9 +96,10 @@ class LiveScoreManager:
             self._scores[match_id] = score_data
 
         # Broadcast to subscribers (outside lock to avoid blocking)
+        logger.info(f"[SSE UPDATE] About to broadcast match {match_id}, subscriptions: {list(self._subscriptions.keys())}")
         await self._broadcast(match_id, score_data)
 
-        logger.debug(f"Score updated for match {match_id}: {sport}")
+        logger.info(f"[SSE UPDATE] Score updated for match {match_id}: {sport}")
         return score_data
 
     async def get_score(self, match_id: int) -> Optional[LiveScoreData]:
@@ -130,8 +131,9 @@ class LiveScoreManager:
                 if match_id not in self._subscriptions:
                     self._subscriptions[match_id] = set()
                 self._subscriptions[match_id].add(queue)
+                logger.info(f"[SSE SUBSCRIBE] Added subscription for match {match_id}, total subscribers: {len(self._subscriptions[match_id])}")
 
-        logger.debug(f"New subscription for matches: {match_ids}")
+        logger.info(f"[SSE SUBSCRIBE] New subscription for matches: {match_ids}, all subscriptions: {list(self._subscriptions.keys())}")
         return queue
 
     async def unsubscribe(self, queue: asyncio.Queue, match_ids: list[int]) -> None:
@@ -156,14 +158,25 @@ class LiveScoreManager:
         """Broadcast score update to all subscribers of a match"""
         subscribers = self._subscriptions.get(match_id, set())
 
+        # Log broadcast attempt with subscriber count
+        logger.info(f"[SSE BROADCAST] Match {match_id}: {len(subscribers)} subscribers, all subscriptions: {list(self._subscriptions.keys())}")
+
+        if not subscribers:
+            logger.warning(f"[SSE BROADCAST] No subscribers for match {match_id} - check if split-screen is using the same match ID")
+            return
+
+        broadcast_count = 0
         for queue in subscribers.copy():
             try:
                 # Non-blocking put with timeout
                 await asyncio.wait_for(queue.put(score_data), timeout=1.0)
+                broadcast_count += 1
             except asyncio.TimeoutError:
                 logger.warning(f"Timeout broadcasting to subscriber for match {match_id}")
             except Exception as e:
                 logger.error(f"Error broadcasting to subscriber: {e}")
+
+        logger.info(f"[SSE BROADCAST] Successfully queued update for match {match_id} to {broadcast_count}/{len(subscribers)} subscribers")
 
     def clear_match(self, match_id: int) -> None:
         """Clear live score data for a match (e.g., when match ends)"""

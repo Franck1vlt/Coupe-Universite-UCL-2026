@@ -3,7 +3,7 @@ import { MatchData, MeneHistory } from "./types";
 import { submitMatchResultWithPropagation, updateMatchStatus as updateStatus } from "../common/useMatchPropagation";
 import { useLiveScoreSync } from "../common/useLiveScoreSync";
 
-type MatchDataWithTournament = MatchData & { tournamentId?: string | number; court?: string };
+type MatchDataWithTournament = MatchData & { tournamentId?: string | number; court?: string; numericId?: number };
 
 export function usePetanqueMatch(initialMatchId: string | null) {
     const [matchData, setMatchData] = useState<MatchDataWithTournament>({
@@ -21,13 +21,15 @@ export function usePetanqueMatch(initialMatchId: string | null) {
             sets: 0
         },
         matchType: "",
+        matchGround: "",
         gameMode: "BO3",
         cochonnetTeam: "A",      // Équipe A lance le cochonnet au début
         pendingPoints: 0,        // Pas de points en attente
         pendingWinner: null,     // Pas de gagnant en attente
         meneHistory: [],         // Historique vide
         targetScore: 13,         // Match en 13 points
-        tournamentId: undefined
+        tournamentId: undefined,
+        numericId: undefined     // ID numérique pour SSE
     });
 
     const intervalRef = useRef<number | null>(null);
@@ -36,7 +38,45 @@ export function usePetanqueMatch(initialMatchId: string | null) {
     const [matchWinner, setMatchWinner] = useState<"A" | "B" | null>(null);
 
     // Hook pour synchronisation live vers backend SSE
-    const { sendLiveScore, cleanup: cleanupLiveScore } = useLiveScoreSync();
+    const { sendLiveScore, sendLiveScoreImmediate, cleanup: cleanupLiveScore } = useLiveScoreSync();
+
+    // Helper to build and send score payload IMMEDIATELY (no debounce)
+    const sendImmediateUpdate = async (updatedData: Partial<typeof matchData>, newMatchWinner?: "A" | "B" | null) => {
+        const sseMatchId = updatedData.numericId?.toString() || matchData.numericId?.toString() || initialMatchId;
+        if (!sseMatchId) return;
+
+        const currentData = { ...matchData, ...updatedData };
+        const winner = newMatchWinner !== undefined ? newMatchWinner : matchWinner;
+
+        const payload = {
+            team1: currentData.teamA.name || "ÉQUIPE A",
+            team2: currentData.teamB.name || "ÉQUIPE B",
+            logo1: currentData.teamA.logo_url || "",
+            logo2: currentData.teamB.logo_url || "",
+            matchType: currentData.matchType || "Match",
+            matchGround: currentData.matchGround || currentData.court || court || "Terrain",
+            scoreA: currentData.teamA.score,
+            scoreB: currentData.teamB.score,
+            setsA: currentData.teamA.sets,
+            setsB: currentData.teamB.sets,
+            gameMode: currentData.gameMode || "BO3",
+            cochonnetTeam: currentData.cochonnetTeam,
+            pendingWinner: currentData.pendingWinner,
+            pendingPoints: currentData.pendingPoints,
+            targetScore: currentData.targetScore,
+            meneCount: currentData.meneHistory?.length || 0,
+            lastUpdate: new Date().toISOString(),
+            winner: winner ? (winner === "A" ? currentData.teamA.name : currentData.teamB.name) : null,
+        };
+
+        console.log('[Petanque Hook] 🚀 IMMEDIATE SSE update:', { matchId: sseMatchId, scoreA: payload.scoreA, scoreB: payload.scoreB, cochonnetTeam: payload.cochonnetTeam });
+
+        await sendLiveScoreImmediate({
+            matchId: sseMatchId,
+            sport: 'petanque',
+            payload,
+        });
+    };
 
     // Récupérer les données du match depuis l'API
     useEffect(() => {
@@ -143,9 +183,17 @@ export function usePetanqueMatch(initialMatchId: string | null) {
                     teamA: { ...prev.teamA, name: teamAName, logo_url: teamALogo },
                     teamB: { ...prev.teamB, name: teamBName, logo_url: teamBLogo },
                     matchType: matchType,
+                    matchGround: courtName || "",
                     tournamentId: match.tournament_id || match.tournamentId || (match.tournament && (match.tournament.id || match.tournament.tournament_id)) || undefined,
-                    court: courtName
+                    court: courtName,
+                    numericId: match.id  // Store numeric ID for SSE broadcast
                 }));
+                console.log('[Petanque Hook] Stored numeric match ID for SSE:', match.id);
+
+                // Mettre à jour aussi le state court séparé
+                if (courtName) {
+                    setCourt(courtName);
+                }
 
                 console.log('[Petanque Hook] Match data updated successfully');
 
@@ -172,10 +220,16 @@ export function usePetanqueMatch(initialMatchId: string | null) {
 
     // Change manuellement l'équipe qui a le cochonnet (bouton Service)
     const changeService = () => {
-        setMatchData(p => ({
-            ...p,
-            cochonnetTeam: p.cochonnetTeam === "A" ? "B" : "A"
-        }));
+        setMatchData(p => {
+            const newCochonnetTeam: "A" | "B" = p.cochonnetTeam === "A" ? "B" : "A";
+            const newState = {
+                ...p,
+                cochonnetTeam: newCochonnetTeam
+            };
+            // Send IMMEDIATE update for cochonnet change
+            sendImmediateUpdate(newState, null);
+            return newState;
+        });
     };
 
     /** ---------- GESTION DES MÈNES ---------- */
@@ -199,13 +253,14 @@ export function usePetanqueMatch(initialMatchId: string | null) {
 
     // Valide la mène et attribue les points (étape 3)
     const validateThrow = () => {
-        setMatchData(p => {
-            // 1. Empêcher la validation si le match est déjà terminé
-            if (isMatchWon) {
-                console.warn('[Petanque] Le match est déjà terminé.');
-                return p;
-            }
+        // 1. Empêcher la validation si le match est déjà terminé
+        if (isMatchWon) {
+            console.warn('[Petanque] Le match est déjà terminé.');
+            return;
+        }
 
+        // Use functional update but also capture the new state for immediate send
+        setMatchData(p => {
             if (!p.pendingWinner || p.pendingPoints <= 0) {
                 console.warn('[Petanque] Sélectionnez d\'abord une équipe gagnante et les points');
                 return p;
@@ -215,12 +270,11 @@ export function usePetanqueMatch(initialMatchId: string | null) {
             const winner = p.pendingWinner;
 
             // 2. Calculer le nouveau score en plafonnant au targetScore
-            // Si (score actuel + points) > 13, on s'arrête à 13.
-            const newScoreA = winner === "A" 
-                ? Math.min(p.teamA.score + points, p.targetScore) 
+            const newScoreA = winner === "A"
+                ? Math.min(p.teamA.score + points, p.targetScore)
                 : p.teamA.score;
-            const newScoreB = winner === "B" 
-                ? Math.min(p.teamB.score + points, p.targetScore) 
+            const newScoreB = winner === "B"
+                ? Math.min(p.teamB.score + points, p.targetScore)
                 : p.teamB.score;
 
             const meneRecord: MeneHistory = {
@@ -232,16 +286,17 @@ export function usePetanqueMatch(initialMatchId: string | null) {
             };
 
             // 3. Vérifier la condition de victoire
-            if (newScoreA >= p.targetScore || newScoreB >= p.targetScore) {
-                const winningTeam = newScoreA >= p.targetScore ? "A" : "B";
-                
+            const isMatchOver = newScoreA >= p.targetScore || newScoreB >= p.targetScore;
+            const winningTeam = isMatchOver ? (newScoreA >= p.targetScore ? "A" : "B") : null;
+
+            if (isMatchOver && winningTeam) {
                 setIsMatchWon(true);
                 setMatchWinner(winningTeam);
 
                 const newSetsA = winningTeam === "A" ? p.teamA.sets + 1 : p.teamA.sets;
                 const newSetsB = winningTeam === "B" ? p.teamB.sets + 1 : p.teamB.sets;
 
-                return {
+                const newState = {
                     ...p,
                     teamA: { ...p.teamA, score: newScoreA, sets: newSetsA },
                     teamB: { ...p.teamB, score: newScoreB, sets: newSetsB },
@@ -250,18 +305,28 @@ export function usePetanqueMatch(initialMatchId: string | null) {
                     meneHistory: [...p.meneHistory, meneRecord],
                     cochonnetTeam: winner
                 };
+
+                // Send IMMEDIATE update (winner of mène gets cochonnet)
+                sendImmediateUpdate(newState, winningTeam);
+
+                return newState;
             }
 
-            // Mène normale
-            return {
+            // Mène normale - winner gets cochonnet
+            const newState = {
                 ...p,
                 teamA: { ...p.teamA, score: newScoreA },
                 teamB: { ...p.teamB, score: newScoreB },
                 pendingWinner: null,
                 pendingPoints: 0,
                 meneHistory: [...p.meneHistory, meneRecord],
-                cochonnetTeam: winner
+                cochonnetTeam: winner  // Winner of mène gets the cochonnet!
             };
+
+            // Send IMMEDIATE update (winner of mène gets cochonnet)
+            sendImmediateUpdate(newState, null);
+
+            return newState;
         });
     };
 
@@ -299,7 +364,7 @@ export function usePetanqueMatch(initialMatchId: string | null) {
 
             console.log(`[Petanque] Annulation de la dernière mène - Retour au score ${newScoreA}-${newScoreB}`);
 
-            return {
+            const newState = {
                 ...p,
                 teamA: { ...p.teamA, score: newScoreA },
                 teamB: { ...p.teamB, score: newScoreB },
@@ -309,6 +374,11 @@ export function usePetanqueMatch(initialMatchId: string | null) {
                 pendingPoints: 0,
                 currentThrows: []
             };
+
+            // Send IMMEDIATE update after cancel
+            sendImmediateUpdate(newState, null);
+
+            return newState;
         });
     };
 
@@ -316,16 +386,21 @@ export function usePetanqueMatch(initialMatchId: string | null) {
     const resetSet = () => {
         setIsMatchWon(false);
         setMatchWinner(null);
-        setMatchData(p => ({
-            ...p,
-            teamA: { ...p.teamA, score: 0 },
-            teamB: { ...p.teamB, score: 0 },
-            cochonnetTeam: "A",
-            pendingWinner: null,
-            pendingPoints: 0,
-            currentThrows: [],
-            meneHistory: []
-        }));
+        setMatchData(p => {
+            const newState = {
+                ...p,
+                teamA: { ...p.teamA, score: 0 },
+                teamB: { ...p.teamB, score: 0 },
+                cochonnetTeam: "A" as const,
+                pendingWinner: null,
+                pendingPoints: 0,
+                currentThrows: [],
+                meneHistory: []
+            };
+            // Send IMMEDIATE update for reset
+            sendImmediateUpdate(newState, null);
+            return newState;
+        });
     };
 
     /** ---------- STATUS ---------- */
@@ -438,7 +513,7 @@ export function usePetanqueMatch(initialMatchId: string | null) {
                 logo1: matchData.teamA.logo_url || "",
                 logo2: matchData.teamB.logo_url || "",
                 matchType: matchData.matchType || "Match",
-                matchGround: court || "Terrain",
+                matchGround: matchData.matchGround || matchData.court || court || "Terrain",
                 scoreA: matchData.teamA.score,
                 scoreB: matchData.teamB.score,
                 setsA: matchData.teamA.sets,
@@ -456,9 +531,12 @@ export function usePetanqueMatch(initialMatchId: string | null) {
             localStorage.setItem("livePetanqueMatch", JSON.stringify(payload));
 
             // Sync to backend SSE (for cross-device split-screen spectators)
-            if (initialMatchId) {
+            // Use numeric ID for SSE so split-screen can match subscriptions
+            const sseMatchId = matchData.numericId?.toString() || initialMatchId;
+            if (sseMatchId) {
+                console.log('[Petanque Hook] Sending SSE with numeric ID:', sseMatchId);
                 sendLiveScore({
-                    matchId: initialMatchId,
+                    matchId: sseMatchId,
                     sport: 'petanque',
                     payload,
                 });

@@ -14,14 +14,14 @@ import { useRef, useCallback } from 'react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
-// Debounce delay in milliseconds
-const DEBOUNCE_DELAY = 150;
+// Debounce delay in milliseconds - set to 0 for real-time updates
+const DEBOUNCE_DELAY = 0;
 
 // Retry configuration
 const MAX_RETRIES = 2;
 const RETRY_DELAY = 500;
 
-export type LiveScoreSport = 'volleyball' | 'badminton' | 'petanque' | 'flechettes';
+export type LiveScoreSport = 'volleyball' | 'badminton' | 'petanque' | 'flechettes' | 'football' | 'basketball' | 'handball';
 
 export interface LiveScorePayload {
     team1: string;
@@ -49,6 +49,11 @@ async function sendLiveScoreToBackend(
     retryCount = 0
 ): Promise<boolean> {
     try {
+        console.log(`[useLiveScoreSync] Sending to ${API_URL}/matches/${matchId}/live-score`, {
+            sport,
+            payload
+        });
+
         const response = await fetch(`${API_URL}/matches/${matchId}/live-score`, {
             method: 'POST',
             headers: {
@@ -61,9 +66,12 @@ async function sendLiveScoreToBackend(
         });
 
         if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
+            const errorText = await response.text();
+            throw new Error(`HTTP ${response.status}: ${errorText}`);
         }
 
+        const result = await response.json();
+        console.log(`[useLiveScoreSync] Success for match ${matchId}:`, result);
         return true;
     } catch (error) {
         console.warn(`[useLiveScoreSync] Failed to send live score (attempt ${retryCount + 1}):`, error);
@@ -89,6 +97,15 @@ export function useLiveScoreSync() {
     const lastPayloads = useRef<Map<string, string>>(new Map());
 
     /**
+     * Normalize payload for comparison (exclude volatile fields like lastUpdate)
+     */
+    const normalizePayloadForComparison = (payload: LiveScorePayload): string => {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { lastUpdate, ...stablePayload } = payload as LiveScorePayload & { lastUpdate?: string };
+        return JSON.stringify(stablePayload);
+    };
+
+    /**
      * Envoie les scores live avec debouncing
      * Seul le dernier appel dans la fenêtre de debounce sera envoyé
      */
@@ -100,11 +117,12 @@ export function useLiveScoreSync() {
             return;
         }
 
-        // Serialize payload for comparison
-        const payloadString = JSON.stringify(payload);
+        // Serialize payload for comparison (excluding volatile fields)
+        const payloadString = normalizePayloadForComparison(payload);
 
-        // Skip if payload hasn't changed
+        // Skip if payload hasn't changed (score-wise)
         if (lastPayloads.current.get(matchId) === payloadString) {
+            console.debug(`[useLiveScoreSync] Skipping duplicate payload for match ${matchId}`);
             return;
         }
 
@@ -114,12 +132,14 @@ export function useLiveScoreSync() {
             clearTimeout(existingTimer);
         }
 
+        console.log(`[useLiveScoreSync] Scheduling send for match ${matchId} in ${DEBOUNCE_DELAY}ms`);
+
         // Set new debounce timer
         const timer = setTimeout(async () => {
             debounceTimers.current.delete(matchId);
 
             // Double-check payload hasn't changed during debounce
-            const currentPayloadString = JSON.stringify(payload);
+            const currentPayloadString = normalizePayloadForComparison(payload);
             if (lastPayloads.current.get(matchId) === currentPayloadString) {
                 return;
             }
@@ -128,10 +148,11 @@ export function useLiveScoreSync() {
             lastPayloads.current.set(matchId, currentPayloadString);
 
             // Send to backend
+            console.log(`[useLiveScoreSync] Sending score for match ${matchId} NOW`);
             const success = await sendLiveScoreToBackend(matchId, sport, payload);
 
             if (success) {
-                console.debug(`[useLiveScoreSync] Score synced for match ${matchId}`);
+                console.log(`[useLiveScoreSync] Score synced for match ${matchId}`);
             }
         }, DEBOUNCE_DELAY);
 

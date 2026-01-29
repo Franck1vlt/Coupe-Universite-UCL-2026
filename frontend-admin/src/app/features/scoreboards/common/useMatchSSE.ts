@@ -13,12 +13,12 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
-// Reconnection configuration
-const INITIAL_RETRY_DELAY = 1000; // 1s
-const MAX_RETRY_DELAY = 30000; // 30s
-const BACKOFF_MULTIPLIER = 2;
+// Reconnection configuration - reduced for faster recovery
+const INITIAL_RETRY_DELAY = 500; // 500ms
+const MAX_RETRY_DELAY = 10000; // 10s (reduced from 30s)
+const BACKOFF_MULTIPLIER = 1.5;
 
-export type LiveScoreSport = 'volleyball' | 'badminton' | 'petanque' | 'flechettes';
+export type LiveScoreSport = 'volleyball' | 'badminton' | 'petanque' | 'flechettes' | 'football' | 'basketball' | 'handball';
 
 export interface LiveScoreData {
     match_id: number;
@@ -43,10 +43,24 @@ export interface LiveScoreData {
         scoreB?: number;
         cochonnetTeam?: 'A' | 'B';
         meneCount?: number;
+        targetScore?: number;
+        winner?: string;
         // Flechettes specific
+        setsA?: number;
+        setsB?: number;
         currentPlayer?: string;
         currentThrows?: number[];
         gameMode?: string;
+        // Football/Basketball/Handball specific
+        yellowCards1?: number;
+        yellowCards2?: number;
+        redCards1?: number;
+        redCards2?: number;
+        // Basketball specific
+        technicalFouls1?: number;
+        technicalFouls2?: number;
+        shotClock?: string;
+        period?: string;
         [key: string]: unknown;
     };
 }
@@ -121,13 +135,19 @@ export function useMatchSSE(options: UseMatchSSEOptions): UseMatchSSEReturn {
         const matchIdsParam = matchIds.join(',');
         const url = `${API_URL}/live-scores/stream?match_ids=${matchIdsParam}`;
 
-        console.log('[useMatchSSE] Connecting to:', url);
+        console.log('%c[useMatchSSE] 🔌 Connecting to SSE...', 'color: blue; font-weight: bold');
+        console.log('[useMatchSSE] URL:', url);
+        console.log('[useMatchSSE] Match IDs:', matchIds);
 
         const eventSource = new EventSource(url);
         eventSourceRef.current = eventSource;
 
+        // Debug: log readyState changes
+        console.log('[useMatchSSE] EventSource created, readyState:', eventSource.readyState);
+
         eventSource.onopen = () => {
-            console.log('[useMatchSSE] Connected');
+            console.log('%c[useMatchSSE] ✅ CONNECTED to SSE!', 'color: green; font-weight: bold');
+            console.log('[useMatchSSE] Subscribed to match IDs:', matchIds);
             setConnectionState({
                 isConnected: true,
                 isConnecting: false,
@@ -139,11 +159,23 @@ export function useMatchSSE(options: UseMatchSSEOptions): UseMatchSSEReturn {
         };
 
         eventSource.onmessage = (event) => {
+            const now = new Date().toISOString();
+            console.log('%c[useMatchSSE] 📨 MESSAGE RECEIVED!', 'color: orange; font-weight: bold', now);
+            console.log('[useMatchSSE] Raw event.data:', event.data?.substring(0, 200));
+
             try {
+                // Skip empty data or keepalive
+                if (!event.data || event.data.trim() === '' || event.data.startsWith(':')) {
+                    console.log('[useMatchSSE] Skipping empty/keepalive');
+                    return;
+                }
+
                 const rawData = JSON.parse(event.data);
+                console.log('[useMatchSSE] Parsed data:', rawData);
 
                 // Handle keepalive comments (empty or just event type)
                 if (!rawData.match_id) {
+                    console.log('[useMatchSSE] Skipping non-score event (no match_id)');
                     return;
                 }
 
@@ -154,10 +186,17 @@ export function useMatchSSE(options: UseMatchSSEOptions): UseMatchSSEReturn {
                     data: rawData.data,
                 };
 
+                console.log('[useMatchSSE] Score update received:', {
+                    match_id: scoreData.match_id,
+                    sport: scoreData.sport,
+                    data: scoreData.data
+                });
+
                 // Update scores map
                 setScores(prev => {
                     const newScores = new Map(prev);
                     newScores.set(scoreData.match_id, scoreData);
+                    console.log('[useMatchSSE] Updated scores map, size:', newScores.size);
                     return newScores;
                 });
 
@@ -166,14 +205,14 @@ export function useMatchSSE(options: UseMatchSSEOptions): UseMatchSSEReturn {
                     onScoreUpdate(scoreData);
                 }
 
-                console.debug('[useMatchSSE] Score update for match', scoreData.match_id);
+                console.log('[useMatchSSE] Score update processed for match', scoreData.match_id);
             } catch (e) {
-                // Ignore parse errors (e.g., keepalive comments)
+                console.warn('[useMatchSSE] Parse error:', e, 'Raw data was:', event.data);
             }
         };
 
         eventSource.onerror = (error) => {
-            console.warn('[useMatchSSE] Connection error:', error);
+            console.warn('[useMatchSSE] Connection error:', error, 'readyState:', eventSource.readyState);
 
             eventSource.close();
             eventSourceRef.current = null;

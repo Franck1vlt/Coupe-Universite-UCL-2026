@@ -1,15 +1,13 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   resolveTeamName,
-  calculatePoolStandings,
   type Match as TournamentLogicMatch,
   type Pool as TournamentLogicPool,
   type Bracket as TournamentLogicBracket,
   type LoserBracket as TournamentLogicLoserBracket,
-  type PoolStanding
 } from "./tournamentLogic";
 
 type ApiScoreType = "points" | "goals" | "sets";
@@ -64,7 +62,7 @@ type RankingEntry = {
   drawn: number;
   lost: number;
   points: number;
-  scoreDiff?: number; // Ajouté pour la différence de buts
+  scoreDiff?: number;
 };
 
 type RankingFilter = "poules" | "final";
@@ -186,8 +184,6 @@ export default function TournamentViewPage() {
   const [matches, setMatches] = useState<TournamentMatch[]>([]);
   const [pools, setPools] = useState<Pool[]>([]);
   const [rankingFilter, setRankingFilter] = useState<RankingFilter>("poules");
-  const [showMenu, setShowMenu] = useState(false);
-  const [showMatchSelect, setShowMatchSelect] = useState(false);
   
   // État pour stocker le mapping team_sport_id → team_name
   const [teamSportIdToName, setTeamSportIdToName] = useState<Record<number, string>>({});
@@ -519,92 +515,6 @@ export default function TournamentViewPage() {
             loadTournamentMatches();
           }, [params, teamSportIdToName]);
 
-  useEffect(() => {
-    // Auto-assigner les équipes aux matchs de qualification si nécessaire
-    const autoAssignQualificationTeams = async () => {
-      if (!params.id || typeof params.id !== 'string') return;
-      if (Object.keys(teamSportIdToName).length === 0) return;
-      
-      try {
-        // Récupérer le tournoi
-        const tournamentsResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/tournaments?sport_id=${params.id}`);
-        const tournamentsData = await tournamentsResponse.json();
-        const items = tournamentsData.data?.items || [];
-        const tournament = items.length > 0 ? items[0] : null;
-        
-        if (!tournament) return;
-        
-        // Récupérer la structure
-        const structureResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/tournaments/${tournament.id}/structure`);
-        const structureData = await structureResponse.json();
-        const data = structureData.data || structureData;
-        
-        // Vérifier s'il y a des matchs de qualification sans équipes
-        const qualificationMatches = data.qualification_matches || [];
-        const matchesNeedingTeams = qualificationMatches.filter(
-          (m: any) => !m.team_sport_a_id || !m.team_sport_b_id
-        );
-        
-        if (matchesNeedingTeams.length === 0) {
-          // Tous les matchs ont déjà des équipes, rien à faire
-          return;
-        }
-        
-        console.log(`🔧 Auto-assignation: ${matchesNeedingTeams.length} matchs ont besoin d'équipes`);
-        
-        // Récupérer les team-sports disponibles
-        const teamSportsResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/sports/${params.id}/team-sports`);
-        const teamSportsData = await teamSportsResponse.json();
-        const teamSports = teamSportsData.data || [];
-        
-        if (teamSports.length < matchesNeedingTeams.length * 2) {
-          console.warn(`⚠️ Pas assez d'équipes : ${teamSports.length} disponibles, ${matchesNeedingTeams.length * 2} nécessaires`);
-          return;
-        }
-        
-        // Assigner automatiquement
-        let teamIndex = 0;
-        let assignedCount = 0;
-        
-        for (const match of matchesNeedingTeams) {
-          const teamA = teamSports[teamIndex];
-          const teamB = teamSports[teamIndex + 1];
-          
-          const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/matches/${match.id}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              team_sport_a_id: teamA.id,
-              team_sport_b_id: teamB.id
-            }),
-          });
-          
-          if (response.ok) {
-            console.log(`✅ Match ${match.id} auto-assigné`);
-            assignedCount++;
-          }
-          
-          teamIndex += 2;
-          await new Promise(resolve => setTimeout(resolve, 50));
-        }
-        
-        if (assignedCount > 0) {
-          console.log(`🎉 Auto-assignation terminée: ${assignedCount} matchs`);
-          // Recharger pour afficher les équipes assignées
-          window.location.reload();
-        }
-        
-      } catch (err) {
-        console.error('Erreur lors de l\'auto-assignation:', err);
-        // Ne pas bloquer l'application en cas d'erreur
-      }
-    };
-    
-    // Lancer l'auto-assignation
-    autoAssignQualificationTeams();
-  }, [params.id, teamSportIdToName]);
-
-
   // États pour stocker les rankings
   const [poolRankings, setPoolRankings] = useState<Map<string, RankingEntry[]>>(new Map());
   const [finalRanking, setFinalRanking] = useState<RankingEntry[]>([]);
@@ -729,303 +639,6 @@ export default function TournamentViewPage() {
     loadFinalRanking();
   }, [params.id, matches]);
 
-  const handleResetAllMatches = async () => {
-    if (!params.id || typeof params.id !== 'string') return;
-    
-    if (window.confirm('Êtes-vous sûr de vouloir réinitialiser tous les matchs ? Cette action est irréversible.')) {
-      try {
-        // 1. Trouver le tournoi
-        const tournamentsResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/tournaments?sport_id=${params.id}`);
-        if (!tournamentsResponse.ok) {
-          throw new Error("Impossible de charger le tournoi");
-        }
-        
-        const tournamentsData = await tournamentsResponse.json();
-        const items = tournamentsData.data?.items || [];
-        const tournament = items.length > 0 ? items[0] : null;
-        
-        if (!tournament) {
-          throw new Error("Aucun tournoi trouvé pour ce sport");
-        }
-        
-        console.log('📝 Tournoi trouvé:', tournament.id);
-        
-        // 2. Récupérer TOUS les matchs du tournoi
-        const structureResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/tournaments/${tournament.id}/structure`);
-        if (!structureResponse.ok) {
-          throw new Error("Impossible de charger la structure du tournoi");
-        }
-        
-        const structureData = await structureResponse.json();
-        const data = structureData.data || structureData;
-        
-        // Collecter tous les matchs avec leurs détails
-        const allMatches: any[] = [];
-        
-        if (data.qualification_matches) {
-          allMatches.push(...data.qualification_matches);
-        }
-        
-        if (data.pools) {
-          data.pools.forEach((p: any) => {
-            if (p.matches) {
-              allMatches.push(...p.matches);
-            }
-          });
-        }
-        
-        if (data.bracket_matches) {
-          allMatches.push(...data.bracket_matches);
-        }
-        
-        if (data.loser_bracket_matches) {
-          allMatches.push(...data.loser_bracket_matches);
-        }
-        
-        console.log(`🔄 ${allMatches.length} matchs à réinitialiser`);
-        
-        // 3. Réinitialiser chaque match (dans l'ordre inverse pour éviter les dépendances)
-        let successCount = 0;
-        let errorCount = 0;
-        
-        // Trier par ordre décroissant de match_order pour réinitialiser d'abord les matchs finaux
-        const sortedMatches = [...allMatches].sort((a, b) => (b.match_order || 0) - (a.match_order || 0));
-        
-        for (const match of sortedMatches) {
-          if (!match.id) continue;
-          
-          try {
-            // Préparer le payload de réinitialisation
-            const resetPayload: any = {
-              score_a: null,
-              score_b: null,
-              status: 'upcoming'
-            };
-            
-            // Si le match avait des équipes assignées dynamiquement (depuis la propagation),
-            // les remettre à null pour forcer la réinitialisation
-            if (match.winner_destination_match_id || match.loser_destination_match_id) {
-              // Ce match reçoit des équipes d'autres matchs, donc on remet les équipes à null
-              resetPayload.team_sport_a_id = null;
-              resetPayload.team_sport_b_id = null;
-            }
-            
-            const resetResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/matches/${match.id}`, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(resetPayload),
-            });
-            
-            if (resetResponse.ok) {
-              successCount++;
-              console.log(`✅ Match ${match.id} (${match.label || 'sans label'}) réinitialisé`);
-            } else {
-              const errorText = await resetResponse.text();
-              errorCount++;
-              console.error(`❌ Erreur pour le match ${match.id}:`, errorText);
-            }
-            
-            // Petit délai pour éviter de surcharger le serveur
-            await new Promise(resolve => setTimeout(resolve, 50));
-            
-          } catch (err) {
-            errorCount++;
-            console.error(`❌ Erreur pour le match ${match.id}:`, err);
-          }
-        }
-        
-        console.log(`📊 Réinitialisation terminée: ${successCount} réussis, ${errorCount} erreurs`);
-        
-        // 4. Appeler l'endpoint de réinitialisation du backend s'il existe
-        try {
-          const backendResetResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/tournaments/${tournament.id}/reset-matches`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Accept": "application/json",
-            },
-          });
-          
-          if (backendResetResponse.ok) {
-            const backendData = await backendResetResponse.json();
-            console.log("✅ Endpoint backend de réinitialisation appelé:", backendData);
-          }
-        } catch (err) {
-          console.warn("⚠️ L'endpoint backend de réinitialisation n'est pas disponible ou a échoué");
-        }
-        
-        if (successCount > 0) {
-          alert(`Réinitialisation terminée !\n✅ ${successCount} match(s) réinitialisé(s)${errorCount > 0 ? '\n❌ ' + errorCount + ' erreur(s)' : ''}`);
-          // Recharger la page pour afficher les changements
-          window.location.reload();
-        } else {
-          alert(`Erreur : Aucun match n'a pu être réinitialisé.\nVérifiez la console pour plus de détails.`);
-        }
-        
-      } catch (err: any) {
-        console.error("❌ Erreur globale lors de la réinitialisation:", err);
-        alert("Erreur lors de la réinitialisation: " + (err.message || "Erreur inconnue"));
-      }
-    }
-    setShowMenu(false);
-  };
-
-  const fixTournamentDestinations = async () => {
-    if (!params.id || typeof params.id !== 'string') return;
-    
-    console.log('🔧 === DÉBUT DE LA CORRECTION DES DESTINATIONS ===');
-    
-    try {
-      // 1. Récupérer le tournoi
-      const tournamentsResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/tournaments?sport_id=${params.id}`);
-      const tournamentsData = await tournamentsResponse.json();
-      const tournament = tournamentsData.data?.items[0];
-      
-      if (!tournament) {
-        throw new Error("Tournoi introuvable");
-      }
-      
-      console.log('📝 Tournoi:', tournament.id);
-      
-      // 2. Récupérer la structure
-      const structureResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/tournaments/${tournament.id}/structure`);
-      const structureData = await structureResponse.json();
-      const data = structureData.data || structureData;
-      
-      // 3. Collecter tous les matchs
-      const allMatches: any[] = [];
-      
-      if (data.qualification_matches) {
-        allMatches.push(...data.qualification_matches.map((m: any) => ({ ...m, source: 'qualification' })));
-      }
-      
-      if (data.pools) {
-        data.pools.forEach((p: any) => {
-          if (p.matches) {
-            allMatches.push(...p.matches.map((m: any) => ({ ...m, source: 'pool' })));
-          }
-        });
-      }
-      
-      if (data.bracket_matches) {
-        allMatches.push(...data.bracket_matches.map((m: any) => ({ ...m, source: 'bracket' })));
-      }
-      
-      if (data.loser_bracket_matches) {
-        allMatches.push(...data.loser_bracket_matches.map((m: any) => ({ ...m, source: 'loser_bracket' })));
-      }
-      
-      console.log(`📝 ${allMatches.length} matchs trouvés`);
-      
-      // 4. Vérifier et corriger les destinations
-      let issuesFound = 0;
-      let issuesFixed = 0;
-      
-      for (const match of allMatches) {
-        const issues: string[] = [];
-        
-        // Vérifier winner_destination
-        if (match.winner_destination_match_id && !match.winner_destination_slot) {
-          issues.push(`winner_destination_slot manquant`);
-        }
-        
-        // Vérifier loser_destination
-        if (match.loser_destination_match_id && !match.loser_destination_slot) {
-          issues.push(`loser_destination_slot manquant`);
-        }
-        
-        if (issues.length > 0) {
-          issuesFound++;
-          console.log(`\n❌ Match ${match.id} (${match.label}):`);
-          issues.forEach(issue => console.log(`   - ${issue}`));
-          
-          // Proposition de correction automatique
-          console.log(`   💡 Correction suggérée:`);
-          
-          if (match.winner_destination_match_id && !match.winner_destination_slot) {
-            // Deviner le slot en fonction du label ou de la position
-            const suggestedSlot = match.label?.includes('1') ? 'A' : 'B';
-            console.log(`   - winner_destination_slot: '${suggestedSlot}'`);
-          }
-          
-          if (match.loser_destination_match_id && !match.loser_destination_slot) {
-            const suggestedSlot = match.label?.includes('1') ? 'A' : 'B';
-            console.log(`   - loser_destination_slot: '${suggestedSlot}'`);
-          }
-        }
-      }
-      
-      console.log(`\n📊 Résumé:`);
-      console.log(`   - ${issuesFound} match(s) avec des problèmes de configuration`);
-      
-      if (issuesFound > 0) {
-        alert(`⚠️ ${issuesFound} match(s) ont des problèmes de configuration.\n\nVérifiez la console pour les détails.\n\nCes problèmes doivent être corrigés dans la configuration du tournoi (backend).`);
-      } else {
-        alert(`✅ Tous les matchs sont correctement configurés !`);
-      }
-      
-      console.log('🔧 === FIN DE LA VÉRIFICATION ===');
-      
-    } catch (err: any) {
-      console.error("❌ Erreur:", err);
-      alert("Erreur: " + err.message);
-    }
-  };
-
-  const handlePropagateResults = async () => {
-    if (!params.id || typeof params.id !== 'string') return;
-    
-    try {
-      // Utiliser l'endpoint avec le sport_id directement
-      const tournamentsResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/tournaments?sport_id=${params.id}`);
-      if (!tournamentsResponse.ok) {
-        throw new Error("Impossible de charger le tournoi");
-      }
-      
-      const tournamentsData = await tournamentsResponse.json();
-      const items = tournamentsData.data?.items || [];
-      const tournament = items.length > 0 ? items[0] : null;
-      
-      if (!tournament) {
-        throw new Error("Aucun tournoi trouvé pour ce sport");
-      }
-      
-      console.log('📝 Tournoi trouvé:', tournament.id);
-      
-      // Appeler l'API pour propager les résultats
-      const propagateResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/tournaments/${tournament.id}/propagate-results`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Accept": "application/json",
-        },
-      });
-      
-      if (!propagateResponse.ok) {
-        const errorData = await propagateResponse.json();
-        throw new Error(errorData.message || "Erreur lors de la propagation");
-      }
-      
-      const data = await propagateResponse.json();
-      console.log("✅ Propagation réussie:", data);
-      
-      const propagatedCount = data.data?.propagated_matches || 0;
-      if (propagatedCount > 0) {
-        alert(`${propagatedCount} match(s) propagé(s) avec succès !`);
-        // Recharger la page pour afficher les changements
-        window.location.reload();
-      } else {
-        alert("Aucun match à propager. Tous les matchs sont déjà à jour.");
-      }
-      
-    } catch (err: any) {
-      console.error("❌ Erreur lors de la propagation:", err);
-      alert("Erreur lors de la propagation: " + (err.message || "Erreur inconnue"));
-    }
-    
-    setShowMenu(false);
-  };
-
   return (
     <main className="min-h-screen bg-gray-100 flex flex-col items-center px-4 py-8">
       {/* Header avec bouton retour, titre et menu 3 points */}
@@ -1067,81 +680,9 @@ export default function TournamentViewPage() {
                 Type de score : {formatScoreType(sport.score_type)}
               </p>
             )}
-            {!loading && error && (
-              <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg">
-                <p className="text-sm text-red-600 mb-2">{error}</p>
-                <button
-                  onClick={() => router.push(`/configuration-coupe/tournaments/${params.id}`)}
-                  className="text-sm text-red-700 hover:text-red-800 font-medium underline"
-                >
-                  Aller à la configuration du tournoi →
-                </button>
-              </div>
-            )}
           </div>
         </div>
       </header>
-
-      {/* Modal de sélection de match */}
-      {showMatchSelect && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[80vh] overflow-hidden">
-            <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-4 flex items-center justify-between">
-              <h3 className="text-xl font-bold text-white">Sélectionner un match à modifier</h3>
-              <button
-                onClick={() => setShowMatchSelect(false)}
-                className="text-white hover:bg-white hover:bg-opacity-20 rounded-full p-2 transition"
-              >
-                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-            <div className="overflow-y-auto max-h-[calc(80vh-80px)] p-6">
-              {matches.length === 0 ? (
-                <p className="text-center text-gray-500 py-8">Aucun match disponible</p>
-              ) : (
-                <div className="grid gap-3">
-                  {matches.map((match) => (
-                    <button
-                      key={match.id}
-                      className="text-left bg-gray-50 hover:bg-blue-50 border border-gray-200 hover:border-blue-300 rounded-lg p-4 transition-all"
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-2">
-                          <span className={`px-2 py-1 text-xs font-medium rounded-full ${getMatchTypeBadge(match.type)}`}>
-                            {match.type === "qualifications" ? "Qualifs" : match.type}
-                          </span>
-                          {match.label && (
-                            <span className="text-xs font-semibold text-gray-700">{match.label}</span>
-                          )}
-                        </div>
-                        <span className={`px-2 py-1 text-xs font-medium rounded-full ${getMatchStatusBadge(match.status)}`}>
-                          {match.status}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="font-medium text-gray-900">
-                          {formatTeamName(match.teamA, tournamentMatches, tournamentPools, tournamentBrackets, tournamentLoserBrackets)}
-                        </span>
-                        <span className="text-gray-500 mx-2">0 - 0</span>
-                        <span className="font-medium text-gray-900">
-                          {formatTeamName(match.teamB, tournamentMatches, tournamentPools, tournamentBrackets, tournamentLoserBrackets)}
-                        </span>
-                      </div>
-                      {match.status === "terminé" && match.scoreA !== undefined && match.scoreB !== undefined && (
-                        <div className="mt-2 text-center text-sm font-bold text-blue-600">
-                          {match.scoreA} - {match.scoreB}
-                        </div>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
 
     {/* Sections du contenu */}
     <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -1158,11 +699,10 @@ export default function TournamentViewPage() {
           </div>
         </div>
 
-        {(() => {console.log('MATCHES AFFICHÉS', matches); return null;})()}
         {matches.length === 0 ? (
           <div className="text-center py-8">
-          <p className="text-black text-sm mb-4">
-            Aucun match n'est encore configuré pour ce tournoi.
+          <p className="text-gray-500 text-sm">
+            Aucun match programmé pour le moment.
           </p>
           </div>
         ) : (

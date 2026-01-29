@@ -15,7 +15,9 @@ interface Match {
     match_type: string;
     label?: string;
     court?: string;
-    tournament_name?: string; // Pour distinguer les tournois (Hommes/Femmes)
+    tournament_name?: string;
+    sport_code?: string;
+    sport_name?: string;
 }
 
 interface MatchSelectorProps {
@@ -97,6 +99,11 @@ export default function MatchSelector({
                                     onClick={() => toggleMatch(match.id)}
                                 >
                                     <div className="match-card-header">
+                                        {match.sport_name && (
+                                            <span className="sport-badge">
+                                                {match.sport_name}
+                                            </span>
+                                        )}
                                         {match.tournament_name && (
                                             <span className="tournament-badge">
                                                 {match.tournament_name}

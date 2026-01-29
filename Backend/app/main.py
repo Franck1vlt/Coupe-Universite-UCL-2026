@@ -7,6 +7,7 @@ import os
 import shutil
 import signal
 import asyncio
+import json
 from pathlib import Path
 from datetime import datetime
 
@@ -91,7 +92,8 @@ app.add_middleware(
 # Autres Middlewares
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(LoggingMiddleware)
-app.add_middleware(GZipMiddleware, minimum_size=1000)
+# GZip disabled for SSE compatibility - was buffering streaming responses
+# app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # Exception handlers
 app.add_exception_handler(AppException, app_exception_handler)
@@ -3036,6 +3038,8 @@ async def update_live_score(
     - **sport**: Sport type (volleyball, badminton, petanque, flechettes)
     - **data**: Sport-specific score data (teams, scores, sets, service, etc.)
     """
+    logger.info(f"[LIVE SCORE POST] Received update for match {match_id} ({update.sport}): scoreA={update.data.get('scoreA')}, scoreB={update.data.get('scoreB')}")
+
     # Verify match exists
     match = db.query(Match).filter(Match.id == match_id).first()
     if not match:
@@ -3077,6 +3081,37 @@ async def get_live_score(
     )
 
 
+@app.get("/live-scores/debug", tags=["LiveScore"])
+async def debug_live_scores():
+    """
+    Debug endpoint to check SSE subscription state.
+    Returns current subscriptions and active scores.
+    """
+    subscriptions = {
+        match_id: len(subscribers)
+        for match_id, subscribers in live_score_manager._subscriptions.items()
+    }
+    active_scores = {
+        match_id: {
+            "sport": score.sport,
+            "scoreA": score.data.get("scoreA"),
+            "scoreB": score.data.get("scoreB"),
+            "cochonnetTeam": score.data.get("cochonnetTeam"),
+            "updated_at": score.updated_at.isoformat()
+        }
+        for match_id, score in live_score_manager._scores.items()
+    }
+    return create_success_response(
+        data={
+            "subscriptions": subscriptions,
+            "active_scores": active_scores,
+            "total_subscribers": sum(subscriptions.values()),
+            "total_active_matches": len(active_scores)
+        },
+        message="Live score debug info"
+    )
+
+
 @app.get("/live-scores/stream", tags=["LiveScore"])
 async def stream_live_scores(
     match_ids: str = Query(..., description="Comma-separated match IDs (e.g., '1,2,3,4')")
@@ -3104,31 +3139,46 @@ async def stream_live_scores(
 
     async def event_generator():
         """Generate SSE events for subscribed matches"""
+        logger.info(f"[SSE STREAM] 🔌 New client connecting for matches: {parsed_match_ids}")
         queue = await live_score_manager.subscribe(parsed_match_ids)
+        logger.info(f"[SSE STREAM] ✅ Client subscribed to matches: {parsed_match_ids}")
 
         try:
+            # Send initial ping to establish connection (helps with buffering)
+            yield ": ping\n\n"
+            await asyncio.sleep(0.01)  # Small delay to force flush
+
             # Send initial state for all subscribed matches
             initial_scores = await live_score_manager.get_scores(parsed_match_ids)
+            logger.info(f"[SSE STREAM] 📊 Sending {len(initial_scores)} initial scores")
             for match_id, score_data in initial_scores.items():
+                logger.info(f"[SSE STREAM] 📤 Sending initial score for match {match_id}: {score_data.data}")
                 yield score_data.to_sse_event()
+                await asyncio.sleep(0.01)  # Force flush after each event
 
-            # Send keepalive comment
-            yield ": keepalive\n\n"
+            # Send connection confirmation
+            confirmation = json.dumps({"event": "connected", "match_ids": parsed_match_ids})
+            yield f"data: {confirmation}\n\n"
+            logger.info(f"[SSE STREAM] ✅ Connection confirmed for matches: {parsed_match_ids}")
+            await asyncio.sleep(0.01)
 
             # Stream updates as they arrive
             while True:
                 try:
-                    # Wait for next update with timeout (for keepalive)
+                    # Wait for next update with timeout (for keepalive every 5s)
                     score_data: LiveScoreData = await asyncio.wait_for(
                         queue.get(),
-                        timeout=30.0  # Send keepalive every 30s
+                        timeout=5.0
                     )
-                    yield score_data.to_sse_event()
+                    event_data = score_data.to_sse_event()
+                    logger.info(f"[SSE STREAM] 📤 Yielding event for match {score_data.match_id}: scoreA={score_data.data.get('scoreA')}, scoreB={score_data.data.get('scoreB')}, cochonnet={score_data.data.get('cochonnetTeam')}")
+                    yield event_data
+                    await asyncio.sleep(0.001)  # Tiny delay to help flush
                 except asyncio.TimeoutError:
                     # Send keepalive comment to prevent connection timeout
                     yield ": keepalive\n\n"
                 except asyncio.CancelledError:
-                    logger.info(f"SSE stream cancelled for matches {parsed_match_ids}")
+                    logger.info(f"[SSE STREAM] Stream cancelled for matches {parsed_match_ids}")
                     break
 
         except Exception as e:
@@ -3141,8 +3191,11 @@ async def stream_live_scores(
         event_generator(),
         media_type="text/event-stream",
         headers={
-            "Cache-Control": "no-cache",
+            "Cache-Control": "no-cache, no-store, must-revalidate",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",  # Disable nginx buffering
+            "X-Content-Type-Options": "nosniff",
+            "Pragma": "no-cache",
+            "Expires": "0",
         }
     )

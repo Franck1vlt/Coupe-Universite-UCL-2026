@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect } from "react";
 import { MatchData } from "./types";
 import { submitMatchResultWithPropagation, updateMatchStatus as updateStatus } from "../common/useMatchPropagation";
+import { useLiveScoreSync } from "../common/useLiveScoreSync";
 
 // Ajout du type tournamentId si besoin
-type MatchDataWithTournament = MatchData & { tournamentId?: string | number; court?: string };
+type MatchDataWithTournament = MatchData & { tournamentId?: string | number; court?: string; numericId?: number };
 type TournamentMatchStatus = "planifié" | "en-cours" | "terminé" | "annulé";
 
 export function useFootballMatch(initialMatchId: string | null) {
@@ -16,6 +17,9 @@ export function useFootballMatch(initialMatchId: string | null) {
         matchType: "",
         tournamentId: undefined
     });
+
+    // Hook pour synchronisation live vers backend SSE
+    const { sendLiveScore, cleanup: cleanupLiveScore } = useLiveScoreSync();
 
     const updateMatchStatus = async (status: 'scheduled' | 'in_progress' | 'completed') => {
         if (!initialMatchId) return;
@@ -165,7 +169,8 @@ export function useFootballMatch(initialMatchId: string | null) {
                     teamB: { ...prev.teamB, name: teamBName, logo_url: teamBLogo },
                     matchType: matchType,
                     tournamentId: match.tournament_id || match.tournamentId || undefined,
-                    court: courtName
+                    court: courtName,
+                    numericId: match.id
                 }));
 
                 console.log('[Football Hook] Match data updated successfully');
@@ -368,23 +373,16 @@ export function useFootballMatch(initialMatchId: string | null) {
             matchType: type,
         }));
 
-    /** ---------- SYNC TO LOCAL STORAGE ---------- */
+    /** ---------- SYNC TO LOCAL STORAGE + BACKEND SSE ---------- */
     useEffect(() => {
         try {
-            // Détermination du vainqueur
-            let winner = undefined;
-            if (matchData.teamA.score > matchData.teamB.score) {
-                winner = matchData.teamA.name || "ÉQUIPE A";
-            } else if (matchData.teamB.score > matchData.teamA.score) {
-                winner = matchData.teamB.name || "ÉQUIPE B";
-            }
-            // Si égalité, winner reste undefined/null
-
             const payload = {
                 team1: matchData.teamA.name || "ÉQUIPE A",
                 team2: matchData.teamB.name || "ÉQUIPE B",
+                logo1: matchData.teamA.logo_url || "",
+                logo2: matchData.teamB.logo_url || "",
                 matchType: matchData.matchType || "Match",
-                court: matchData.court || court || "Terrain",
+                matchGround: matchData.court || court || "Terrain",
                 score1: matchData.teamA.score,
                 score2: matchData.teamB.score,
                 yellowCards1: Math.max(0, matchData.teamA.yellowCards),
@@ -394,11 +392,22 @@ export function useFootballMatch(initialMatchId: string | null) {
                 chrono: formattedTime,
                 lastUpdate: new Date().toISOString(),
             };
+            // Sync to localStorage (for same-device spectator)
             localStorage.setItem("liveFootballMatch", JSON.stringify(payload));
+
+            // Sync to backend SSE (for cross-device split-screen spectators)
+            if (initialMatchId) {
+                const sseMatchId = matchData.numericId?.toString() || initialMatchId;
+                sendLiveScore({
+                    matchId: sseMatchId,
+                    sport: 'football' as any, // Extended sport type
+                    payload,
+                });
+            }
         } catch (e) {
             // Ignore storage errors
         }
-    }, [matchData, formattedTime]);
+    }, [matchData, formattedTime, court, initialMatchId, sendLiveScore]);
 
     // Cleanup à l'unmount
     useEffect(() => {
@@ -407,8 +416,12 @@ export function useFootballMatch(initialMatchId: string | null) {
                 window.clearInterval(intervalRef.current);
                 intervalRef.current = null;
             }
+            // Cleanup live score sync
+            if (initialMatchId) {
+                cleanupLiveScore(initialMatchId);
+            }
         };
-    }, []);
+    }, [initialMatchId, cleanupLiveScore]);
 
     /** ---------- SWIPE / INVERSION DES ÉQUIPES ---------- */
     const swapSides = () =>

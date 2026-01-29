@@ -4,10 +4,11 @@ import { submitMatchResultWithPropagation, updateMatchStatus as updateStatus } f
 import { useLiveScoreSync } from "../common/useLiveScoreSync";
 
 // Ajout du type tournamentId si besoin
-type MatchDataWithTournament = MatchData & { 
-  tournamentId?: string | number; 
+type MatchDataWithTournament = MatchData & {
+  tournamentId?: string | number;
   court?: string;
   serviceTeam?: "A" | "B";
+  numericId?: number;  // ID numérique pour SSE
 };
 
 export function useBadmintonMatch(initialMatchId: string | null) {
@@ -160,10 +161,11 @@ export function useBadmintonMatch(initialMatchId: string | null) {
                     teamB: { ...prev.teamB, name: teamBName, logo_url: teamBLogo },
                     matchType: matchType,
                     tournamentId: tournamentId,
-                    court: courtName
+                    court: courtName,
+                    numericId: match.id  // Store numeric ID for SSE
                 }));
 
-                console.log('[Badminton Hook] Match data updated with tournamentId:', tournamentId);
+                console.log('[Badminton Hook] Match data updated with tournamentId:', tournamentId, 'numericId:', match.id);
 
             } catch (error) {
                 console.error('[Badminton Hook] Error fetching match data:', error);
@@ -377,7 +379,7 @@ export function useBadmintonMatch(initialMatchId: string | null) {
                 sets2: matchData.teamB.sets,
                 chrono: formattedTime,
                 serviceTeam: matchData.serviceTeam,
-                matchGround: court || "Terrain",
+                matchGround: court || matchData.court || "Terrain",
                 logo1: matchData.teamA.logo_url || "",
                 logo2: matchData.teamB.logo_url || "",
                 lastUpdate: new Date().toISOString(),
@@ -386,9 +388,11 @@ export function useBadmintonMatch(initialMatchId: string | null) {
             localStorage.setItem("liveBadmintonMatch", JSON.stringify(payload));
 
             // Sync to backend SSE (for cross-device split-screen spectators)
-            if (initialMatchId) {
+            // Use numeric ID for SSE so split-screen can match subscriptions
+            const sseMatchId = matchData.numericId?.toString() || initialMatchId;
+            if (sseMatchId) {
                 sendLiveScore({
-                    matchId: initialMatchId,
+                    matchId: sseMatchId,
                     sport: 'badminton',
                     payload,
                 });

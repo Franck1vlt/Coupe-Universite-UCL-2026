@@ -1,16 +1,20 @@
 import { useState, useRef, useEffect } from "react";
 import { MatchData } from "./types";
 import { submitMatchResultWithPropagation, updateMatchStatus as updateStatus } from "../common/useMatchPropagation";
+import { useLiveScoreSync } from "../common/useLiveScoreSync";
 
 // Ajout du type tournamentId si besoin
-type MatchDataWithTournament = MatchData & { tournamentId?: string | number; court?: string };
+type MatchDataWithTournament = MatchData & { tournamentId?: string | number; court?: string; numericId?: number };
 const HALF_TIME_DURATION = 10 * 60; // 10 minutes en secondes
 
 
 export function useHandballMatch(initialMatchId: string | null) {
     console.log('[Handball Hook] ========== VERSION 2.0 - With phase_id support ==========');
     const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-    
+
+    // Hook pour synchronisation live vers backend SSE
+    const { sendLiveScore, cleanup: cleanupLiveScore } = useLiveScoreSync();
+
     const [matchData, setMatchData] = useState<MatchDataWithTournament>({
         matchId: initialMatchId || "",
         teamA: { name: "Team A", logo_url: "", score: 0, yellowCards: 0, redCards: 0, penalties: 0 },
@@ -143,7 +147,8 @@ export function useHandballMatch(initialMatchId: string | null) {
                     teamB: { ...prev.teamB, name: teamBName, logo_url: teamBLogo },
                     matchType: matchType,
                     tournamentId: tournamentId,
-                    court: courtName
+                    court: courtName,
+                    numericId: match.id
                 }));
 
                 console.log('[Handball Hook] Match data updated with tournamentId:', tournamentId);
@@ -435,13 +440,16 @@ export function useHandballMatch(initialMatchId: string | null) {
         await submitMatchResult();
     };
 
-    /** ---------- SYNC TO LOCAL STORAGE ---------- */
+    /** ---------- SYNC TO LOCAL STORAGE + BACKEND SSE ---------- */
     useEffect(() => {
         try {
             const payload = {
                 team1: matchData.teamA.name || "ÉQUIPE A",
                 team2: matchData.teamB.name || "ÉQUIPE B",
+                logo1: matchData.teamA.logo_url || "",
+                logo2: matchData.teamB.logo_url || "",
                 matchType: matchData.matchType || "Match",
+                matchGround: matchData.court || court || "Terrain",
                 score1: matchData.teamA.score,
                 score2: matchData.teamB.score,
                 yellowCards1: Math.max(0, matchData.teamA.yellowCards),
@@ -452,11 +460,22 @@ export function useHandballMatch(initialMatchId: string | null) {
                 period,
                 lastUpdate: new Date().toISOString(),
             };
+            // Sync to localStorage (for same-device spectator)
             localStorage.setItem("liveHandballMatch", JSON.stringify(payload));
+
+            // Sync to backend SSE (for cross-device split-screen spectators)
+            if (initialMatchId) {
+                const sseMatchId = matchData.numericId?.toString() || initialMatchId;
+                sendLiveScore({
+                    matchId: sseMatchId,
+                    sport: 'handball' as any, // Extended sport type
+                    payload,
+                });
+            }
         } catch (e) {
             // Ignore storage errors
         }
-    }, [matchData, formattedTime, period]);
+    }, [matchData, formattedTime, period, court, initialMatchId, sendLiveScore]);
 
     // Cleanup à l'unmount
     useEffect(() => {
@@ -465,8 +484,12 @@ export function useHandballMatch(initialMatchId: string | null) {
                 window.clearInterval(intervalRef.current);
                 intervalRef.current = null;
             }
+            // Cleanup live score sync
+            if (initialMatchId) {
+                cleanupLiveScore(initialMatchId);
+            }
         };
-    }, []);
+    }, [initialMatchId, cleanupLiveScore]);
 
     /** ---------- SWIPE / INVERSION DES ÉQUIPES ---------- */
     const swapSides = () =>

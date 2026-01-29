@@ -22,7 +22,10 @@ interface Match {
     match_type: string;
     label?: string;
     court?: string;
-    tournament_name?: string; // Pour afficher quel tournoi
+    tournament_name?: string;
+    tournament_id?: number;
+    sport_code?: string;  // Sport code for this match
+    sport_name?: string;  // Sport name for display
 }
 
 interface Tournament {
@@ -65,35 +68,58 @@ export default function SplitScreenClient({ tournamentId }: SplitScreenClientPro
         enabled: selectedMatchIds.length > 0,
     });
 
-    // Fetch sport info and ALL tournaments of the same sport
+    // Helper function to map raw match data to Match interface
+    const mapMatchData = (m: any, tournament: Tournament): Match => ({
+        id: m.id,
+        uuid: m.uuid,
+        team_a_name: m.team_a_name || m.teamA || m.team_a || m.team_a_source || "",
+        team_b_name: m.team_b_name || m.teamB || m.team_b || m.team_b_source || "",
+        team_a_logo: m.team_a_logo || m.logoA || m.logo_a || "",
+        team_b_logo: m.team_b_logo || m.logoB || m.logo_b || "",
+        score_a: m.score_a ?? m.scoreA ?? null,
+        score_b: m.score_b ?? m.scoreB ?? null,
+        status: m.status,
+        match_type: m.match_type || m.type || "",
+        label: m.label,
+        court: m.court,
+        tournament_name: tournament.name,
+        tournament_id: tournament.id,
+        sport_code: tournament.sport_code,
+        sport_name: tournament.sport_name,
+    });
+
+    // Fetch ALL tournaments and their matches (multi-sport support)
     useEffect(() => {
         async function fetchData() {
             try {
                 setLoading(true);
                 setError(null);
 
-                // 1. Fetch current tournament info to get sport_id
+                // 1. Fetch current tournament info for context
                 const tournamentRes = await fetch(`${API_URL}/tournaments/${tournamentId}`);
                 if (!tournamentRes.ok) throw new Error("Tournament not found");
                 const tournamentData = await tournamentRes.json();
-                const sportId = tournamentData.data.sport_id;
+                const currentSportId = tournamentData.data.sport_id;
 
-                // 2. Fetch sport info
-                const sportRes = await fetch(`${API_URL}/sports/${sportId}`);
+                // 2. Fetch current sport info
+                const sportRes = await fetch(`${API_URL}/sports/${currentSportId}`);
                 const sportData = await sportRes.json();
-                const sportCode = sportData.data?.code || "unknown";
-                const sportName = sportData.data?.name || "Sport";
+                const currentSportCode = sportData.data?.code
+                    || sportData.data?.slug
+                    || sportData.data?.name?.toLowerCase().replace(/\s+/g, '')
+                    || "unknown";
+                const currentSportName = sportData.data?.name || "Sport";
 
                 setCurrentTournament({
                     id: tournamentData.data.id,
                     name: tournamentData.data.name,
-                    sport_id: sportId,
-                    sport_code: sportCode,
-                    sport_name: sportName,
+                    sport_id: currentSportId,
+                    sport_code: currentSportCode,
+                    sport_name: currentSportName,
                 });
 
-                // 3. Fetch ALL tournaments of the same sport
-                const allTournamentsRes = await fetch(`${API_URL}/tournaments?sport_id=${sportId}`);
+                // 3. Fetch ALL tournaments (not filtered by sport) for multi-sport support
+                const allTournamentsRes = await fetch(`${API_URL}/tournaments`);
                 if (!allTournamentsRes.ok) throw new Error("Failed to fetch tournaments");
                 const allTournamentsData = await allTournamentsRes.json();
 
@@ -102,46 +128,54 @@ export default function SplitScreenClient({ tournamentId }: SplitScreenClientPro
                     ? allTournamentsData.data
                     : (allTournamentsData.data?.items || []);
 
-                const tournaments: Tournament[] = tournamentsArray.map((t: { id: number; name: string }) => ({
-                    id: t.id,
-                    name: t.name,
-                    sport_id: sportId,
-                    sport_code: sportCode,
-                    sport_name: sportName,
-                }));
+                // 4. Fetch sport info for each unique sport_id
+                const sportIds = [...new Set(tournamentsArray.map((t: any) => t.sport_id))];
+                const sportsMap = new Map<number, { code: string; name: string }>();
+
+                for (const sportId of sportIds) {
+                    try {
+                        const sRes = await fetch(`${API_URL}/sports/${sportId}`);
+                        if (sRes.ok) {
+                            const sData = await sRes.json();
+                            sportsMap.set(sportId as number, {
+                                code: sData.data?.code || sData.data?.slug || sData.data?.name?.toLowerCase().replace(/\s+/g, '') || "unknown",
+                                name: sData.data?.name || "Sport"
+                            });
+                        }
+                    } catch (e) {
+                        console.warn(`Failed to fetch sport ${sportId}:`, e);
+                    }
+                }
+
+                // 5. Build tournaments list with sport info
+                const tournaments: Tournament[] = tournamentsArray.map((t: any) => {
+                    const sportInfo = sportsMap.get(t.sport_id) || { code: "unknown", name: "Sport" };
+                    return {
+                        id: t.id,
+                        name: t.name,
+                        sport_id: t.sport_id,
+                        sport_code: sportInfo.code,
+                        sport_name: sportInfo.name,
+                    };
+                });
                 setAllTournaments(tournaments);
 
-                // 4. Fetch matches from ALL tournaments of the same sport
+                console.log(`[SplitScreen] Loaded ${tournaments.length} tournaments from ${sportIds.length} sports`);
+
+                // 6. Fetch matches from ALL tournaments
                 const allMatches: Match[] = [];
                 for (const t of tournaments) {
                     const matchesRes = await fetch(`${API_URL}/tournaments/${t.id}/matches`);
                     if (matchesRes.ok) {
                         const matchesData = await matchesRes.json();
-                        // DEBUG: loggue la structure brute des matchs reçus
-                        if (Array.isArray(matchesData.data) && matchesData.data.length > 0) {
-                            console.log(`[DEBUG] Matches bruts pour tournoi ${t.name}:`, matchesData.data.slice(0, 3));
-                        }
                         const matches = (matchesData.data || [])
                             .filter((m: any) => m.status === "in_progress")
-                            .map((m: any) => ({
-                                id: m.id,
-                                uuid: m.uuid,
-                                team_a_name: m.team_a_name || m.teamA || m.team_a || m.team_a_source || "",
-                                team_b_name: m.team_b_name || m.teamB || m.team_b || m.team_b_source || "",
-                                team_a_logo: m.team_a_logo || m.logoA || m.logo_a || "",
-                                team_b_logo: m.team_b_logo || m.logoB || m.logo_b || "",
-                                score_a: m.score_a ?? m.scoreA ?? null,
-                                score_b: m.score_b ?? m.scoreB ?? null,
-                                status: m.status,
-                                match_type: m.match_type || m.type || "",
-                                label: m.label,
-                                court: m.court,
-                                tournament_name: t.name,
-                            }));
+                            .map((m: any) => mapMatchData(m, t));
                         allMatches.push(...matches);
                     }
                 }
 
+                console.log(`[SplitScreen] Found ${allMatches.length} in-progress matches`);
                 setAvailableMatches(allMatches);
 
                 // Auto-select first matches if available
@@ -171,11 +205,8 @@ export default function SplitScreenClient({ tournamentId }: SplitScreenClientPro
                     if (matchesRes.ok) {
                         const matchesData = await matchesRes.json();
                         const matches = (matchesData.data || [])
-                            .filter((m: Match) => m.status === "in_progress")
-                            .map((m: Match) => ({
-                                ...m,
-                                tournament_name: t.name,
-                            }));
+                            .filter((m: any) => m.status === "in_progress")
+                            .map((m: any) => mapMatchData(m, t));
                         allMatches.push(...matches);
                     }
                 }
@@ -205,18 +236,59 @@ export default function SplitScreenClient({ tournamentId }: SplitScreenClientPro
         setShowSelector(false);
     };
 
+    // Normalize sport code to lowercase for consistent matching
+    const normalizeSport = (sport: string | undefined): string => {
+        if (!sport) return "unknown";
+        const normalized = sport.toLowerCase().trim();
+        // Map common variations
+        const sportMap: Record<string, string> = {
+            "volley": "volleyball",
+            "volley-ball": "volleyball",
+            "foot": "football",
+            "basket": "basketball",
+            "hand": "handball",
+            "petanque": "petanque",
+            "pétanque": "petanque",
+            "flechettes": "flechettes",
+            "fléchettes": "flechettes",
+            "darts": "flechettes",
+        };
+        return sportMap[normalized] || normalized;
+    };
+
+    // Debug: Log SSE state changes
+    useEffect(() => {
+        console.log(`[SplitScreen] 🔌 SSE Connection State:`, connectionState);
+        console.log(`[SplitScreen] 📡 Subscribed to match IDs:`, selectedMatchIds);
+        console.log(`[SplitScreen] 📊 Current scores map size:`, scores.size);
+        if (scores.size > 0) {
+            scores.forEach((score, matchId) => {
+                console.log(`[SplitScreen] 📊 Score for match ${matchId}:`, score.data);
+            });
+        }
+    }, [connectionState, selectedMatchIds, scores]);
+
     // Merge SSE scores with match data
     const matchesWithScores = useMemo(() => {
         return selectedMatchIds.map(matchId => {
             const match = availableMatches.find(m => m.id === matchId);
             const liveScore = scores.get(matchId);
 
+            // Debug log
+            console.log(`[SplitScreen] 🎯 Match ${matchId}:`, {
+                hasLiveScore: !!liveScore,
+                liveScoreSport: liveScore?.sport,
+                cochonnetTeam: liveScore?.data?.cochonnetTeam,
+                scoreA: liveScore?.data?.scoreA,
+                scoreB: liveScore?.data?.scoreB,
+            });
+
             if (liveScore) {
                 return {
                     matchId,
                     match,
                     liveData: liveScore.data,
-                    sport: liveScore.sport,
+                    sport: normalizeSport(liveScore.sport),
                     lastUpdate: liveScore.timestamp,
                 };
             }
@@ -225,7 +297,7 @@ export default function SplitScreenClient({ tournamentId }: SplitScreenClientPro
                 matchId,
                 match,
                 liveData: null,
-                sport: currentTournament?.sport_code || "unknown",
+                sport: normalizeSport(match?.sport_code || currentTournament?.sport_code),
                 lastUpdate: null,
             };
         });

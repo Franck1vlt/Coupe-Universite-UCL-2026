@@ -18,6 +18,7 @@ export interface MatchData {
   matchId: string;
   teamA: PetanqueTeamData;
   teamB: PetanqueTeamData;
+  matchGround?: string;
   matchType: string;
   gameMode?: "BO3" | "BO5";  // Mode de jeu (si plusieurs sets)
   cochonnetTeam: "A" | "B";  // Équipe qui doit lancer le cochonnet

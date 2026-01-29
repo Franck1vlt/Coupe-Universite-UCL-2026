@@ -1,14 +1,18 @@
 import { useState, useRef, useEffect } from "react";
 import { MatchData } from "./types";
 import { submitMatchResultWithPropagation, updateMatchStatus as updateStatus } from "../common/useMatchPropagation";
+import { useLiveScoreSync } from "../common/useLiveScoreSync";
 
-type MatchDataWithTournament = MatchData & { tournamentId?: string | number; court?: string };
+type MatchDataWithTournament = MatchData & { tournamentId?: string | number; court?: string; numericId?: number };
 type TournamentMatchStatus = "planifié" | "en-cours" | "terminé" | "annulé";
 
 
 export function useBasketballMatch(initialMatchId: string | null) {
     const HALF_TIME_DURATION = 6 * 60 + 30; // 6 minutes 30 secondes en secondes
-    
+
+    // Hook pour synchronisation live vers backend SSE
+    const { sendLiveScore, cleanup: cleanupLiveScore } = useLiveScoreSync();
+
     const [matchData, setMatchData] = useState<MatchDataWithTournament>({
         matchId: initialMatchId || "",
         teamA: { name: "Team A", logo_url: "", score: 0, yellowCards: 0, redCards: 0, penalties: 0, technicalFouls: 0 },
@@ -130,7 +134,8 @@ export function useBasketballMatch(initialMatchId: string | null) {
                     teamA: { ...prev.teamA, name: teamAName, logo_url: teamALogo },
                     teamB: { ...prev.teamB, name: teamBName, logo_url: teamBLogo },
                     matchType: matchType,
-                    tournamentId: tournamentId  // ⭐ NOUVEAU
+                    tournamentId: tournamentId,  // ⭐ NOUVEAU
+                    numericId: match.id
                 }));
                 
                 console.log('[Basketball Hook] ✅ Match data loaded successfully');
@@ -514,13 +519,24 @@ export function useBasketballMatch(initialMatchId: string | null) {
         return () => window.removeEventListener('keydown', handleKeyPress);
     }, [matchData.chrono.running]);
     
-    /** ---------- SYNC TO LOCAL STORAGE ---------- */
+    // Formater le shot clock en secondes.dixièmes (doit être calculé AVANT le useEffect de sync)
+    const gameTimeInTenths = matchData.chrono.time * 10;
+    const displayShotClock = shotClock > gameTimeInTenths ? gameTimeInTenths : shotClock;
+    const formattedShotClock = (displayShotClock / 10).toFixed(1);
+
+    /** ---------- SYNC TO LOCAL STORAGE + BACKEND SSE ---------- */
     useEffect(() => {
+        // Debug: log what we're sending
+        console.log('[Basketball Sync] shotClock state:', shotClock, '| formatted:', formattedShotClock, '| chrono:', formattedTime);
+
         try {
             const payload = {
                 team1: matchData.teamA.name || "ÉQUIPE A",
                 team2: matchData.teamB.name || "ÉQUIPE B",
+                logo1: matchData.teamA.logo_url || "",
+                logo2: matchData.teamB.logo_url || "",
                 matchType: matchData.matchType || "Match",
+                matchGround: court || "Terrain",
                 score1: matchData.teamA.score,
                 score2: matchData.teamB.score,
                 yellowCards1: Math.max(0, matchData.teamA.yellowCards),
@@ -531,14 +547,26 @@ export function useBasketballMatch(initialMatchId: string | null) {
                 technicalFouls2: Math.max(0, matchData.teamB.technicalFouls),
                 chrono: formattedTime,
                 shotClock: formattedShotClock,
+                chronoRunning: matchData.chrono.running,
                 period,
                 lastUpdate: new Date().toISOString(),
             };
+            // Sync to localStorage (for same-device spectator)
             localStorage.setItem("liveBasketballMatch", JSON.stringify(payload));
+
+            // Sync to backend SSE (for cross-device split-screen spectators)
+            if (initialMatchId) {
+                const sseMatchId = matchData.numericId?.toString() || initialMatchId;
+                sendLiveScore({
+                    matchId: sseMatchId,
+                    sport: 'basketball' as any, // Extended sport type
+                    payload,
+                });
+            }
         } catch (e) {
             // Ignore storage errors
         }
-    }, [matchData, formattedTime, shotClock, period]);
+    }, [matchData, formattedTime, formattedShotClock, period, court, initialMatchId, sendLiveScore]);
 
     // Cleanup à l'unmount
     useEffect(() => {
@@ -551,8 +579,12 @@ export function useBasketballMatch(initialMatchId: string | null) {
                 window.clearInterval(shotClockIntervalRef.current);
                 shotClockIntervalRef.current = null;
             }
+            // Cleanup live score sync
+            if (initialMatchId) {
+                cleanupLiveScore(initialMatchId);
+            }
         };
-    }, []);
+    }, [initialMatchId, cleanupLiveScore]);
 
     /** ---------- SWIPE / INVERSION DES ÉQUIPES ---------- */
     const swapSides = () =>
@@ -562,14 +594,6 @@ export function useBasketballMatch(initialMatchId: string | null) {
             teamB: { ...p.teamA },
         }));
 
-    // Formater le shot clock en secondes.dixièmes
-    const shotClockInSeconds = shotClock / 10;
-    const gameTimeInTenths = matchData.chrono.time * 10;
-    
-    // Si le shot clock est > au chrono global, afficher le chrono global
-    const displayShotClock = shotClock > gameTimeInTenths ? gameTimeInTenths : shotClock;
-    const formattedShotClock = (displayShotClock / 10).toFixed(1);
-    
     return {
         matchData,
         formattedTime,
