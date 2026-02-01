@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { useMatchSSE, type LiveScoreData } from "../../../hooks/useMatchSSE";
 import {
   resolveTeamName,
   type Match as TournamentLogicMatch,
@@ -178,7 +179,6 @@ export default function TournamentViewPage() {
   const params = useParams();
   const router = useRouter();
   const [sport, setSport] = useState<Sport | null>(null);
-  const [sportCode, setSportCode] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [matches, setMatches] = useState<TournamentMatch[]>([]);
@@ -244,20 +244,6 @@ export default function TournamentViewPage() {
         const data = await res.json();
         const sportData = data.data as Sport;
         setSport(sportData);
-
-        // Déduire le code du sport à partir du nom (backend ne fournit pas 'code')
-        const name = (sportData?.name || "").trim().toLowerCase();
-        const normalize = (s: string) => s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
-        const n = normalize(name);
-        let code: string | null = null;
-        if (n.includes('foot')) code = 'football';
-        else if (n.includes('hand')) code = 'handball';
-        else if (n.includes('basket')) code = 'basketball';
-        else if (n.includes('volley')) code = 'volleyball';
-        else if (n.includes('badminton')) code = 'badminton';
-        else if (n.includes('petanque')) code = 'petanque';
-        else if (n.includes('flechette')) code = 'flechettes';
-        if (code) setSportCode(code);
       } catch (e: any) {
         setError(e?.message || "Erreur lors du chargement du sport.");
       } finally {
@@ -518,6 +504,38 @@ export default function TournamentViewPage() {
   // États pour stocker les rankings
   const [poolRankings, setPoolRankings] = useState<Map<string, RankingEntry[]>>(new Map());
   const [finalRanking, setFinalRanking] = useState<RankingEntry[]>([]);
+
+  // État pour stocker les scores live SSE
+  const [liveScores, setLiveScores] = useState<Map<number, LiveScoreData>>(new Map());
+
+  // Extraire les IDs des matchs en cours pour SSE
+  const inProgressMatchIds = useMemo(() => {
+    return matches
+      .filter(m => m.status === "en-cours")
+      .map(m => parseInt(m.id))
+      .filter(id => !isNaN(id));
+  }, [matches]);
+
+  // SSE pour les scores en temps réel
+  const { scores: sseScores, connectionState } = useMatchSSE({
+    matchIds: inProgressMatchIds,
+    enabled: inProgressMatchIds.length > 0,
+    onScoreUpdate: (data) => {
+      console.log('[Tournament] SSE score update:', data);
+      setLiveScores(prev => {
+        const newMap = new Map(prev);
+        newMap.set(data.match_id, data);
+        return newMap;
+      });
+    }
+  });
+
+  // Fonction pour obtenir le score live d'un match
+  const getLiveScore = (matchId: string) => {
+    const numId = parseInt(matchId);
+    if (isNaN(numId)) return null;
+    return liveScores.get(numId) || sseScores.get(numId);
+  };
   
   // Générer le classement des poules avec les vrais résultats
   const generatePoolRankings = () => {
@@ -719,12 +737,17 @@ export default function TournamentViewPage() {
 
             return dateTimeA.getTime() - dateTimeB.getTime();
           }).map((match) => {
-            const isTermine = match.status === "terminé";
-            // CHANGEMENT ICI : On passe de <button> à <div> et on retire le onClick
+            const liveData = getLiveScore(match.id);
+            const isEnCours = match.status === "en-cours";
+
+            // Use live scores if available
+            const displayScoreA = isEnCours && liveData ? (liveData.data?.score1 ?? liveData.data?.scoreA ?? match.scoreA ?? 0) : (match.scoreA ?? 0);
+            const displayScoreB = isEnCours && liveData ? (liveData.data?.score2 ?? liveData.data?.scoreB ?? match.scoreB ?? 0) : (match.scoreB ?? 0);
+
             return (
             <div
             key={match.id}
-            className={`relative border rounded-xl p-4 shadow-sm flex flex-col gap-2 transition-all bg-white border-gray-200`}
+            className={`relative border rounded-xl p-4 shadow-sm flex flex-col gap-2 transition-all bg-white ${isEnCours ? 'border-green-300 ring-2 ring-green-100' : 'border-gray-200'}`}
             >
             {/* Badge de statut et type */}
             <div className="flex items-center justify-between">
@@ -747,40 +770,40 @@ export default function TournamentViewPage() {
                 </span>
               )}
               </div>
-              <span
-              className={`px-2 py-1 text-[10px] font-medium rounded-full ${getMatchStatusBadge(
-                match.status
-              )}`}
-              >
-              {match.status}
-              </span>
+              <div className="flex items-center gap-1">
+                <span
+                className={`px-2 py-1 text-[10px] font-medium rounded-full ${getMatchStatusBadge(
+                  match.status
+                )}`}
+                >
+                {match.status}
+                </span>
+              </div>
             </div>
 
             {/* Contenu principal : Équipes et Scores */}
             <div className="mt-2">
               <div className="flex items-center justify-between text-sm font-medium text-black">
               {/* Équipe A */}
-              <span className={`flex-1 text-left ${match.status === "terminé" && match.scoreA !== undefined && match.scoreB !== undefined && match.scoreA > match.scoreB ? "font-bold text-black" : "text-gray-700"}`}>
+              <span className={`flex-1 text-left ${(match.status === "terminé" || isEnCours) && displayScoreA > displayScoreB ? "font-bold text-black" : "text-gray-700"}`}>
                 {formatTeamName(match.teamA, tournamentMatches, tournamentPools, tournamentBrackets, tournamentLoserBrackets)}
               </span>
 
               {/* Score central */}
-              <div className="flex items-center justify-center min-w-[60px] px-2">
+              <div className="flex items-center justify-center min-w-[80px] px-2">
                 {match.status === "planifié" ? (
                   <span className="text-gray-400 font-bold text-lg">0 - 0</span>
-                ) : match.scoreA !== undefined && match.scoreB !== undefined ? (
-                  <div className="flex items-center gap-2 bg-gray-50 px-3 py-1 rounded-lg border border-gray-100">
-                     <span className={`text-lg ${match.scoreA > match.scoreB ? "font-bold text-black" : "text-gray-600"}`}>{match.scoreA}</span>
-                     <span className="text-gray-300 text-xs">:</span>
-                     <span className={`text-lg ${match.scoreB > match.scoreA ? "font-bold text-black" : "text-gray-600"}`}>{match.scoreB}</span>
-                  </div>
                 ) : (
-                  <span className="text-black text-xs">0 - 0</span>
+                  <div className={`flex items-center gap-2 px-3 py-1 rounded-lg border ${isEnCours ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-100'}`}>
+                    <span className={`text-lg ${displayScoreA > displayScoreB ? "font-bold text-black" : "text-gray-600"}`}>{displayScoreA}</span>
+                    <span className="text-gray-300 text-xs">:</span>
+                    <span className={`text-lg ${displayScoreB > displayScoreA ? "font-bold text-black" : "text-gray-600"}`}>{displayScoreB}</span>
+                  </div>
                 )}
               </div>
 
               {/* Équipe B */}
-              <span className={`flex-1 text-right ${match.status === "terminé" && match.scoreA !== undefined && match.scoreB !== undefined && match.scoreB > match.scoreA ? "font-bold text-black" : "text-gray-700"}`}>
+              <span className={`flex-1 text-right ${(match.status === "terminé" || isEnCours) && displayScoreB > displayScoreA ? "font-bold text-black" : "text-gray-700"}`}>
                 {formatTeamName(match.teamB, tournamentMatches, tournamentPools, tournamentBrackets, tournamentLoserBrackets)}
               </span>
               </div>
@@ -816,8 +839,6 @@ export default function TournamentViewPage() {
                 </div>
               )}
             </div>
-
-            {/* Suppression du footer "cliquer pour marquer" */}
             </div>
             );
           })}

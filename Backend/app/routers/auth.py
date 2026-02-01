@@ -10,11 +10,13 @@ from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 import jwt
+import bcrypt
 
 from app.db import get_db
 from app.config import settings
 from app.auth.permissions import Role, TokenData, get_current_user_required
 from app.exceptions import create_success_response
+from app.models.user import User
 
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -69,13 +71,56 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     return encoded_jwt
 
 
-def verify_credentials(username: str, password: str) -> Optional[dict]:
-    """
-    Vérifie les identifiants utilisateur contre les variables d'environnement
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Vérifie un mot de passe contre son hash"""
+    try:
+        return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
+    except Exception:
+        return False
 
-    Note: Cette implémentation utilise des credentials en variables d'environnement
-    pour correspondre au système frontend existant. Pour une vraie production,
-    il faudrait utiliser une base de données avec des mots de passe hashés.
+
+def verify_credentials_from_db(db: Session, username: str, password: str) -> Optional[dict]:
+    """
+    Vérifie les identifiants utilisateur contre la base de données
+
+    Args:
+        db: Session de base de données
+        username: Nom d'utilisateur ou email
+        password: Mot de passe
+
+    Returns:
+        Dict avec les infos utilisateur si valide, None sinon
+    """
+    # Chercher l'utilisateur par username ou email
+    user = db.query(User).filter(
+        (User.username == username) | (User.email == username)
+    ).first()
+
+    if not user:
+        return None
+
+    # Vérifier que l'utilisateur est actif
+    if not user.is_active:
+        return None
+
+    # Vérifier le mot de passe
+    if not user.hashed_password:
+        return None
+
+    if not verify_password(password, user.hashed_password):
+        return None
+
+    return {
+        "user_id": str(user.id),
+        "username": user.full_name or user.username or user.email,
+        "role": user.role
+    }
+
+
+def verify_credentials_fallback(username: str, password: str) -> Optional[dict]:
+    """
+    Fallback: Vérifie les identifiants contre les variables d'environnement
+    Utilisé uniquement si aucun utilisateur n'existe dans la base de données
 
     Args:
         username: Nom d'utilisateur
@@ -92,7 +137,7 @@ def verify_credentials(username: str, password: str) -> Optional[dict]:
     if admin_username and admin_password:
         if username == admin_username and password == admin_password:
             return {
-                "user_id": "1",
+                "user_id": "env_admin",
                 "username": "Admin",
                 "role": Role.ADMIN.value
             }
@@ -103,7 +148,7 @@ def verify_credentials(username: str, password: str) -> Optional[dict]:
     if staff_username and staff_password:
         if username == staff_username and password == staff_password:
             return {
-                "user_id": "2",
+                "user_id": "env_staff",
                 "username": "Staff",
                 "role": Role.STAFF.value
             }
@@ -114,7 +159,7 @@ def verify_credentials(username: str, password: str) -> Optional[dict]:
     if tech_username and tech_password:
         if username == tech_username and password == tech_password:
             return {
-                "user_id": "3",
+                "user_id": "env_tech",
                 "username": "Technician",
                 "role": Role.TECHNICIEN.value
             }
@@ -122,10 +167,33 @@ def verify_credentials(username: str, password: str) -> Optional[dict]:
     return None
 
 
+def verify_credentials(db: Session, username: str, password: str) -> Optional[dict]:
+    """
+    Vérifie les identifiants utilisateur
+    Essaie d'abord la base de données, puis les variables d'environnement en fallback
+
+    Args:
+        db: Session de base de données
+        username: Nom d'utilisateur
+        password: Mot de passe
+
+    Returns:
+        Dict avec les infos utilisateur si valide, None sinon
+    """
+    # Essayer d'abord la base de données
+    user_data = verify_credentials_from_db(db, username, password)
+    if user_data:
+        return user_data
+
+    # Si aucun utilisateur trouvé en DB, essayer les variables d'environnement
+    # Ceci permet de garder la compatibilité avec l'ancien système
+    return verify_credentials_fallback(username, password)
+
+
 # === Endpoints ===
 
 @router.post("/login", response_model=TokenResponse)
-async def login(login_data: LoginRequest):
+async def login(login_data: LoginRequest, db: Session = Depends(get_db)):
     """
     Authentifie un utilisateur et retourne un token JWT
 
@@ -135,7 +203,7 @@ async def login(login_data: LoginRequest):
     - role: Rôle (admin, staff, technicien)
     - exp: Date d'expiration
     """
-    user_data = verify_credentials(login_data.username, login_data.password)
+    user_data = verify_credentials(db, login_data.username, login_data.password)
 
     if not user_data:
         raise HTTPException(
@@ -168,12 +236,15 @@ async def login(login_data: LoginRequest):
 
 
 @router.post("/token")
-async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
+async def login_for_access_token(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db)
+):
     """
     Endpoint compatible OAuth2 pour obtenir un token
     Utilise le format standard OAuth2 avec form-data
     """
-    user_data = verify_credentials(form_data.username, form_data.password)
+    user_data = verify_credentials(db, form_data.username, form_data.password)
 
     if not user_data:
         raise HTTPException(

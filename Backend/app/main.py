@@ -106,9 +106,13 @@ app.add_exception_handler(Exception, general_exception_handler)
 from app.routers import tournament_structure
 from app.routers import courts_status
 from app.routers import auth as auth_router
+from app.routers import users as users_router
 
 # Router d'authentification
 app.include_router(auth_router.router, tags=["Authentication"])
+
+# Router de gestion des utilisateurs (admin seulement)
+app.include_router(users_router.router, tags=["Users Management"])
 
 # Router des tournois
 app.include_router(
@@ -130,6 +134,17 @@ async def startup_event():
     try:
         init_db()
         logger.info("Database initialized successfully")
+
+        # Initialiser les utilisateurs par défaut
+        from app.utils.seed_users import seed_default_users
+        from app.db import SessionLocal
+        db = SessionLocal()
+        try:
+            seed_default_users(db)
+            logger.info("Default users initialized successfully")
+        finally:
+            db.close()
+
     except Exception as e:
         logger.error(f"Error initializing database: {e}")
         raise

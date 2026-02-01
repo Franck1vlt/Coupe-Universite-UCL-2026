@@ -109,6 +109,7 @@ function SetBasedScoreboard({
         <div className="compact-scoreboard sport-setbased">
             {/* Header */}
             <div className="scoreboard-header volleyball-header">
+                {displayData.tournamentName && <span className="tournament-name">{displayData.tournamentName}</span>}
                 <span className="match-type">{displayData.matchType}</span>
                 {displayData.court && <span className="court">{displayData.court}</span>}
             </div>
@@ -185,6 +186,7 @@ function FootballHandballScoreboard({
         <div className={`compact-scoreboard sport-${sport}`}>
             {/* Header */}
             <div className="scoreboard-header football-header">
+                {displayData.tournamentName && <span className="tournament-name">{displayData.tournamentName}</span>}
                 <span className="match-type">{displayData.matchType}</span>
                 {displayData.court && <span className="court">{displayData.court}</span>}
                 {period && <span className="period-badge">{period}</span>}
@@ -261,41 +263,32 @@ function BasketballScoreboard({
     // Sync running state from SSE (when admin starts/stops chrono)
     useEffect(() => {
         if (sseChronoRunning !== undefined) {
-            console.log('[Basketball ShotClock] chronoRunning from SSE:', sseChronoRunning);
             setIsClockRunning(sseChronoRunning);
         }
     }, [sseChronoRunning]);
 
     // Sync shot clock value from SSE
     useEffect(() => {
-        console.log('[Basketball ShotClock] SSE received:', sseShotClock);
-
         if (sseShotClock) {
             const newTenths = Math.round(parseFloat(sseShotClock) * 10);
             const prevTenths = lastSseShotClock.current
                 ? Math.round(parseFloat(lastSseShotClock.current) * 10)
                 : null;
 
-            console.log('[Basketball ShotClock] newTenths:', newTenths, '| prevTenths:', prevTenths);
-
             if (prevTenths !== null) {
                 if (newTenths > prevTenths) {
                     // Value increased = reset occurred
-                    console.log('[Basketball ShotClock] Detected RESET');
                     setLocalShotClock(newTenths);
                 } else if (newTenths !== prevTenths) {
                     // Value decreased - check drift
                     const currentLocal = localShotClockRef.current ?? 0;
                     const drift = Math.abs(newTenths - currentLocal);
-                    console.log('[Basketball ShotClock] Value decreased, drift:', drift, '| local:', currentLocal);
                     if (drift > 15) {
-                        console.log('[Basketball ShotClock] Resyncing due to drift');
                         setLocalShotClock(newTenths);
                     }
                 }
             } else {
                 // Initial sync
-                console.log('[Basketball ShotClock] Initial sync, setting to:', newTenths);
                 setLocalShotClock(newTenths);
             }
 
@@ -305,13 +298,10 @@ function BasketballScoreboard({
 
     // Local countdown timer (runs every 100ms when clock is running)
     useEffect(() => {
-        console.log('[Basketball ShotClock] Timer effect, isClockRunning:', isClockRunning);
         if (!isClockRunning) {
-            console.log('[Basketball ShotClock] Timer NOT starting (clock not running)');
             return;
         }
 
-        console.log('[Basketball ShotClock] Starting local timer');
         const interval = setInterval(() => {
             setLocalShotClock(prev => {
                 if (prev === null || prev <= 1) {
@@ -321,10 +311,7 @@ function BasketballScoreboard({
             });
         }, 100);
 
-        return () => {
-            console.log('[Basketball ShotClock] Stopping local timer');
-            clearInterval(interval);
-        };
+        return () => clearInterval(interval);
     }, [isClockRunning]);
 
     // Stop timer when shot clock reaches 0
@@ -339,13 +326,11 @@ function BasketballScoreboard({
         ? (localShotClock / 10).toFixed(1)
         : sseShotClock;
 
-    // Debug: log display value
-    console.log('[Basketball ShotClock] Display:', displayShotClock, '| localShotClock:', localShotClock);
-
     return (
         <div className="compact-scoreboard sport-basketball">
             {/* Header */}
             <div className="scoreboard-header basketball-header">
+                {displayData.tournamentName && <span className="tournament-name">{displayData.tournamentName}</span>}
                 <span className="match-type">{displayData.matchType}</span>
                 {displayData.court && <span className="court">{displayData.court}</span>}
                 {period && <span className="period-badge">{period}</span>}
@@ -409,8 +394,9 @@ function PetanqueScoreboard({
 
     return (
         <div className="compact-scoreboard sport-petanque">
-            {/* Header: match type, court, target score */}
+            {/* Header: tournament name, match type, court, target score */}
             <div className="scoreboard-header petanque-header">
+                {displayData.tournamentName && <span className="tournament-name">{displayData.tournamentName}</span>}
                 <span className="match-type">{displayData.matchType}</span>
                 {displayData.court && <span className="court">{displayData.court}</span>}
                 <span className="target-score">Match en {targetScore} pts</span>
@@ -503,6 +489,7 @@ function FlechettesScoreboard({
         <div className="compact-scoreboard sport-flechettes">
             {/* Header */}
             <div className="scoreboard-header flechettes-header">
+                {displayData.tournamentName && <span className="tournament-name">{displayData.tournamentName}</span>}
                 <span className="match-type">{displayData.matchType}</span>
                 {displayData.court && <span className="court">{displayData.court}</span>}
                 <span className="game-mode">{gameMode}</span>
@@ -622,6 +609,7 @@ function useDisplayData(match: Match, liveData: LiveData | null) {
                 matchType: liveData.matchType || match.label || match.match_type,
                 court: liveData.matchGround || match.court,
                 chrono: liveData.chrono,
+                tournamentName: match.tournament_name,
             };
         }
 
@@ -642,6 +630,7 @@ function useDisplayData(match: Match, liveData: LiveData | null) {
             matchType: match.label || match.match_type,
             court: match.court,
             chrono: undefined as string | undefined,
+            tournamentName: match.tournament_name,
         };
     }, [match, liveData]);
 }
@@ -716,6 +705,7 @@ export default function CompactScoreboard({ match, liveData, sport }: CompactSco
             return (
                 <div className={`compact-scoreboard sport-${sport}`}>
                     <div className="scoreboard-header">
+                        {displayData.tournamentName && <span className="tournament-name">{displayData.tournamentName}</span>}
                         <span className="match-type">{displayData.matchType}</span>
                         {displayData.court && <span className="court">{displayData.court}</span>}
                     </div>

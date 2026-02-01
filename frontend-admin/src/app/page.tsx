@@ -2,6 +2,122 @@
 
 import Link from "next/link";
 import { signOut } from "next-auth/react";
+import { useState, useRef, useEffect } from "react";
+import { usePermissions } from "../hooks/usePermissions";
+
+// Composant Avatar Utilisateur avec Dropdown
+function UserAvatar() {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const { userName, userRole, isAdmin, isLoading } = usePermissions();
+
+  // Fermer le dropdown si on clique en dehors
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  if (isLoading) return null;
+
+  // Initiales pour l'avatar
+  const initials = userName
+    ? userName.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2)
+    : "?";
+
+  // Couleur du badge selon le rôle
+  const roleBadgeColors: Record<string, string> = {
+    admin: "bg-red-100 text-red-700",
+    staff: "bg-blue-100 text-blue-700",
+    technicien: "bg-green-100 text-green-700",
+  };
+  const roleBadgeColor = roleBadgeColors[userRole || ""] || "bg-gray-100 text-gray-700";
+
+  return (
+    <div className="relative" ref={dropdownRef}>
+      {/* Bouton Avatar */}
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="flex items-center gap-2 p-1 rounded-full hover:bg-gray-200 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400"
+        title={userName || "Utilisateur"}
+      >
+        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm shadow-md">
+          {initials}
+        </div>
+      </button>
+
+      {/* Dropdown Menu */}
+      {isOpen && (
+        <div className="absolute right-0 mt-2 w-64 bg-white rounded-xl shadow-xl border border-gray-200 py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-200">
+          {/* Header avec infos utilisateur */}
+          <div className="px-4 py-3 border-b border-gray-100">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold">
+                {initials}
+              </div>
+              <div>
+                <p className="font-semibold text-gray-800">{userName || "Utilisateur"}</p>
+                <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${roleBadgeColor}`}>
+                  {userRole?.toUpperCase() || "INCONNU"}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Options du menu */}
+          <div className="py-1">
+            {/* Lien vers Mon Profil */}
+            <Link
+              href="/profil"
+              className="flex items-center gap-3 px-4 py-2 text-gray-700 hover:bg-gray-50 transition-colors"
+              onClick={() => setIsOpen(false)}
+            >
+              <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              </svg>
+              Mon profil
+            </Link>
+
+            {/* Gestion des utilisateurs - Admin uniquement */}
+            {isAdmin && (
+              <Link
+                href="/admin/utilisateurs"
+                className="flex items-center gap-3 px-4 py-2 text-gray-700 hover:bg-gray-50 transition-colors"
+                onClick={() => setIsOpen(false)}
+              >
+                <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
+                </svg>
+                Gérer les utilisateurs
+                <span className="ml-auto px-1.5 py-0.5 bg-red-100 text-red-600 text-xs rounded font-medium">
+                  Admin
+                </span>
+              </Link>
+            )}
+          </div>
+
+          {/* Séparateur */}
+          <div className="border-t border-gray-100 my-1"></div>
+
+          {/* Déconnexion */}
+          <button
+            onClick={() => signOut({ callbackUrl: "/login" })}
+            className="flex items-center gap-3 w-full px-4 py-2 text-red-600 hover:bg-red-50 transition-colors"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+            </svg>
+            Se déconnecter
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 const links = [
   {
@@ -102,26 +218,11 @@ const links = [
 export default function StaffHome() {
   return (
     <main className="min-h-screen bg-gray-100 flex flex-col items-center justify-center px-4 py-8 relative">
-      {/* Bouton de déconnexion */}
-      <button
-        onClick={() => signOut({ callbackUrl: "/login" })}
-        className="absolute top-4 right-4 p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-        title="Se déconnecter"
-      >
-        <svg
-          className="h-6 w-6"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
-          />
-        </svg>
-      </button>
+      {/* Avatar User avec dropdown (profil, déconnexion, admin) */}
+      <div className="absolute top-4 right-4">
+        <UserAvatar />
+      </div>
+
 
       <header className="mb-12 text-center">
         <img

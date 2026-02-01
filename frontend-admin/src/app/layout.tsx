@@ -1,6 +1,7 @@
 import { ReactNode } from "react";
 import "./globals.css";
 import { Metadata } from 'next';
+import { Providers } from "./providers";
 
 export const metadata: Metadata = {
   title: "Coupe de l'Université UCL",
@@ -14,9 +15,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="fr">
       <body>
-        <main className="min-h-screen flex flex-col">
-          {children}
-        </main>
+        <Providers>
+          <main className="min-h-screen flex flex-col">
+            {children}
+          </main>
+        </Providers>
       </body>
     </html>
   );

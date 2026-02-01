@@ -4,10 +4,11 @@ import Credentials from "next-auth/providers/credentials"
 // Roles disponibles
 export type UserRole = "admin" | "staff" | "technicien"
 
-// Extension du type Session pour inclure le role
+// Extension du type Session pour inclure le role et le token
 declare module "next-auth" {
   interface User {
     role: UserRole
+    accessToken?: string
   }
   interface Session {
     user: {
@@ -15,6 +16,14 @@ declare module "next-auth" {
       name: string
       role: UserRole
     } & DefaultSession["user"]
+    accessToken?: string
+  }
+}
+
+declare module "@auth/core/jwt" {
+  interface JWT {
+    role?: UserRole
+    accessToken?: string
   }
 }
 
@@ -30,28 +39,52 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         const username = credentials.username as string
         const password = credentials.password as string
 
-        // Verifier Admin
+        try {
+          // Essayer d'abord l'API backend
+          const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+          const response = await fetch(`${apiUrl}/auth/login`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ username, password }),
+          })
+
+          if (response.ok) {
+            const data = await response.json()
+            return {
+              id: data.user.id,
+              name: data.user.username,
+              role: data.user.role as UserRole,
+              accessToken: data.access_token,
+            }
+          }
+        } catch (error) {
+          console.log("Backend API not available, falling back to env credentials")
+        }
+
+        // Fallback: Verifier Admin via env
         if (
           username === process.env.ADMIN_USERNAME &&
           password === process.env.ADMIN_PASSWORD
         ) {
-          return { id: "1", name: "Admin", role: "admin" as UserRole }
+          return { id: "env_admin", name: "Admin", role: "admin" as UserRole }
         }
 
-        // Verifier Staff
+        // Fallback: Verifier Staff via env
         if (
           username === process.env.STAFF_USERNAME &&
           password === process.env.STAFF_PASSWORD
         ) {
-          return { id: "2", name: "Staff", role: "staff" as UserRole }
+          return { id: "env_staff", name: "Staff", role: "staff" as UserRole }
         }
 
-        // Verifier Technicien
+        // Fallback: Verifier Technicien via env
         if (
           username === process.env.TECHNICIAN_USERNAME &&
           password === process.env.TECHNICIAN_PASSWORD
         ) {
-          return { id: "3", name: "Technician", role: "technicien" as UserRole }
+          return { id: "env_tech", name: "Technician", role: "technicien" as UserRole }
         }
 
         return null
@@ -62,6 +95,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     async jwt({ token, user }) {
       if (user) {
         token.role = user.role
+        token.accessToken = user.accessToken
       }
       return token
     },
@@ -70,6 +104,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         session.user.role = token.role as UserRole
         session.user.id = token.sub || ""
       }
+      session.accessToken = token.accessToken
       return session
     },
   },
