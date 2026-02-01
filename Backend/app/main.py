@@ -25,7 +25,7 @@ from typing import Optional, List
 from sqlalchemy.orm import Session
 from app.db import get_db, init_db
 from app.config import settings
-from app.auth.permissions import require_admin, require_admin_or_staff, require_admin_staff_or_technician
+from app.auth.permissions import require_admin, require_admin_or_staff
 from app.exceptions import (
     AppException,
     app_exception_handler,
@@ -312,6 +312,7 @@ async def get_sport_by_id(
     response_model=dict,
     status_code=status.HTTP_201_CREATED,
     summary="Create a new sport",
+    dependencies=[Depends(require_admin)],
 )
 async def create_sport(
     name: str = Query(..., description="Le nom du sport", examples=["Football", "Basketball"]),
@@ -362,7 +363,8 @@ async def create_sport(
     "/sports/{sport_id}",
     tags=["Sports"],
     response_model=dict,
-    summary="Edit existing sport"
+    summary="Edit existing sport",
+    dependencies=[Depends(require_admin)],
 )
 async def update_sport(
     sport_id: int,
@@ -420,7 +422,8 @@ async def update_sport(
     "/sports/{sport_id}",
     tags=["Sports"],
     response_model=dict,
-    summary="Delete a sport"
+    summary="Delete a sport",
+    dependencies=[Depends(require_admin)],
 )
 async def delete_sport(
     sport_id: int,
@@ -507,6 +510,7 @@ async def get_team_by_id(
     response_model=dict,
     status_code=status.HTTP_201_CREATED,
     summary="Create a new team",
+    dependencies=[Depends(require_admin)],
 )
 async def create_team(
     name: str = Query(..., description="Le nom de l'équipe", examples=["JUNIA", "FGES"]),
@@ -534,6 +538,7 @@ async def create_team(
     tags=["Teams"],
     response_model=dict,
     summary="Edit existing team",
+    dependencies=[Depends(require_admin)],
 )
 async def update_team(
     team_id: int,
@@ -568,7 +573,8 @@ async def update_team(
     "/teams/{team_id}",
     tags=["Teams"],
     response_model=dict,
-    summary="Delete a team"
+    summary="Delete a team",
+    dependencies=[Depends(require_admin)],
 )
 async def delete_team(
     team_id: int,
@@ -622,7 +628,8 @@ async def get_team_sports(
     status_code=status.HTTP_201_CREATED,
     response_model=dict,
     summary="Register team to sports",
-    description="Crée une ou plusieurs inscriptions pour une équipe dans différents sports"
+    description="Crée une ou plusieurs inscriptions pour une équipe dans différents sports",
+    dependencies=[Depends(require_admin)],
 )
 async def create_team_sports(
     team_id: int,
@@ -701,7 +708,8 @@ async def create_team_sports(
     status_code=status.HTTP_200_OK,
     response_model=dict,
     summary="Delete team sport registration",
-    description="Désincrit complètement une équipe d'un sport"
+    description="Désincrit complètement une équipe d'un sport",
+    dependencies=[Depends(require_admin)],
 )
 async def delete_team_sport(
     team_id: int,
@@ -737,7 +745,8 @@ async def delete_team_sport(
     tags=["TeamSport"],
     response_model=dict,
     summary="Update team sport registration",
-    description="Met à jour le statut (actif/inactif) ou le nom spécifique d'une inscription"
+    description="Met à jour le statut (actif/inactif) ou le nom spécifique d'une inscription",
+    dependencies=[Depends(require_admin)],
 )
 async def update_team_sport(
     team_id: int,
@@ -889,7 +898,7 @@ async def get_court_by_id(court_id: int, db: Session = Depends(get_db)):
         message="Terrain récupéré avec succès"
     )
 
-@app.post("/courts", status_code=status.HTTP_201_CREATED, tags=["Courts"])
+@app.post("/courts", status_code=status.HTTP_201_CREATED, tags=["Courts"], dependencies=[Depends(require_admin)])
 async def create_court(
     name: str = Query(..., description="Nom du terrain"),
     sport_id: Optional[int] = Query(None, description="ID du sport principal associé (optionnel)"),
@@ -922,7 +931,7 @@ async def create_court(
         logger.error(f"Error creating court: {str(e)}")
         raise
 
-@app.put("/courts/{court_id}", status_code=status.HTTP_200_OK, tags=["Courts"])
+@app.put("/courts/{court_id}", status_code=status.HTTP_200_OK, tags=["Courts"], dependencies=[Depends(require_admin)])
 async def update_court(
     court_id: int,
     name: Optional[str] = Query(None, description="Nom du terrain"),
@@ -970,7 +979,7 @@ async def update_court(
         logger.error(f"Error updating court: {str(e)}")
         raise
 
-@app.patch("/courts/{court_id}", status_code=status.HTTP_200_OK, tags=["Courts"])
+@app.patch("/courts/{court_id}", status_code=status.HTTP_200_OK, tags=["Courts"], dependencies=[Depends(require_admin)])
 async def partial_update_court(court_id: int, payload: CourtUpdate, db: Session = Depends(get_db)):
     """
     Modifie partiellement un terrain
@@ -1010,7 +1019,7 @@ async def partial_update_court(court_id: int, payload: CourtUpdate, db: Session 
         logger.error(f"Error updating court: {str(e)}")
         raise
 
-@app.delete("/courts/{court_id}", status_code=status.HTTP_200_OK, tags=["Courts"])
+@app.delete("/courts/{court_id}", status_code=status.HTTP_200_OK, tags=["Courts"], dependencies=[Depends(require_admin)])
 async def delete_court(court_id: int, db: Session = Depends(get_db)):
     """
     Supprime un terrain
@@ -1087,7 +1096,7 @@ async def get_tournament_by_id(
 
 from app.schemas.tournament import TournamentCreate, TournamentUpdate
 
-@app.patch("/tournaments/{tournament_id}", tags=["Tournaments"])
+@app.patch("/tournaments/{tournament_id}", tags=["Tournaments"], dependencies=[Depends(require_admin)])
 async def update_tournament(
     tournament_id: int,
     tournament_update: TournamentUpdate,
@@ -1536,7 +1545,7 @@ async def update_tournament(
         message="Tournoi mis à jour avec succès"
     )
 
-@app.delete("/tournaments/{tournament_id}", tags=["Tournaments"])
+@app.delete("/tournaments/{tournament_id}", tags=["Tournaments"], dependencies=[Depends(require_admin)])
 async def delete_tournament(
     tournament_id: int,
     db: Session = Depends(get_db),
@@ -1914,7 +1923,7 @@ async def get_tournament_phase_by_id(
         message="Phase du tournoi récupérée avec succès"
     )
 
-@app.post("/tournament-phases", tags=["TournamentPhases"], status_code=status.HTTP_201_CREATED)
+@app.post("/tournament-phases", tags=["TournamentPhases"], status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_admin)])
 async def create_tournament_phase(
     phase: TournamentPhaseCreate,
     db: Session = Depends(get_db),
@@ -1935,7 +1944,7 @@ async def create_tournament_phase(
         message="Phase de tournoi créée avec succès"
     )
 
-@app.patch("/tournament-phases/{phase_id}", tags=["TournamentPhases"])
+@app.patch("/tournament-phases/{phase_id}", tags=["TournamentPhases"], dependencies=[Depends(require_admin)])
 async def update_tournament_phase(
     phase_id: int,
     phase_update: TournamentPhaseUpdate,
@@ -1958,7 +1967,7 @@ async def update_tournament_phase(
         message="Phase de tournoi mise à jour avec succès"
     )
 
-@app.delete("/tournament-phases/{phase_id}", tags=["TournamentPhases"])
+@app.delete("/tournament-phases/{phase_id}", tags=["TournamentPhases"], dependencies=[Depends(require_admin)])
 async def delete_tournament_phase(
     phase_id: int,
     db: Session = Depends(get_db),
@@ -2011,7 +2020,7 @@ async def get_pool(pool_id: int, db: Session = Depends(get_db)):
         message="Poule récupérée avec succès"
     )
 
-@app.post("/pools", tags=["Pools"], status_code=status.HTTP_201_CREATED)
+@app.post("/pools", tags=["Pools"], status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_admin)])
 async def create_pool(
     pool: PoolCreate,
     db: Session = Depends(get_db),
@@ -2032,7 +2041,7 @@ async def create_pool(
         message="Poule créée avec succès"
     )
 
-@app.patch("/pools/{pool_id}", tags=["Pools"])
+@app.patch("/pools/{pool_id}", tags=["Pools"], dependencies=[Depends(require_admin)])
 async def update_pool(
     pool_id: int,
     pool_update: PoolUpdate,
@@ -2055,7 +2064,7 @@ async def update_pool(
         message="Poule mise à jour avec succès"
     )
 
-@app.delete("/pools/{pool_id}", tags=["Pools"])
+@app.delete("/pools/{pool_id}", tags=["Pools"], dependencies=[Depends(require_admin)])
 async def delete_pool(
     pool_id: int,
     db: Session = Depends(get_db),
@@ -2145,7 +2154,7 @@ async def get_team_pool(team_pool_id: int, db: Session = Depends(get_db)):
         message="Équipe-poule récupérée avec succès"
     )
 
-@app.post("/pools/{pool_id}/recalculate-standings", response_model=dict, tags=["Pools"])
+@app.post("/pools/{pool_id}/recalculate-standings", response_model=dict, tags=["Pools"], dependencies=[Depends(require_admin)])
 async def recalculate_pool_standings(pool_id: int, db: Session = Depends(get_db)):
     """Recalcule manuellement le classement d'une poule (utile si des données ont été corrigées)"""
     pool = db.query(Pool).filter(Pool.id == pool_id).first()
@@ -2234,7 +2243,7 @@ async def get_match(match_id: int, db: Session = Depends(get_db)):
 
 from app.schemas.match import MatchCreate, MatchUpdate
 
-@app.post("/matches", tags=["Matches"], status_code=status.HTTP_201_CREATED)
+@app.post("/matches", tags=["Matches"], status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_admin)])
 async def create_match(
     match: MatchCreate,
     db: Session = Depends(get_db),
@@ -2265,7 +2274,7 @@ async def create_match(
         message="Match créé avec succès"
     )
 
-@app.delete("/matches/{match_id}", tags=["Matches"])
+@app.delete("/matches/{match_id}", tags=["Matches"], dependencies=[Depends(require_admin)])
 async def delete_match(
     match_id: int,
     db: Session = Depends(get_db),
@@ -2295,7 +2304,7 @@ async def get_match_sets(match_id: int, db: Session = Depends(get_db)):
         message="Sets du match récupérés avec succès"
     )
 
-@app.patch("/matches/{match_id}", response_model=dict, tags=["Matches"])
+@app.patch("/matches/{match_id}", response_model=dict, tags=["Matches"], dependencies=[Depends(require_admin_or_staff)])
 async def update_match(
     match_id: int,
     match_update: MatchUpdate,
@@ -2481,7 +2490,7 @@ async def update_match(
         message="Match mis à jour avec succès"
     )
 
-@app.post("/matches/{match_id}/status", response_model=dict, tags=["Matches"])
+@app.post("/matches/{match_id}/status", response_model=dict, tags=["Matches"], dependencies=[Depends(require_admin_or_staff)])
 async def update_match_status(
     match_id: int,
     status: str = Body(..., embed=True),
@@ -2501,7 +2510,7 @@ async def update_match_status(
         message="Statut du match mis à jour avec succès"
     )
 
-@app.patch("/matches/{match_id}/status", response_model=dict, tags=["Matches"])
+@app.patch("/matches/{match_id}/status", response_model=dict, tags=["Matches"], dependencies=[Depends(require_admin_or_staff)])
 async def patch_match_status(
     match_id: int,
     status: str = Body(..., embed=True),
@@ -2576,7 +2585,7 @@ async def get_matches(
 # === NOUVEAU ENDPOINT POUR CREER/MODIFIER LA PLANIFICATION D'UN MATCH ===
 from app.services.matchschedule_service import MatchScheduleService
 
-@app.post("/matches/{match_id}/schedule", response_model=dict, tags=["MatchSchedule"], status_code=201)
+@app.post("/matches/{match_id}/schedule", response_model=dict, tags=["MatchSchedule"], status_code=201, dependencies=[Depends(require_admin)])
 async def create_match_schedule(
     match_id: int,
     payload: MatchScheduleCreate,
@@ -2627,7 +2636,7 @@ async def get_match_schedule(match_id: int, db: Session = Depends(get_db)):
         message="Planification du match récupérée avec succès"
     )
 
-@app.put("/matches/{match_id}/schedule", response_model=dict, tags=["MatchSchedule"])
+@app.put("/matches/{match_id}/schedule", response_model=dict, tags=["MatchSchedule"], dependencies=[Depends(require_admin)])
 async def update_match_schedule(
     match_id: int,
     payload: MatchScheduleUpdate,
@@ -2650,7 +2659,7 @@ async def get_court_schedule(court_id: int, db: Session = Depends(get_db)):
         message="Planification du terrain récupérée avec succès"
     )
 
-@app.delete("/matches/{match_id}/schedule", response_model=dict, tags=["MatchSchedule"])
+@app.delete("/matches/{match_id}/schedule", response_model=dict, tags=["MatchSchedule"], dependencies=[Depends(require_admin)])
 async def delete_match_schedule(match_id: int, db: Session = Depends(get_db)):
     """Supprime la planification d'un match"""
     schedule = db.query(MatchSchedule).filter(MatchSchedule.match_id == match_id).first()
@@ -2707,7 +2716,7 @@ def get_match_duration(db: Session, match_id: int) -> int:
     return 90  # Valeur par défaut
 
 
-@app.post("/tournaments/{tournament_id}/reset-matches", tags=["Tournaments"])
+@app.post("/tournaments/{tournament_id}/reset-matches", tags=["Tournaments"], dependencies=[Depends(require_admin)])
 async def reset_tournament_matches(
     tournament_id: int,
     db: Session = Depends(get_db)
@@ -2750,7 +2759,7 @@ async def reset_tournament_matches(
     )
 
 
-@app.post("/tournaments/{tournament_id}/propagate-results", tags=["Tournaments"])
+@app.post("/tournaments/{tournament_id}/propagate-results", tags=["Tournaments"], dependencies=[Depends(require_admin_or_staff)])
 async def propagate_tournament_results(
     tournament_id: int,
     db: Session = Depends(get_db)
@@ -2944,7 +2953,7 @@ async def propagate_tournament_results(
     }, message=f"Successfully propagated {propagated_count} match results")
 
 
-@app.delete("/tournaments/{tournament_id}/reset", tags=["Tournaments"])
+@app.delete("/tournaments/{tournament_id}/reset", tags=["Tournaments"], dependencies=[Depends(require_admin)])
 async def reset_tournament_structure(
     tournament_id: int,
     db: Session = Depends(get_db)
@@ -3002,7 +3011,7 @@ async def reset_tournament_structure(
         message=f"Tournament structure reset: {deleted_matches} matches, {deleted_pools} pools, {deleted_phases} phases deleted"
     )
 
-@app.get("/tournaments/{tournament_id}/matches")
+@app.get("/tournaments/{tournament_id}/matches", tags=["Tournaments"])
 def get_matches_by_tournament(
     tournament_id: int,
     db: Session = Depends(get_db)
@@ -3039,7 +3048,7 @@ class LiveScoreUpdate(BaseModel):
     data: Dict[str, Any]  # Sport-specific score data
 
 
-@app.post("/matches/{match_id}/live-score", tags=["LiveScore"])
+@app.post("/matches/{match_id}/live-score", tags=["LiveScore"], dependencies=[Depends(require_admin_or_staff)])
 async def update_live_score(
     match_id: int,
     update: LiveScoreUpdate,

@@ -15,14 +15,14 @@ const ROUTE_PERMISSIONS: Record<string, UserRole[]> = {
   "/choix-sport": ["admin", "staff"],
   "/choix-sport/tournaments": ["admin", "staff"],
 
-  // Table de marquage (scores en direct) : admin et technicien
-  "/choix-sport/tournaments/table-marquage": ["admin", "technicien"],
+  // Table de marquage (scores en direct) : admin, staff et technicien
+  "/choix-sport/tournaments/table-marquage": ["admin", "staff", "technicien"],
 
   // Tableau des scores finaux : admin, staff et technicien
   "/tableau-scores": ["admin", "staff", "technicien"],
 
-  // Scores en direct : admin et technicien
-  "/scores-direct": ["admin", "technicien"],
+  // Scores en direct : admin, staff et technicien
+  "/scores-direct": ["admin", "staff", "technicien"],
 
   // Page d'accueil : tous les roles authentifies
   "/": ["admin", "staff", "technicien"],

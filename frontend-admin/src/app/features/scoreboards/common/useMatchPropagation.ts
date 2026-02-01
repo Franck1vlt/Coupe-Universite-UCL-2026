@@ -9,6 +9,9 @@
  * Il est utilisé par tous les hooks de sport (useBadmintonMatch, useFootballMatch, etc.)
  */
 
+import { useSession } from 'next-auth/react';
+import { useCallback } from 'react';
+
 export interface MatchResultPayload {
     score_a: number;
     score_b: number;
@@ -28,6 +31,7 @@ export interface SubmitResultOptions {
     matchId: string;
     tournamentId?: string | number;
     payload: MatchResultPayload;
+    token?: string;
     onSuccess?: (result: PropagationResult) => void;
     onError?: (error: string) => void;
 }
@@ -73,15 +77,23 @@ export async function getTournamentIdFromMatch(matchId: string): Promise<number 
  * Cela assignera automatiquement les vainqueurs et perdants à leurs matchs suivants
  * en utilisant les winner_destination_slot et loser_destination_slot configurés
  */
-export async function propagateTournamentResults(tournamentId: string | number): Promise<PropagationResult> {
+export async function propagateTournamentResults(
+    tournamentId: string | number,
+    token?: string
+): Promise<PropagationResult> {
     try {
         console.log('[useMatchPropagation] Starting propagation for tournament:', tournamentId);
 
+        const headers: HeadersInit = {
+            'Content-Type': 'application/json',
+        };
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+
         const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/tournaments/${tournamentId}/propagate-results`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
+            headers,
         });
 
         if (!response.ok) {
@@ -123,12 +135,20 @@ export async function propagateTournamentResults(tournamentId: string | number):
  */
 export async function updateMatchStatus(
     matchId: string,
-    status: 'scheduled' | 'in_progress' | 'completed'
+    status: 'scheduled' | 'in_progress' | 'completed',
+    token?: string
 ): Promise<boolean> {
     try {
+        const headers: HeadersInit = {
+            'Content-Type': 'application/json',
+        };
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+
         const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/matches/${matchId}/status`, {
             method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
+            headers,
             body: JSON.stringify({ status }),
         });
 
@@ -156,7 +176,7 @@ export async function updateMatchStatus(
 export async function submitMatchResultWithPropagation(
     options: SubmitResultOptions
 ): Promise<PropagationResult> {
-    const { matchId, tournamentId, payload, onSuccess, onError } = options;
+    const { matchId, tournamentId, payload, token, onSuccess, onError } = options;
 
     try {
         console.log('[useMatchPropagation] === SUBMITTING MATCH RESULT ===');
@@ -193,9 +213,16 @@ export async function submitMatchResultWithPropagation(
         console.log('[useMatchPropagation] Final payload:', finalPayload);
 
         // 3. Envoyer la mise à jour du match (cela déclenche la propagation côté backend)
+        const updateHeaders: HeadersInit = {
+            'Content-Type': 'application/json',
+        };
+        if (token) {
+            updateHeaders['Authorization'] = `Bearer ${token}`;
+        }
+
         const updateResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/matches/${matchId}`, {
             method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
+            headers: updateHeaders,
             body: JSON.stringify(finalPayload),
         });
 
@@ -224,7 +251,7 @@ export async function submitMatchResultWithPropagation(
             // Petit délai pour laisser le temps au backend de traiter
             await new Promise(resolve => setTimeout(resolve, 300));
 
-            propagationResult = await propagateTournamentResults(finalTournamentId);
+            propagationResult = await propagateTournamentResults(finalTournamentId, token);
             console.log('[useMatchPropagation] Propagation result:', propagationResult);
         } else {
             console.log('[useMatchPropagation] No tournament_id, skipping explicit propagation');

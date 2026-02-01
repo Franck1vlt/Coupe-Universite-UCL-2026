@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { useMatchSSE, type LiveScoreData } from "../features/scoreboards/common/useMatchSSE";
+import { useRouter } from "next/navigation";
 
 // --- TYPES ---
 // Basé sur votre modèle Match dans match.py
@@ -90,6 +91,7 @@ export default function ScoresDirectPage() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [liveScores, setLiveScores] = useState<Map<number, LiveScoreData>>(new Map());
+  const router = useRouter();
 
   // URL de l'API (ajustez si nécessaire)
   const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -232,9 +234,31 @@ export default function ScoresDirectPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 p-4 md:p-8">
+            {/* Bouton retour */}
+      <button
+        onClick={() => router.push("/")}
+        className="absolute left-4 top-4 flex items-center gap-2 bg-white rounded-full shadow px-4 py-2 hover:bg-blue-50 transition focus:outline-none focus:ring-2 focus:ring-blue-400"
+        aria-label="Retour"
+      >
+        <svg
+          className="w-5 h-5 text-blue-600"
+          fill="none"
+          viewBox="0 0 20 20"
+          stroke="currentColor"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M12 4l-6 6m0 0l6 6m-6-6h14"
+          />
+        </svg>
+        <span className="text-blue-700 font-medium">Retour</span>
+      </button>
+      
       {/* En-tête */}
       <div className="max-w-7xl mx-auto mb-8">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex flex-col items-center justify-center gap-4 text-center">
           <div>
             <h1 className="text-3xl font-bold text-white">Scores en Direct</h1>
             <p className="text-sm text-gray-400 mt-1">
@@ -242,7 +266,7 @@ export default function ScoresDirectPage() {
             </p>
           </div>
 
-          <div className={`flex items-center px-4 py-2 rounded-full border w-fit ${
+          <div className={`absolute right-4 top-4 flex items-center px-4 py-2 rounded-full border w-fit ${
             connectionState.isConnected
               ? 'bg-green-900/50 border-green-500'
               : connectionState.isConnecting

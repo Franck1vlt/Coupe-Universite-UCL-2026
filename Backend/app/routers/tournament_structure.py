@@ -5,6 +5,7 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 from fastapi import APIRouter, Depends, Body, Path, HTTPException
 from sqlalchemy.orm import Session
+from app.auth.permissions import require_admin, require_admin_or_staff
 from pydantic import BaseModel, Field
 from datetime import datetime
 from app.db import get_db
@@ -131,7 +132,7 @@ class TournamentCreate(BaseModel):
     image_url: Optional[str] = None
 
 # --- 1. CRÉATION D'UN TOURNOI ---
-@router.post("/tournaments")
+@router.post("/tournaments", dependencies=[Depends(require_admin)])
 def create_tournament(
     tournament_data: TournamentCreate,
     db: Session = Depends(get_db)
@@ -269,7 +270,7 @@ def list_tournaments(
     }
 
 # --- 3. STRUCTURE D'UN TOURNOI - POST : CRÉATION / MISE À JOUR ---
-@router.post("/tournaments/{tournament_id}/structure")
+@router.post("/tournaments/{tournament_id}/structure", dependencies=[Depends(require_admin)])
 def create_tournament_structure(
     tournament_id: int = Path(...),
     structure: TournamentStructureCreate = Body(...),
@@ -886,7 +887,7 @@ def get_tournament_structure(
 
 
 
-@router.post("/tournaments/{tournament_id}/propagate-results")
+@router.post("/tournaments/{tournament_id}/propagate-results", dependencies=[Depends(require_admin_or_staff)])
 def propagate_tournament_results(
     tournament_id: int = Path(..., description="ID du tournoi"),
     db: Session = Depends(get_db)
@@ -1263,7 +1264,7 @@ def propagate_tournament_results(
     }, message=f"Successfully propagated {propagated_count} match results")
 
 
-@router.delete("/tournaments/{tournament_id}/structure")
+@router.delete("/tournaments/{tournament_id}/structure", dependencies=[Depends(require_admin)])
 def delete_tournament_structure(
     tournament_id: int = Path(..., description="ID du tournoi"),
     db: Session = Depends(get_db)
@@ -1326,7 +1327,7 @@ def delete_tournament_structure(
     )
 
 
-@router.delete("/tournaments/{tournament_id}/matches")
+@router.delete("/tournaments/{tournament_id}/matches", dependencies=[Depends(require_admin)])
 def delete_tournament_matches_only(
     tournament_id: int = Path(..., description="ID du tournoi"),
     db: Session = Depends(get_db)

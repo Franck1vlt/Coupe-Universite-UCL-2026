@@ -4,8 +4,10 @@ Gère la connexion et la génération de tokens JWT
 """
 from datetime import datetime, timedelta
 from typing import Optional
+from collections import defaultdict
+import time
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -20,6 +22,79 @@ from app.models.user import User
 
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+
+# === Rate Limiting ===
+
+class RateLimiter:
+    """
+    Rate limiter simple basé sur l'IP
+    Limite le nombre de tentatives de connexion par IP
+    """
+    def __init__(self, max_attempts: int = 5, window_seconds: int = 300):
+        """
+        Args:
+            max_attempts: Nombre maximum de tentatives autorisées
+            window_seconds: Fenêtre de temps en secondes (défaut: 5 minutes)
+        """
+        self.max_attempts = max_attempts
+        self.window_seconds = window_seconds
+        self.attempts: dict[str, list[float]] = defaultdict(list)
+
+    def _clean_old_attempts(self, ip: str):
+        """Nettoie les tentatives expirées"""
+        now = time.time()
+        self.attempts[ip] = [
+            attempt for attempt in self.attempts[ip]
+            if now - attempt < self.window_seconds
+        ]
+
+    def is_rate_limited(self, ip: str) -> bool:
+        """Vérifie si l'IP est rate limitée"""
+        self._clean_old_attempts(ip)
+        return len(self.attempts[ip]) >= self.max_attempts
+
+    def record_attempt(self, ip: str):
+        """Enregistre une tentative de connexion"""
+        self._clean_old_attempts(ip)
+        self.attempts[ip].append(time.time())
+
+    def get_remaining_time(self, ip: str) -> int:
+        """Retourne le temps restant avant déblocage en secondes"""
+        if not self.attempts[ip]:
+            return 0
+        oldest_attempt = min(self.attempts[ip])
+        remaining = self.window_seconds - (time.time() - oldest_attempt)
+        return max(0, int(remaining))
+
+    def reset(self, ip: str):
+        """Réinitialise les tentatives pour une IP (après connexion réussie)"""
+        self.attempts[ip] = []
+
+
+# Instance globale du rate limiter (5 tentatives par 5 minutes)
+login_rate_limiter = RateLimiter(max_attempts=5, window_seconds=300)
+
+
+def get_client_ip(request: Request) -> str:
+    """Récupère l'IP du client (supporte les proxys)"""
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+async def check_rate_limit(request: Request):
+    """Dépendance FastAPI pour vérifier le rate limit"""
+    ip = get_client_ip(request)
+
+    if login_rate_limiter.is_rate_limited(ip):
+        remaining_time = login_rate_limiter.get_remaining_time(ip)
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Trop de tentatives de connexion. Réessayez dans {remaining_time} secondes.",
+            headers={"Retry-After": str(remaining_time)}
+        )
 
 
 # === Schémas Pydantic ===
@@ -192,8 +267,8 @@ def verify_credentials(db: Session, username: str, password: str) -> Optional[di
 
 # === Endpoints ===
 
-@router.post("/login", response_model=TokenResponse)
-async def login(login_data: LoginRequest, db: Session = Depends(get_db)):
+@router.post("/login", response_model=TokenResponse, dependencies=[Depends(check_rate_limit)])
+async def login(login_data: LoginRequest, request: Request, db: Session = Depends(get_db)):
     """
     Authentifie un utilisateur et retourne un token JWT
 
@@ -202,15 +277,23 @@ async def login(login_data: LoginRequest, db: Session = Depends(get_db)):
     - username: Nom d'utilisateur
     - role: Rôle (admin, staff, technicien)
     - exp: Date d'expiration
+
+    Rate limit: 5 tentatives par 5 minutes par IP
     """
+    ip = get_client_ip(request)
     user_data = verify_credentials(db, login_data.username, login_data.password)
 
     if not user_data:
+        # Enregistrer la tentative échouée
+        login_rate_limiter.record_attempt(ip)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Identifiants incorrects",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    # Connexion réussie : réinitialiser le compteur
+    login_rate_limiter.reset(ip)
 
     # Créer le token
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -235,23 +318,32 @@ async def login(login_data: LoginRequest, db: Session = Depends(get_db)):
     )
 
 
-@router.post("/token")
+@router.post("/token", dependencies=[Depends(check_rate_limit)])
 async def login_for_access_token(
+    request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db)
 ):
     """
     Endpoint compatible OAuth2 pour obtenir un token
     Utilise le format standard OAuth2 avec form-data
+
+    Rate limit: 5 tentatives par 5 minutes par IP
     """
+    ip = get_client_ip(request)
     user_data = verify_credentials(db, form_data.username, form_data.password)
 
     if not user_data:
+        # Enregistrer la tentative échouée
+        login_rate_limiter.record_attempt(ip)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Identifiants incorrects",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    # Connexion réussie : réinitialiser le compteur
+    login_rate_limiter.reset(ip)
 
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(

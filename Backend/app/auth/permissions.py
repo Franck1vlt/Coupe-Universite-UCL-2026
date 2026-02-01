@@ -31,8 +31,8 @@ ROUTE_PERMISSIONS = {
     # Tableau des scores finaux : admin, staff et technicien
     "scores_finaux": [Role.ADMIN, Role.STAFF, Role.TECHNICIEN],
 
-    # Scores en direct : admin et technicien
-    "scores_direct": [Role.ADMIN, Role.TECHNICIEN],
+    # Scores en direct : admin, staff et technicien
+    "scores_direct": [Role.ADMIN, Role.STAFF, Role.TECHNICIEN],
 
     # Gestion des équipes : admin et staff
     "gestion_equipes": [Role.ADMIN, Role.STAFF],
@@ -199,19 +199,3 @@ require_admin = require_roles([Role.ADMIN])
 require_admin_or_staff = require_roles([Role.ADMIN, Role.STAFF])
 require_admin_or_technicien = require_roles([Role.ADMIN, Role.TECHNICIEN])
 require_any_authenticated = require_roles([Role.ADMIN, Role.STAFF, Role.TECHNICIEN])
-
-def require_admin(current_user=Depends(get_current_user)):
-    if not current_user or current_user.role != "admin":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin only")
-
-def require_admin_or_staff(current_user=Depends(get_current_user)):
-    if not current_user or current_user.role not in ("admin", "staff"):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin or staff only")
-
-def require_admin_staff_or_technician(current_user=Depends(get_current_user)):
-    if not current_user or current_user.role not in ("admin", "staff", "technicien"):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin, staff or technicien only")
-
-def require_authenticated(current_user=Depends(get_current_user)):
-    if not current_user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")

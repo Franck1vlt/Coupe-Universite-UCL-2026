@@ -11,6 +11,7 @@
  */
 
 import { useRef, useCallback } from 'react';
+import { useSession } from 'next-auth/react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
@@ -46,6 +47,7 @@ async function sendLiveScoreToBackend(
     matchId: string,
     sport: LiveScoreSport,
     payload: LiveScorePayload,
+    token?: string,
     retryCount = 0
 ): Promise<boolean> {
     try {
@@ -54,11 +56,18 @@ async function sendLiveScoreToBackend(
             payload
         });
 
+        const headers: HeadersInit = {
+            'Content-Type': 'application/json',
+        };
+
+        // Ajouter le token d'authentification si disponible
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+
         const response = await fetch(`${API_URL}/matches/${matchId}/live-score`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
+            headers,
             body: JSON.stringify({
                 sport,
                 data: payload,
@@ -78,7 +87,7 @@ async function sendLiveScoreToBackend(
 
         if (retryCount < MAX_RETRIES) {
             await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
-            return sendLiveScoreToBackend(matchId, sport, payload, retryCount + 1);
+            return sendLiveScoreToBackend(matchId, sport, payload, token, retryCount + 1);
         }
 
         console.error('[useLiveScoreSync] Max retries reached, giving up');
@@ -90,6 +99,10 @@ async function sendLiveScoreToBackend(
  * Hook pour synchroniser les scores en temps réel avec le backend
  */
 export function useLiveScoreSync() {
+    // Récupérer le token de la session NextAuth
+    const { data: session } = useSession();
+    const token = (session as { accessToken?: string } | null)?.accessToken;
+
     // Ref pour stocker les timers de debounce par matchId
     const debounceTimers = useRef<Map<string, NodeJS.Timeout>>(new Map());
 
@@ -147,9 +160,9 @@ export function useLiveScoreSync() {
             // Update last payload
             lastPayloads.current.set(matchId, currentPayloadString);
 
-            // Send to backend
+            // Send to backend with auth token
             console.log(`[useLiveScoreSync] Sending score for match ${matchId} NOW`);
-            const success = await sendLiveScoreToBackend(matchId, sport, payload);
+            const success = await sendLiveScoreToBackend(matchId, sport, payload, token);
 
             if (success) {
                 console.log(`[useLiveScoreSync] Score synced for match ${matchId}`);
@@ -157,7 +170,7 @@ export function useLiveScoreSync() {
         }, DEBOUNCE_DELAY);
 
         debounceTimers.current.set(matchId, timer);
-    }, []);
+    }, [token]);
 
     /**
      * Force un envoi immédiat (sans debounce)
@@ -180,9 +193,9 @@ export function useLiveScoreSync() {
         // Update last payload
         lastPayloads.current.set(matchId, JSON.stringify(payload));
 
-        // Send immediately
-        return sendLiveScoreToBackend(matchId, sport, payload);
-    }, []);
+        // Send immediately with auth token
+        return sendLiveScoreToBackend(matchId, sport, payload, token);
+    }, [token]);
 
     /**
      * Nettoie les ressources pour un match (à appeler lors de l'unmount)

@@ -15,8 +15,8 @@ export const PERMISSIONS = {
   // Tableau des scores finaux : admin, staff et technicien
   scores_finaux: ["admin", "staff", "technicien"] as UserRole[],
 
-  // Scores en direct : admin et technicien
-  scores_direct: ["admin", "technicien"] as UserRole[],
+  // Scores en direct : admin, staff et technicien
+  scores_direct: ["admin", "staff", "technicien"] as UserRole[],
 
   // Gestion des equipes : admin et staff
   gestion_equipes: ["admin", "staff"] as UserRole[],
