@@ -1,0 +1,89 @@
+.score-board-container {
+    width: 100%;
+    max-width: 1200px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    color: #000;
+}
+
+/* Chrono Fluide */
+.remaining-time {
+    font-size: clamp(3rem, 12vw, 10rem);
+    font-weight: 800;
+    color: #48bb78;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+}
+
+/* Colonnes Équipes */
+.team-column {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+}
+
+.logo-wrapper {
+    width: clamp(60px, 15vw, 160px);
+    height: clamp(60px, 15vw, 160px);
+    position: relative;
+}
+
+.team-logo {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    filter: drop-shadow(0 10px 15px rgba(0,0,0,0.2));
+}
+
+.team-name {
+    font-size: clamp(0.9rem, 2.5vw, 2.2rem);
+    font-weight: 700;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+/* Score Central */
+.score-display {
+    display: flex;
+    align-items: center;
+    font-size: clamp(4rem, 18vw, 14rem);
+    font-weight: 900;
+    line-height: 1;
+}
+
+/* Infos et Cartons */
+.match-infos {
+    display: flex; 
+    gap: clamp(1rem, 2vw, 1.8rem);
+    margin-top: 2rem;
+    font-size: clamp(1rem, 2vw, 1.8rem);
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.cards-row {
+    width: 100%;
+    display: flex;
+    justify-content: space-around;
+    margin-top: 1.5rem;
+}
+
+.card-group {
+    font-size: clamp(1.2rem, 3vw, 2.5rem);
+    font-weight: 700;
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.card-icon {
+    font-size: 0.8em;
+}
+
+/* Animations */
+.score-change {
+    animation: scoreUpdate 0.5s ease-in-out;
+}

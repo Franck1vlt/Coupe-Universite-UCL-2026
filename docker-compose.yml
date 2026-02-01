@@ -1,0 +1,76 @@
+version: '3.10'
+
+services:
+  traefik:
+    image: traefik:v3.0
+    container_name: coupe-traefik
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"  # Dashboard Traefik
+    volumes:
+      - //var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./traefik/acme.json:/etc/traefik/acme.json
+    networks:
+      - coupe-network
+
+  backend:
+    container_name: coupe-backend
+    build: ./backend
+    restart: unless-stopped
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    volumes:
+      - ./data:/app/data
+    environment:
+      - DATABASE_PATH=/app/data/coupe_ucl_2026.db
+    expose:
+      - "8000"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.backend.rule=Host(`api.${DOMAIN}`)"
+      - "traefik.http.routers.backend.entrypoints=websecure"
+      - "traefik.http.routers.backend.tls.certresolver=letsencrypt"
+      - "traefik.http.services.backend.loadbalancer.server.port=8000"
+    networks:
+      - coupe-network
+
+  frontend-public:
+    container_name: coupe-frontend-public
+    build: ./frontend-public
+    restart: unless-stopped
+    command: ["npm", "start", "--", "-p", "3100"]
+    expose:
+      - "3100"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.public.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.public.entrypoints=websecure"
+      - "traefik.http.routers.public.tls.certresolver=letsencrypt"
+      - "traefik.http.services.public.loadbalancer.server.port=3100"
+    networks:
+      - coupe-network
+
+  frontend-admin:
+    container_name: coupe-frontend-admin
+    build: ./frontend-admin
+    restart: unless-stopped
+    command: ["npm", "start", "--", "-p", "3000"]
+    expose:
+      - "3000"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.admin.rule=Host(`admin.${DOMAIN}`)"
+      - "traefik.http.routers.admin.entrypoints=websecure"
+      - "traefik.http.routers.admin.tls.certresolver=letsencrypt"
+      - "traefik.http.services.admin.loadbalancer.server.port=3000"
+    networks:
+      - coupe-network
+
+networks:
+  coupe-network:
+    driver: bridge
+
+volumes:
+  data:
