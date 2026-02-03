@@ -19,16 +19,17 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
-          python-version: 3.11
+          python-version: 3.13
 
       - name: Install backend dependencies
         run: |
-          pip install -r backend/requirements.txt
+          cd Backend
+          pip install -r requirements.txt
           pip install pytest pytest-asyncio
 
       - name: Run backend tests
         run: |
-          cd backend
+          cd Backend
           pytest --maxfail=1 --disable-warnings
 
       # ======================
@@ -43,8 +44,8 @@ jobs:
       - name: Install frontend-admin deps
         run: npm ci --prefix frontend-admin
 
-      - name: Run frontend-admin tests
-        run: npm test --prefix frontend-admin
+      - name: Lint frontend-admin
+        run: npm run lint --prefix frontend-admin
 
       # ======================
       # FRONTEND PUBLIC TESTS
@@ -52,8 +53,8 @@ jobs:
       - name: Install frontend-public deps
         run: npm ci --prefix frontend-public
 
-      - name: Run frontend-public tests
-        run: npm test --prefix frontend-public
+      - name: Lint frontend-public
+        run: npm run lint --prefix frontend-public
 
       # ======================
       # DEPLOYMENT

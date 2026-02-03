@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { useSession } from "next-auth/react";
 import { MatchData } from "./types";
 import { submitMatchResultWithPropagation, updateMatchStatus as updateStatus } from "../common/useMatchPropagation";
 import { useLiveScoreSync } from "../common/useLiveScoreSync";
@@ -8,6 +9,8 @@ type MatchDataWithTournament = MatchData & { tournamentId?: string | number; cou
 type TournamentMatchStatus = "planifié" | "en-cours" | "terminé" | "annulé";
 
 export function useFootballMatch(initialMatchId: string | null) {
+    const { data: session } = useSession();
+    const token = (session as { accessToken?: string } | null)?.accessToken;
     const [matchData, setMatchData] = useState<MatchDataWithTournament>({
         matchId: initialMatchId || "",
         teamA: { name: "Team A", logo_url: "", score: 0, yellowCards: 0, redCards: 0, penalties: 0 },
@@ -23,7 +26,7 @@ export function useFootballMatch(initialMatchId: string | null) {
 
     const updateMatchStatus = async (status: 'scheduled' | 'in_progress' | 'completed') => {
         if (!initialMatchId) return;
-        await updateStatus(initialMatchId, status);
+        await updateStatus(initialMatchId, status, token);
     };
 
     const submitMatchResult = async () => {
@@ -32,6 +35,7 @@ export function useFootballMatch(initialMatchId: string | null) {
         await submitMatchResultWithPropagation({
             matchId: initialMatchId,
             tournamentId: matchData.tournamentId,
+            token,
             payload: {
                 score_a: matchData.teamA.score,
                 score_b: matchData.teamB.score,
@@ -250,6 +254,9 @@ export function useFootballMatch(initialMatchId: string | null) {
                 // PAS de winner ici
             };
             localStorage.setItem("liveFootballMatch", JSON.stringify(payload));
+            if (initialMatchId) {
+                localStorage.setItem(`liveFootballMatch_${initialMatchId}`, JSON.stringify(payload));
+            }
         } catch (e) {
             // Ignore storage errors
         }
@@ -284,6 +291,9 @@ export function useFootballMatch(initialMatchId: string | null) {
                 winner,
             };
             localStorage.setItem("liveFootballMatch", JSON.stringify(payload));
+            if (initialMatchId) {
+                localStorage.setItem(`liveFootballMatch_${initialMatchId}`, JSON.stringify(payload));
+            }
         } catch (e) {
             // Ignore storage errors
         }
@@ -394,6 +404,9 @@ export function useFootballMatch(initialMatchId: string | null) {
             };
             // Sync to localStorage (for same-device spectator)
             localStorage.setItem("liveFootballMatch", JSON.stringify(payload));
+            if (initialMatchId) {
+                localStorage.setItem(`liveFootballMatch_${initialMatchId}`, JSON.stringify(payload));
+            }
 
             // Sync to backend SSE (for cross-device split-screen spectators)
             if (initialMatchId) {

@@ -1,1 +1,5 @@
 traefik/certs/
+.env
+certs/
+.claude/
+CLAUDE.md

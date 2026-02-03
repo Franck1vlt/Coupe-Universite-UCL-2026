@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
+import { useSearchParams } from "next/navigation";
 import "./spectators.css";
 
 interface MatchData {
@@ -20,57 +21,79 @@ interface MatchData {
     shotClock?: string;
     period?: string;
     lastUpdate?: string;
+    logo1?: string;
+    logo2?: string;
 }
 
 export default function BasketballTableSpectatorPage() {
+    const searchParams = useSearchParams();
+    const matchId = searchParams.get('matchId');
+
     const [matchData, setMatchData] = useState<MatchData>({});
     const [logoA, setLogoA] = useState<string | null>(null);
     const [logoB, setLogoB] = useState<string | null>(null);
     const [animateScoreA, setAnimateScoreA] = useState(false);
     const [animateScoreB, setAnimateScoreB] = useState(false);
-    const [oldScoreA, setOldScoreA] = useState(0);
-    const [oldScoreB, setOldScoreB] = useState(0);
-    const [teamAName, setTeamAName] = useState<string>("");
-    const [teamBName, setTeamBName] = useState<string>("");
+
+    // Refs pour éviter les stale closures dans le polling
+    const oldScoreARef = useRef(0);
+    const oldScoreBRef = useRef(0);
+    const teamANameRef = useRef("");
+    const teamBNameRef = useRef("");
+
+    // Clé localStorage spécifique au match si matchId présent
+    const storageKey = matchId ? `liveBasketballMatch_${matchId}` : 'liveBasketballMatch';
 
     useEffect(() => {
         // Charger les données initiales
-        loadInitialData();
+        try {
+            const liveData = localStorage.getItem(storageKey);
+            if (liveData) {
+                const data = JSON.parse(liveData);
+                setMatchData(data);
+                oldScoreARef.current = data.score1 || 0;
+                oldScoreBRef.current = data.score2 || 0;
+                teamANameRef.current = data.team1 || "";
+                teamBNameRef.current = data.team2 || "";
+            }
+        } catch (error) {
+            console.error('Erreur lors du chargement des données initiales:', error);
+        }
 
         // Polling rapide toutes les 50ms pour une meilleure fluidité
         const poll = setInterval(() => {
             try {
-                const raw = localStorage.getItem('liveBasketballMatch');
+                const raw = localStorage.getItem(storageKey);
                 if (!raw) return;
                 const newData: MatchData = JSON.parse(raw);
-                
+
                 // Animation si le score change
-                if (oldScoreA !== newData.score1) {
+                if (oldScoreARef.current !== (newData.score1 || 0)) {
                     setAnimateScoreA(true);
                     setTimeout(() => setAnimateScoreA(false), 800);
-                    setOldScoreA(newData.score1 || 0);
+                    oldScoreARef.current = newData.score1 || 0;
                 }
-                if (oldScoreB !== newData.score2) {
+                if (oldScoreBRef.current !== (newData.score2 || 0)) {
                     setAnimateScoreB(true);
                     setTimeout(() => setAnimateScoreB(false), 800);
-                    setOldScoreB(newData.score2 || 0);
+                    oldScoreBRef.current = newData.score2 || 0;
                 }
-                
-                // Mettre à jour les noms d'équipe uniquement s'ils changent ET ne sont pas vides
-                if (newData.team1 && teamAName !== newData.team1) {
-                    setTeamAName(newData.team1);
+
+                // Mettre à jour les noms d'équipe
+                if (newData.team1 && teamANameRef.current !== newData.team1) {
+                    teamANameRef.current = newData.team1;
                 }
-                if (newData.team2 && teamBName !== newData.team2) {
-                    setTeamBName(newData.team2);
+                if (newData.team2 && teamBNameRef.current !== newData.team2) {
+                    teamBNameRef.current = newData.team2;
                 }
-                
+
                 setMatchData(newData);
             } catch {}
         }, 50);
 
         // Écouter les changements de localStorage provenant d'un autre onglet
         const onStorage = (e: StorageEvent) => {
-            if (e.key !== 'liveBasketballMatch' || !e.newValue) return;
+            if (e.key !== storageKey || !e.newValue) return;
             try {
                 const newData: MatchData = JSON.parse(e.newValue);
                 setMatchData(newData);
@@ -85,42 +108,27 @@ export default function BasketballTableSpectatorPage() {
             window.removeEventListener('storage', onStorage);
             clearInterval(poll);
         };
-    }, [oldScoreA, oldScoreB, teamAName, teamBName]);
+    }, [storageKey]);
 
     useEffect(() => {
-        if (teamAName) {
-            setLogoA(`/img/${teamAName}.png`);
+        if (matchData.logo1) {
+            setLogoA(matchData.logo1);
+        } else if (matchData.team1) {
+            setLogoA(`/img/${matchData.team1.toLowerCase()}.png`);
         } else {
             setLogoA(null);
         }
-    }, [teamAName]);
-    
+    }, [matchData.team1, matchData.logo1]);
+
     useEffect(() => {
-        if (teamBName) {
-            setLogoB(`/img/${teamBName}.png`);
+        if (matchData.logo2) {
+            setLogoB(matchData.logo2);
+        } else if (matchData.team2) {
+            setLogoB(`/img/${matchData.team2.toLowerCase()}.png`);
         } else {
             setLogoB(null);
         }
-    }, [teamBName]);
-
-    // Charger les données initiales depuis localStorage
-    function loadInitialData() {
-        try {
-            const liveData = localStorage.getItem('liveBasketballMatch');
-            if (liveData) {
-                const data = JSON.parse(liveData);
-                setMatchData(data);
-                setOldScoreA(data.score1 || 0);
-                setOldScoreB(data.score2 || 0);
-                setTeamAName(data.team1 || "");
-                setTeamBName(data.team2 || "");
-            }
-        } catch (error) {
-            console.error('Erreur lors du chargement des données initiales:', error);
-        }
-    }
-
-    // Ancienne logique hors ligne supprimée au profit de l'événement storage + polling
+    }, [matchData.team2, matchData.logo2]);
 
     // Calculer si le shot clock doit être visible
     const gameTimerStr = matchData.chrono || '09:00';
@@ -140,7 +148,6 @@ export default function BasketballTableSpectatorPage() {
     const shotClockSeconds = parseFloat(shotClockStr) || 0;
     const shouldShowShotClock = gameTimerSeconds > shotClockSeconds;
 
-    // Utiliser directement gameTimerStr sans conversion
     const displayGameTimer = gameTimerStr;
 
     return (
@@ -151,21 +158,21 @@ export default function BasketballTableSpectatorPage() {
                     <div className="teams">
                         <div className="team">
                             {logoA ? (
-                                <Image 
-                                    src={logoA} 
-                                    alt="Logo Team A" 
-                                    width={300} 
-                                    height={100} 
-                                    className="team-logo" 
-                                    onError={() => setLogoA(null)} 
-                                    loading="eager" 
+                                <Image
+                                    src={logoA}
+                                    alt="Logo Team A"
+                                    width={300}
+                                    height={100}
+                                    className="team-logo"
+                                    onError={() => setLogoA(null)}
+                                    loading="eager"
                                 />
                             ) : (
                                 <div className="team-logo-placeholder">A</div>
                             )}
                             <div className="team-name" id="teamAName">{matchData.team1 || 'ÉQUIPE A'}</div>
                         </div>
-                        
+
                         <div className="score-container">
                             <span id="teamAScore" className={`score ${animateScoreA ? 'score-change' : ''}`}>
                                 {matchData.score1 || 0}
@@ -175,17 +182,17 @@ export default function BasketballTableSpectatorPage() {
                                 {matchData.score2 || 0}
                             </span>
                         </div>
-                        
+
                         <div className="team">
                             {logoB ? (
-                                <Image 
-                                    src={logoB} 
-                                    alt="Logo Team B" 
-                                    width={300} 
-                                    height={100} 
-                                    className="team-logo" 
-                                    onError={() => setLogoB(null)} 
-                                    loading="eager" 
+                                <Image
+                                    src={logoB}
+                                    alt="Logo Team B"
+                                    width={300}
+                                    height={100}
+                                    className="team-logo"
+                                    onError={() => setLogoB(null)}
+                                    loading="eager"
                                 />
                             ) : (
                                 <div className="team-logo-placeholder">B</div>
@@ -193,15 +200,21 @@ export default function BasketballTableSpectatorPage() {
                             <div className="team-name" id="teamBName">{matchData.team2 || 'ÉQUIPE B'}</div>
                         </div>
                     </div>
-                    
+
                     {/* Timers au milieu */}
                     <div className="timers">
-                        <div className="timer" id="gameTimer">{displayGameTimer}</div>
+                        <div className="timer-block">
+                            <div className="timer" id="gameTimer">{displayGameTimer}</div>
+                            <span className="timer-label">Chrono</span>
+                        </div>
                         {shouldShowShotClock && (
-                            <div className="timer shot-clock" id="shotClock">{shotClockStr}</div>
+                            <div className="timer-block">
+                                <div className="timer shot-clock" id="shotClock">{shotClockStr}</div>
+                                <span className="timer-label">Possession</span>
+                            </div>
                         )}
                     </div>
-                    
+
                     {/* Match info ensuite */}
                     <div className="match-info">
                         <span className="match-type" id="matchType">{matchData.matchType || 'Match'}</span>

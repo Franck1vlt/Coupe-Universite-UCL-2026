@@ -283,12 +283,37 @@ export async function submitMatchResultWithPropagation(
 
 /**
  * Hook React pour utiliser la propagation dans les composants
+ * Récupère automatiquement le token de la session NextAuth
  */
 export function useMatchPropagation() {
+    const { data: session } = useSession();
+    const token = (session as { accessToken?: string } | null)?.accessToken;
+
+    const submitResult = useCallback(
+        (options: Omit<SubmitResultOptions, 'token'>) => {
+            return submitMatchResultWithPropagation({ ...options, token });
+        },
+        [token]
+    );
+
+    const propagateResults = useCallback(
+        (tournamentId: string | number) => {
+            return propagateTournamentResults(tournamentId, token);
+        },
+        [token]
+    );
+
+    const updateStatus = useCallback(
+        (matchId: string, status: 'scheduled' | 'in_progress' | 'completed') => {
+            return updateMatchStatus(matchId, status, token);
+        },
+        [token]
+    );
+
     return {
-        submitMatchResultWithPropagation,
-        propagateTournamentResults,
-        updateMatchStatus,
+        submitMatchResultWithPropagation: submitResult,
+        propagateTournamentResults: propagateResults,
+        updateMatchStatus: updateStatus,
         getTournamentIdFromMatch,
     };
 }

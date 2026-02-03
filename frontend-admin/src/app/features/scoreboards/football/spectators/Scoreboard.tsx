@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Image from "next/image";
+import { useSearchParams } from "next/navigation";
 import "./spectators.css";
 
 interface MatchData {
@@ -18,34 +19,50 @@ interface MatchData {
     chrono?: string;
     lastUpdate?: string;
     winner?: string;
+    logo1?: string;
+    logo2?: string;
 }
 
 export default function FootballTableSpectatorPage() {
+    const searchParams = useSearchParams();
+    const matchId = searchParams.get('matchId');
+
     const [matchData, setMatchData] = useState<MatchData>({});
-    const [logoA, setLogoA] = useState('/img/default.png');
-    const [logoB, setLogoB] = useState('/img/default.png');
+    const [logoA, setLogoA] = useState('/img/no-logo.png');
+    const [logoB, setLogoB] = useState('/img/no-logo.png');
     const [animateScoreA, setAnimateScoreA] = useState(false);
     const [animateScoreB, setAnimateScoreB] = useState(false);
 
+    // Clé localStorage spécifique au match si matchId présent
+    const storageKey = matchId ? `liveFootballMatch_${matchId}` : 'liveFootballMatch';
+
     useEffect(() => {
         // Charger les données initiales
-        loadInitialData();
+        try {
+            const liveData = localStorage.getItem(storageKey);
+            if (liveData) {
+                setMatchData(JSON.parse(liveData));
+            }
+        } catch (error) {
+            console.error('Erreur lors du chargement des données initiales:', error);
+        }
 
         // Écouter les mises à jour de localStorage provenant d'un autre onglet
         const onStorage = (e: StorageEvent) => {
-            if (e.key !== 'liveFootballMatch' || !e.newValue) return;
+            if (e.key !== storageKey || !e.newValue) return;
             try {
                 const newData: MatchData = JSON.parse(e.newValue);
-                // Animation si le score change
-                if (matchData.score1 !== newData.score1) {
-                    setAnimateScoreA(true);
-                    setTimeout(() => setAnimateScoreA(false), 500);
-                }
-                if (matchData.score2 !== newData.score2) {
-                    setAnimateScoreB(true);
-                    setTimeout(() => setAnimateScoreB(false), 500);
-                }
-                setMatchData(newData);
+                setMatchData(prevData => {
+                    if (prevData.score1 !== newData.score1) {
+                        setAnimateScoreA(true);
+                        setTimeout(() => setAnimateScoreA(false), 500);
+                    }
+                    if (prevData.score2 !== newData.score2) {
+                        setAnimateScoreB(true);
+                        setTimeout(() => setAnimateScoreB(false), 500);
+                    }
+                    return newData;
+                });
             } catch (err) {
                 console.error('Erreur de parsing localStorage:', err);
             }
@@ -56,20 +73,23 @@ export default function FootballTableSpectatorPage() {
         // Fallback polling toutes les 2s si l'événement storage n'arrive pas
         const poll = setInterval(() => {
             try {
-                const raw = localStorage.getItem('liveFootballMatch');
+                const raw = localStorage.getItem(storageKey);
                 if (!raw) return;
                 const newData: MatchData = JSON.parse(raw);
-                if (JSON.stringify(matchData) !== JSON.stringify(newData)) {
-                    if (matchData.score1 !== newData.score1) {
-                        setAnimateScoreA(true);
-                        setTimeout(() => setAnimateScoreA(false), 500);
+                setMatchData(prevData => {
+                    if (JSON.stringify(prevData) !== JSON.stringify(newData)) {
+                        if (prevData.score1 !== newData.score1) {
+                            setAnimateScoreA(true);
+                            setTimeout(() => setAnimateScoreA(false), 500);
+                        }
+                        if (prevData.score2 !== newData.score2) {
+                            setAnimateScoreB(true);
+                            setTimeout(() => setAnimateScoreB(false), 500);
+                        }
+                        return newData;
                     }
-                    if (matchData.score2 !== newData.score2) {
-                        setAnimateScoreB(true);
-                        setTimeout(() => setAnimateScoreB(false), 500);
-                    }
-                    setMatchData(newData);
-                }
+                    return prevData;
+                });
             } catch {}
         }, 2000);
 
@@ -77,38 +97,29 @@ export default function FootballTableSpectatorPage() {
             window.removeEventListener('storage', onStorage);
             clearInterval(poll);
         };
-    }, []);
+    }, [storageKey]);
 
     useEffect(() => {
-        if (matchData.team1) {
-            setLogoA(`/img/${matchData.team1}.png`);
+        if (matchData.logo1) {
+            setLogoA(matchData.logo1);
+        } else if (matchData.team1) {
+            setLogoA(`/img/${matchData.team1.toLowerCase()}.png`);
         } else {
-            setLogoA('/img/default.png');
+            setLogoA('/img/no-logo.png');
         }
-        if (matchData.team2) {
-            setLogoB(`/img/${matchData.team2}.png`);
+        if (matchData.logo2) {
+            setLogoB(matchData.logo2);
+        } else if (matchData.team2) {
+            setLogoB(`/img/${matchData.team2.toLowerCase()}.png`);
         } else {
-            setLogoB('/img/default.png');
+            setLogoB('/img/no-logo.png');
         }
-    }, [matchData.team1, matchData.team2]);
-
-    // Charger les données initiales depuis localStorage
-    function loadInitialData() {
-        try {
-            const liveData = localStorage.getItem('liveFootballMatch');
-            if (liveData) {
-                setMatchData(JSON.parse(liveData));
-            }
-        } catch (error) {
-            console.error('Erreur lors du chargement des données initiales:', error);
-        }
-    }
+    }, [matchData.team1, matchData.team2, matchData.logo1, matchData.logo2]);
 
 return (
-        // bg-[#E0E0E0] et centrage total
         <main className="min-h-screen w-full bg-white flex items-center justify-center p-4 overflow-hidden">
             <section className="score-board-container gap-8">
-                
+
                 {/* Chrono */}
                 <div className="flex justify-center mb-4 md:mb-8">
                     <span className="remaining-time">{matchData.chrono || '00:00'}</span>
@@ -116,7 +127,7 @@ return (
 
                 {/* Bloc central : Équipes + Scores */}
                 <div className="flex items-center justify-between w-full gap-4 md:gap-12">
-                    
+
                     {/* Team B */}
                     <div className="team-column">
                         <div className="logo-wrapper">
@@ -162,7 +173,7 @@ return (
                 {matchData.winner && (
     <div className="vainqueur-overlay">
         <div className="vainqueur-banner animate-vainqueur">
-            🏆 Vainqueur : {matchData.winner} 🏆
+            Vainqueur : {matchData.winner}
         </div>
     </div>
 )}

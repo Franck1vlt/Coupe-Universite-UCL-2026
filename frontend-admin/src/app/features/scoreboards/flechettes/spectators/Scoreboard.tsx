@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import "./spectators.css";
 
 interface MatchData {
@@ -20,19 +21,32 @@ interface MatchData {
 }
 
 export default function FlechettesTableSpectatorPage() {
+    const searchParams = useSearchParams();
+    const matchId = searchParams.get('matchId');
+
     const [animateScoreA, setAnimateScoreA] = useState(false);
     const [animateScoreB, setAnimateScoreB] = useState(false);
     const [animateSetA, setAnimateSetA] = useState(false);
     const [animateSetB, setAnimateSetB] = useState(false);
     const [matchData, setMatchData] = useState<MatchData>({});
 
+    // Clé localStorage spécifique au match si matchId présent
+    const storageKey = matchId ? `liveFlechettesMatch_${matchId}` : 'liveFlechettesMatch';
+
     useEffect(() => {
         // Charger les données initiales
-        loadInitialData();
+        try {
+            const liveData = localStorage.getItem(storageKey);
+            if (liveData) {
+                setMatchData(JSON.parse(liveData));
+            }
+        } catch (error) {
+            console.error('Erreur lors du chargement des données initiales:', error);
+        }
 
         // Écouter les mises à jour de localStorage provenant d'un autre onglet
         const onStorage = (e: StorageEvent) => {
-            if (e.key !== 'liveFlechettesMatch' || !e.newValue) return;
+            if (e.key !== storageKey || !e.newValue) return;
             try {
                 const newData: MatchData = JSON.parse(e.newValue);
                 setMatchData((prevData) => {
@@ -66,7 +80,7 @@ export default function FlechettesTableSpectatorPage() {
         // Fallback polling toutes les 2s si l'événement storage n'arrive pas
         const poll = setInterval(() => {
             try {
-                const raw = localStorage.getItem('liveFlechettesMatch');
+                const raw = localStorage.getItem(storageKey);
                 if (!raw) return;
                 const newData: MatchData = JSON.parse(raw);
                 setMatchData((prevData) => {
@@ -98,19 +112,7 @@ export default function FlechettesTableSpectatorPage() {
             window.removeEventListener('storage', onStorage);
             clearInterval(poll);
         };
-    }, []);
-
-    // Charger les données initiales depuis localStorage
-    function loadInitialData() {
-        try {
-            const liveData = localStorage.getItem('liveFlechettesMatch');
-            if (liveData) {
-                setMatchData(JSON.parse(liveData));
-            }
-        } catch (error) {
-            console.error('Erreur lors du chargement des données initiales:', error);
-        }
-    }
+    }, [storageKey]);
 
     const winnerName = matchData.winner;
 

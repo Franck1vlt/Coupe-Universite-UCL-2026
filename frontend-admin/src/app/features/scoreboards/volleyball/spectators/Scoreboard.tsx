@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Image from "next/image";
+import { useSearchParams } from "next/navigation";
 import "./spectators.css";
 
 interface MatchData {
@@ -14,39 +15,55 @@ interface MatchData {
     sets2?: number;
     lastUpdate?: string;
     matchGround?: string;
-    serviceTeam?: "A" | "B"; // Ajout de la propriété serviceTeam
+    serviceTeam?: "A" | "B";
+    logo1?: string;
+    logo2?: string;
 }
 
 export default function VolleyballTableSpectatorPage() {
+    const searchParams = useSearchParams();
+    const matchId = searchParams.get('matchId');
+
     const [matchData, setMatchData] = useState<MatchData>({});
-    const [logoA, setLogoA] = useState('/img/default.png');
-    const [logoB, setLogoB] = useState('/img/default.png');
+    const [logoA, setLogoA] = useState('/img/no-logo.png');
+    const [logoB, setLogoB] = useState('/img/no-logo.png');
     const [animateScoreA, setAnimateScoreA] = useState(false);
     const [animateScoreB, setAnimateScoreB] = useState(false);
     const [animateSetA, setAnimateSetA] = useState(false);
     const [animateSetB, setAnimateSetB] = useState(false);
     const logoService = "/img/volley-ball.png";
     const CONST_SIZE = 75;
-    
+
+    // Clé localStorage spécifique au match si matchId présent
+    const storageKey = matchId ? `liveVolleyballMatch_${matchId}` : 'liveVolleyballMatch';
+
     useEffect(() => {
         // Charger les données initiales
-        loadInitialData();
+        try {
+            const liveData = localStorage.getItem(storageKey);
+            if (liveData) {
+                setMatchData(JSON.parse(liveData));
+            }
+        } catch (error) {
+            console.error('Erreur lors du chargement des données initiales:', error);
+        }
 
         // Écouter les mises à jour de localStorage provenant d'un autre onglet
         const onStorage = (e: StorageEvent) => {
-            if (e.key !== 'liveVolleyballMatch' || !e.newValue) return;
+            if (e.key !== storageKey || !e.newValue) return;
             try {
                 const newData: MatchData = JSON.parse(e.newValue);
-                // Animation si le score change
-                if (matchData.score1 !== newData.score1) {
-                    setAnimateScoreA(true);
-                    setTimeout(() => setAnimateScoreA(false), 500);
-                }
-                if (matchData.score2 !== newData.score2) {
-                    setAnimateScoreB(true);
-                    setTimeout(() => setAnimateScoreB(false), 500);
-                }
-                setMatchData(newData);
+                setMatchData(prevData => {
+                    if (prevData.score1 !== newData.score1) {
+                        setAnimateScoreA(true);
+                        setTimeout(() => setAnimateScoreA(false), 500);
+                    }
+                    if (prevData.score2 !== newData.score2) {
+                        setAnimateScoreB(true);
+                        setTimeout(() => setAnimateScoreB(false), 500);
+                    }
+                    return newData;
+                });
             } catch (err) {
                 console.error('Erreur de parsing localStorage:', err);
             }
@@ -57,28 +74,31 @@ export default function VolleyballTableSpectatorPage() {
         // Fallback polling toutes les 2s si l'événement storage n'arrive pas
         const poll = setInterval(() => {
             try {
-                const raw = localStorage.getItem('liveVolleyballMatch');
+                const raw = localStorage.getItem(storageKey);
                 if (!raw) return;
                 const newData: MatchData = JSON.parse(raw);
-                if (JSON.stringify(matchData) !== JSON.stringify(newData)) {
-                    if (matchData.score1 !== newData.score1) {
-                        setAnimateScoreA(true);
-                        setTimeout(() => setAnimateScoreA(false), 500);
+                setMatchData(prevData => {
+                    if (JSON.stringify(prevData) !== JSON.stringify(newData)) {
+                        if (prevData.score1 !== newData.score1) {
+                            setAnimateScoreA(true);
+                            setTimeout(() => setAnimateScoreA(false), 500);
+                        }
+                        if (prevData.score2 !== newData.score2) {
+                            setAnimateScoreB(true);
+                            setTimeout(() => setAnimateScoreB(false), 500);
+                        }
+                        if (prevData.sets1 !== newData.sets1) {
+                            setAnimateSetA(true);
+                            setTimeout(() => setAnimateSetA(false), 500);
+                        }
+                        if (prevData.sets2 !== newData.sets2) {
+                            setAnimateSetB(true);
+                            setTimeout(() => setAnimateSetB(false), 500);
+                        }
+                        return newData;
                     }
-                    if (matchData.score2 !== newData.score2) {
-                        setAnimateScoreB(true);
-                        setTimeout(() => setAnimateScoreB(false), 500);
-                    }
-                    if (matchData.sets1 !== newData.sets1) {
-                        setAnimateSetA(true);
-                        setTimeout(() => setAnimateSetA(false), 500);
-                    }
-                    if (matchData.sets2 !== newData.sets2) {
-                        setAnimateSetB(true);
-                        setTimeout(() => setAnimateSetB(false), 500);
-                    }
-                    setMatchData(newData);
-                }
+                    return prevData;
+                });
             } catch {}
         }, 2000);
 
@@ -86,35 +106,26 @@ export default function VolleyballTableSpectatorPage() {
             window.removeEventListener('storage', onStorage);
             clearInterval(poll);
         };
-    }, []);
+    }, [storageKey]);
 
     useEffect(() => {
-        if (matchData.team1) {
-            setLogoA(`/img/${matchData.team1}.png`);
+        if (matchData.logo1) {
+            setLogoA(matchData.logo1);
+        } else if (matchData.team1) {
+            setLogoA(`/img/${matchData.team1.toLowerCase()}.png`);
         } else {
-            setLogoA('/img/default.png');
+            setLogoA('/img/no-logo.png');
         }
-        if (matchData.team2) {
-            setLogoB(`/img/${matchData.team2}.png`);
+        if (matchData.logo2) {
+            setLogoB(matchData.logo2);
+        } else if (matchData.team2) {
+            setLogoB(`/img/${matchData.team2.toLowerCase()}.png`);
         } else {
-            setLogoB('/img/default.png');
+            setLogoB('/img/no-logo.png');
         }
-    }, [matchData.team1, matchData.team2]);
-
-    // Charger les données initiales depuis localStorage
-    function loadInitialData() {
-        try {
-            const liveData = localStorage.getItem('liveMatchData');
-            if (liveData) {
-                setMatchData(JSON.parse(liveData));
-            }
-        } catch (error) {
-            console.error('Erreur lors du chargement des données initiales:', error);
-        }
-    }
+    }, [matchData.team1, matchData.team2, matchData.logo1, matchData.logo2]);
 
     return (
-        // bg-[#E0E0E0] et centrage total
         <main className="min-h-screen w-full bg-white flex items-center justify-center p-4 overflow-hidden">
             <section className="score-board-container gap-8">
                 <div className="flex items-center justify-between w-full gap-4 md:gap-12">
@@ -124,11 +135,7 @@ export default function VolleyballTableSpectatorPage() {
                             <Image src={logoB} alt="Logo Team B" width={180} height={180} className="team-logo" onError={() => setLogoB('/img/no-logo.png')} priority />
                         </div>
                         <div className="team-name">{matchData.team2 || 'ÉQUIPE B'}</div>
-                    </div>      
-                    {/* Chrono
-                    <div className="flex justify-center mb-4 md:mb-8">
-                        <span className="remaining-time">{matchData.chrono || '00:00'}</span>
-                    </div> */}
+                    </div>
                     {/* Score (Élément central stable) */}
                     <div className="set-display flex items-center text-4xl md:text-6xl font-bold gap-8">
                         <span className={animateSetB ? 'set-change' : ''}>{matchData.sets2 || 0}</span>
@@ -146,9 +153,9 @@ export default function VolleyballTableSpectatorPage() {
 
                 {/* Bloc central : Logo Service + Scores */}
                 <div className="flex flex-row justify-center items-center gap-8 mb-6">
-                    
+
                     {/* Côté Gauche (Team B) */}
-                    <div className="w-10 md:w-16 flex justify-end"> 
+                    <div className="w-10 md:w-16 flex justify-end">
                         {matchData.serviceTeam === "B" && (
                             <Image src={logoService} alt="Logo Service" width={CONST_SIZE} height={CONST_SIZE} className="service-logo" />
                         )}
@@ -167,7 +174,7 @@ export default function VolleyballTableSpectatorPage() {
                             <Image src={logoService} alt="Logo Service" width={CONST_SIZE} height={CONST_SIZE} className="service-logo" />
                         )}
                     </div>
-                    
+
                 </div>
 
                 {/* Infos Match */}

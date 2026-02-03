@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { useSession } from "next-auth/react";
 import { MatchData } from "./types";
 import { submitMatchResultWithPropagation, updateMatchStatus as updateStatus } from "../common/useMatchPropagation";
 import { useLiveScoreSync } from "../common/useLiveScoreSync";
@@ -13,6 +14,8 @@ type MatchDataWithTournament = MatchData & {
 
 export function useVolleyballMatch(initialMatchId: string | null) {
     console.log('[Volleyball Hook] ========== VERSION 2.0 - With phase_id support ==========');
+    const { data: session } = useSession();
+    const token = (session as { accessToken?: string } | null)?.accessToken;
     const [matchData, setMatchData] = useState<MatchDataWithTournament>({
         matchId: initialMatchId,
         currentSet: 1,
@@ -334,7 +337,7 @@ export function useVolleyballMatch(initialMatchId: string | null) {
     /** ---------- STATUS ---------- */
     const updateMatchStatus = async (status: 'scheduled' | 'in_progress' | 'completed') => {
         if (!initialMatchId) return;
-        await updateStatus(initialMatchId, status);
+        await updateStatus(initialMatchId, status, token);
     };
 
     /** ---------- SUBMIT RESULT ---------- */
@@ -344,6 +347,7 @@ export function useVolleyballMatch(initialMatchId: string | null) {
         const result = await submitMatchResultWithPropagation({
             matchId: initialMatchId,
             tournamentId: matchData.tournamentId,
+            token,
             payload: {
                 score_a: matchData.teamA.sets,
                 score_b: matchData.teamB.sets,
@@ -386,6 +390,9 @@ export function useVolleyballMatch(initialMatchId: string | null) {
             };
             // Sync to localStorage (for same-device spectator)
             localStorage.setItem("liveVolleyballMatch", JSON.stringify(payload));
+            if (initialMatchId) {
+                localStorage.setItem(`liveVolleyballMatch_${initialMatchId}`, JSON.stringify(payload));
+            }
 
             // Sync to backend SSE (for cross-device split-screen spectators)
             // Use numeric ID for SSE so split-screen can match subscriptions

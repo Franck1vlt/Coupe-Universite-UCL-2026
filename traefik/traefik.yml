@@ -23,8 +23,8 @@ tls:
   stores:
     default:
       defaultCertificate:
-        certFile: /certs/portfolio.pem
-        keyFile: /certs/portfolio.key
+        certFile: /certs/coupedeluniversite.pem
+        keyFile: /certs/coupedeluniversite.key
 
 
 log:
