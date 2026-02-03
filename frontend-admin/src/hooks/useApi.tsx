@@ -18,9 +18,16 @@ export function useApi() {
         ...options.headers,
       }
 
+      // Debug logging
+      console.log("useApi - session:", session)
+      console.log("useApi - accessToken:", session?.accessToken)
+
       // Ajouter le token si disponible
       if (session?.accessToken) {
         (headers as Record<string, string>)["Authorization"] = `Bearer ${session.accessToken}`
+        console.log("useApi - Authorization header added")
+      } else {
+        console.log("useApi - NO accessToken in session!")
       }
 
       const response = await fetch(`${API_URL}${endpoint}`, {

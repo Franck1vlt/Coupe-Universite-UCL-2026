@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { useSession } from "next-auth/react";
 import { MatchData, MeneHistory } from "./types";
 import { submitMatchResultWithPropagation, updateMatchStatus as updateStatus } from "../common/useMatchPropagation";
 import { useLiveScoreSync } from "../common/useLiveScoreSync";
@@ -6,6 +7,8 @@ import { useLiveScoreSync } from "../common/useLiveScoreSync";
 type MatchDataWithTournament = MatchData & { tournamentId?: string | number; court?: string; numericId?: number };
 
 export function usePetanqueMatch(initialMatchId: string | null) {
+    const { data: session } = useSession();
+    const token = (session as { accessToken?: string } | null)?.accessToken;
     const [matchData, setMatchData] = useState<MatchDataWithTournament>({
         matchId: initialMatchId || "",
         teamA: {
@@ -406,7 +409,7 @@ export function usePetanqueMatch(initialMatchId: string | null) {
     /** ---------- STATUS ---------- */
     const updateMatchStatus = async (status: 'scheduled' | 'in_progress' | 'completed') => {
         if (!initialMatchId) return;
-        await updateStatus(initialMatchId, status);
+        await updateStatus(initialMatchId, status, token);
     };
 
     /** ---------- SUBMIT RESULT ---------- */
@@ -416,6 +419,7 @@ export function usePetanqueMatch(initialMatchId: string | null) {
         const result = await submitMatchResultWithPropagation({
             matchId: initialMatchId,
             tournamentId: matchData.tournamentId,
+            token,
             payload: {
                 score_a: matchData.teamA.score,
                 score_b: matchData.teamB.score,
@@ -529,6 +533,9 @@ export function usePetanqueMatch(initialMatchId: string | null) {
             };
             // Sync to localStorage (for same-device spectator)
             localStorage.setItem("livePetanqueMatch", JSON.stringify(payload));
+            if (initialMatchId) {
+                localStorage.setItem(`livePetanqueMatch_${initialMatchId}`, JSON.stringify(payload));
+            }
 
             // Sync to backend SSE (for cross-device split-screen spectators)
             // Use numeric ID for SSE so split-screen can match subscriptions

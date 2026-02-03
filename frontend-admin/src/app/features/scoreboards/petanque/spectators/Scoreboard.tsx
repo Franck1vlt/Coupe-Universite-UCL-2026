@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import "./spectators.css";
 
 interface MatchData {
@@ -25,18 +26,30 @@ interface MatchData {
 }
 
 export default function PetanqueTableSpectatorPage() {
+    const searchParams = useSearchParams();
+    const matchId = searchParams.get('matchId');
+
     const [animateScoreA, setAnimateScoreA] = useState(false);
     const [animateScoreB, setAnimateScoreB] = useState(false);
     const [matchData, setMatchData] = useState<MatchData>({});
 
+    // Clé localStorage spécifique au match si matchId présent
+    const storageKey = matchId ? `livePetanqueMatch_${matchId}` : 'livePetanqueMatch';
 
     useEffect(() => {
         // Charger les données initiales
-        loadInitialData();
+        try {
+            const liveData = localStorage.getItem(storageKey);
+            if (liveData) {
+                setMatchData(JSON.parse(liveData));
+            }
+        } catch (error) {
+            console.error('Erreur lors du chargement des données initiales:', error);
+        }
 
         // Écouter les mises à jour de localStorage provenant d'un autre onglet
         const onStorage = (e: StorageEvent) => {
-            if (e.key !== 'livePetanqueMatch' || !e.newValue) return;
+            if (e.key !== storageKey || !e.newValue) return;
             try {
                 const newData: MatchData = JSON.parse(e.newValue);
                 setMatchData((prevData) => {
@@ -61,7 +74,7 @@ export default function PetanqueTableSpectatorPage() {
         // Fallback polling toutes les 2s si l'événement storage n'arrive pas
         const poll = setInterval(() => {
             try {
-                const raw = localStorage.getItem('livePetanqueMatch');
+                const raw = localStorage.getItem(storageKey);
                 if (!raw) return;
                 const newData: MatchData = JSON.parse(raw);
                 setMatchData((prevData) => {
@@ -85,19 +98,7 @@ export default function PetanqueTableSpectatorPage() {
             window.removeEventListener('storage', onStorage);
             clearInterval(poll);
         };
-    }, []);
-
-    // Charger les données initiales depuis localStorage
-    function loadInitialData() {
-        try {
-            const liveData = localStorage.getItem('livePetanqueMatch');
-            if (liveData) {
-                setMatchData(JSON.parse(liveData));
-            }
-        } catch (error) {
-            console.error('Erreur lors du chargement des données initiales:', error);
-        }
-    }
+    }, [storageKey]);
 
     const winnerName = matchData.winner;
 

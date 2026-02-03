@@ -41,7 +41,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
         try {
           // Essayer d'abord l'API backend
-          const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+          const apiUrl =
+            process.env.API_URL ||
+            process.env.NEXT_PUBLIC_API_URL ||
+            "http://localhost:8000"
           const response = await fetch(`${apiUrl}/auth/login`, {
             method: "POST",
             headers: {
@@ -52,12 +55,15 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
           if (response.ok) {
             const data = await response.json()
-            return {
+            console.log("Backend /auth/login response:", data)
+            const user = {
               id: data.user.id,
               name: data.user.username,
               role: data.user.role as UserRole,
               accessToken: data.access_token,
             }
+            console.log("Returning user object:", user)
+            return user
           }
         } catch (error) {
           console.log("Backend API not available, falling back to env credentials")
@@ -93,18 +99,24 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   ],
   callbacks: {
     async jwt({ token, user }) {
+      console.log("JWT callback - user:", user)
+      console.log("JWT callback - token before:", token)
       if (user) {
         token.role = user.role
         token.accessToken = user.accessToken
+        console.log("JWT callback - token after:", token)
       }
       return token
     },
     async session({ session, token }) {
+      console.log("Session callback - token:", token)
+      console.log("Session callback - session before:", session)
       if (session.user) {
         session.user.role = token.role as UserRole
         session.user.id = token.sub || ""
       }
       session.accessToken = token.accessToken
+      console.log("Session callback - session after:", session)
       return session
     },
   },

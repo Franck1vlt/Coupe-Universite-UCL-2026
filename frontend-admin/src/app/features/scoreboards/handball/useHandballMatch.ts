@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { useSession } from "next-auth/react";
 import { MatchData } from "./types";
 import { submitMatchResultWithPropagation, updateMatchStatus as updateStatus } from "../common/useMatchPropagation";
 import { useLiveScoreSync } from "../common/useLiveScoreSync";
@@ -10,6 +11,8 @@ const HALF_TIME_DURATION = 10 * 60; // 10 minutes en secondes
 
 export function useHandballMatch(initialMatchId: string | null) {
     console.log('[Handball Hook] ========== VERSION 2.0 - With phase_id support ==========');
+    const { data: session } = useSession();
+    const token = (session as { accessToken?: string } | null)?.accessToken;
     const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
     // Hook pour synchronisation live vers backend SSE
@@ -405,7 +408,7 @@ export function useHandballMatch(initialMatchId: string | null) {
     /** ---------- STATUS ---------- */
     const updateMatchStatus = async (status: 'scheduled' | 'in_progress' | 'completed') => {
         if (!initialMatchId) return;
-        await updateStatus(initialMatchId, status);
+        await updateStatus(initialMatchId, status, token);
     };
 
     /** ---------- SUBMIT RESULT ---------- */
@@ -415,6 +418,7 @@ export function useHandballMatch(initialMatchId: string | null) {
         await submitMatchResultWithPropagation({
             matchId: initialMatchId,
             tournamentId: matchData.tournamentId,
+            token,
             payload: {
                 score_a: matchData.teamA.score,
                 score_b: matchData.teamB.score,
@@ -462,6 +466,9 @@ export function useHandballMatch(initialMatchId: string | null) {
             };
             // Sync to localStorage (for same-device spectator)
             localStorage.setItem("liveHandballMatch", JSON.stringify(payload));
+            if (initialMatchId) {
+                localStorage.setItem(`liveHandballMatch_${initialMatchId}`, JSON.stringify(payload));
+            }
 
             // Sync to backend SSE (for cross-device split-screen spectators)
             if (initialMatchId) {
