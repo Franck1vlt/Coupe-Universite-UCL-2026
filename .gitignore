@@ -1,4 +1,5 @@
 traefik/certs/
+traefik/traefik.yml
 .env
 certs/
 .claude/
