@@ -102,7 +102,101 @@ Une migration vers **PostgreSQL** est envisagée pour une évolution future.
 
 ---
 
-## 4. Modèle de données (vue simplifiée)
+## 🚀 Démarrage Rapide
+
+### Option 1 : Docker (Recommandé)
+
+```bash
+# Cloner le projet
+git clone https://github.com/Franck1vlt/Coupe-Universite-UCL-2026.git
+cd Coupe-Universite-UCL-2026
+
+# Lancer avec Docker Compose
+docker-compose up -d
+
+# Accéder aux interfaces
+# Admin : http://localhost:3000
+# Public : http://localhost:3100
+# API : http://localhost:8000
+```
+
+### Option 2 : Développement Local
+
+**Backend**
+```bash
+cd Backend
+python -m venv venv
+source venv/bin/activate  # Windows: ./venv/Scripts/Activate.ps1
+pip install -r requirements.txt
+uvicorn app.main:app --reload
+```
+
+**Frontend Admin**
+```bash
+cd frontend-admin
+npm install
+npm run dev
+```
+
+**Frontend Public**
+```bash
+cd frontend-public
+npm install
+npm run dev
+```
+
+### Variables d'Environnement
+
+Créez un fichier `.env` à la racine (voir `.env.example`) :
+
+```env
+# JWT
+JWT_SECRET_KEY=your-secret-key-here
+JWT_ALGORITHM=HS256
+
+# NextAuth
+NEXTAUTH_SECRET=your-nextauth-secret
+NEXTAUTH_URL=http://localhost:3000
+
+# API URLs
+API_URL=http://localhost:8000
+NEXT_PUBLIC_API_URL=http://localhost:8000
+```
+
+---
+
+## 📚 Documentation
+
+### Documentation API
+
+L'API REST est documentée automatiquement via Swagger UI :
+- **Swagger UI** : http://localhost:8000/docs
+- **ReDoc** : http://localhost:8000/redoc
+
+### Guides Détaillés
+
+- [📖 Documentation Complète de l'API](docs/api.md)
+- [🏗️ Architecture Détaillée](docs/architecture.md)
+- [🚢 Guide de Déploiement](docs/DEPLOYMENT.md)
+- [🔄 Migration API](docs/MIGRATION_API_TOURNOIS.md)
+
+---
+
+## 🔐 Authentification
+
+L'application utilise un système d'authentification basé sur JWT :
+
+- **Admin** : Accès complet à toutes les fonctionnalités
+- **Staff** : Gestion des tournois, matchs, et scores
+- **Technicien** : Saisie des scores uniquement
+
+Les utilisateurs doivent être préalablement ajoutés à la base de données par un administrateur.
+
+---
+
+## 📊 Modèle de Données (Aperçu)
+
+### Entités Principales
 
 ### Entités principales
 
@@ -849,455 +943,5 @@ docker compose logs -f
 # Arrêter les services
 docker compose down
 ```
-
-### Variables d'environnement
-
-Les variables d'environnement sont configurées via un fichier `.env` (non versionné) ou directement dans `docker-compose.yml` :
-
-* `DATABASE_URL` : URL de connexion à la base de données
-* `SECRET_KEY` : Clé secrète pour JWT
-* `GOOGLE_CLIENT_ID` : ID client Google OAuth
-* `GOOGLE_CLIENT_SECRET` : Secret client Google OAuth
-* `CORS_ORIGINS` : Origines autorisées pour CORS
-
----
-
-## 10. Règles métier clés
-
-### Règles de tournoi
-
-* Un tournoi possède un **type unique** (poules, élimination, mixte)
-* Un tournoi est composé de **phases ordonnées**
-* Les phases sont traitées dans l'ordre défini par le champ `ordre`
-* Les points sont attribués selon le **classement final du tournoi**
-
-### Règles de match
-
-* Les matchs appartiennent toujours à une **phase de tournoi**
-* Un match peut être lié à une poule (si phase de type "poules")
-* Les scores peuvent être mis à jour uniquement via `PUT /matches/{id}/score`
-* Le statut d'un match suit le cycle : `à venir` → `en cours` → `terminé`
-* Les matchs terminés déclenchent le recalcul automatique des classements
-
-### Règles de classement
-
-* Les classements globaux agrègent les classements de tournois
-* Les classements de poules sont calculés automatiquement après chaque match
-* Les critères de départage sont configurables via `ConfigurationTournoi`
-* Les points sont attribués selon la position finale dans le tournoi
-
-### Règles de composition
-
-* Une feuille de match doit être créée pour chaque équipe participant à un match
-* Les joueurs doivent être ajoutés à la feuille de match avant le début
-* Les événements de match (buts, cartons, etc.) sont liés à un joueur et une équipe
-
-### Sécurité et validation
-
-* Toute modification de score passe par l'API avec authentification
-* Le frontend public est strictement en **lecture seule**
-* Les actions sensibles sont enregistrées dans les logs d'audit
-
----
-
-## 11. Tâches à effectuer
-
-### Livrable 1 (19/01/2026) : Backend, base de données, API REST, gestion des tournois et tableaux, interface staff/admin, déploiement
-
-#### Backend - Configuration et infrastructure
-- [x] Finaliser la configuration de l'environnement backend (FastAPI, SQLAlchemy, Pydantic)
-- [x] Configurer la base de données SQLite
-- [x] Mettre en place la structure de dossiers (models, schemas, routers, services)
-- [x] Configurer CORS et middleware de sécurité
-- [x] Implémenter la gestion des erreurs globale et les réponses standardisées
-
-#### Backend - Modèles de données
-- [ ] Créer tous les modèles SQLAlchemy selon le schéma :
-  - [x] `Sport` (avec str `score_type`)
-  - [x] `Team` (complet avec logo_url, primary_color)
-  - [x] `TeamSport` (relation équipe-sport)
-  - [x] `Player` (lié à TeamSport)
-  - [x] `Tournament` (avec str `tournament_type`, `status`)
-  - [x] `TournamentPhase` (avec str `phase_type`)
-  - [x] `Pool`
-  - [ ] `TeamPool` (avec stats : points, wins, losses, draws, goals_for, goals_against, goal_difference)
-  - [x] `Match` (avec str `status`)
-  - [x] `MatchPool` (relation match-poule)
-  - [x] `MatchSet`
-  - [x] `Court`
-  - [x] `MatchSchedule`
-  - [x] `TournamentRanking`
-  - [x] `TournamentConfiguration`
-  - [ ] `Ranking`
-- [x] Créer les relations SQLAlchemy entre tous les modèles
-- [x] Ajouter les contraintes et index nécessaires
-
-#### Backend - Schémas Pydantic
-- [x] Créer les schémas de validation pour tous les modèles (Create, Update, Response)
-- [x] Implémenter les validations métier (ex: scores positifs, dates cohérentes)
-- [x] Créer les schémas pour les requêtes complexes (filtres, pagination)
-
-#### Backend - Services (Logique métier)
-- [ ] Service de calcul de classements de poules (pool standings)
-- [ ] Service de calcul de classements de tournois (tournament rankings)
-- [ ] Service de calcul de classement général (agrégation par sport)
-- [ ] Service de validation des règles métier (ex: pas de match entre mêmes équipes dans une poule)
-- [ ] Service de gestion des phases de tournoi
-- [ ] Service d'audit (logs d'audit pour actions sensibles)
-
-#### Backend - API REST - Endpoints publics et généraux
-- [x] `GET /` - Informations de base sur l'API
-- [x] `GET /health` - Vérification de l'état de l'API
-- [x] `GET /sports` - Liste tous les sports (avec pagination, filtres)
-- [x] `GET /sports/{sport_id}` - Récupère un sport par ID
-- [x] `GET /teams` - Liste toutes les équipes
-- [x] `GET /teams/{team_id}` - Récupère une équipe par ID
-- [x] `GET /team-sports` - Liste toutes les inscriptions équipe-sport
-- [x] `GET /team-sports/{team_sport_id}` - Récupère une inscription
-- [x] `GET /teams/{team_id}/sports` - Liste les sports d'une équipe
-- [x] `GET /sports/{sport_id}/teams` - Liste les équipes d'un sport
-- [x] `GET /players` - Liste tous les joueurs
-- [x] `GET /players/{player_id}` - Récupère un joueur par ID
-- [x] `GET /team-sports/{team_sport_id}/players` - Liste les joueurs d'une équipe-sport
-- [x] `GET /courts` - Liste tous les terrains
-- [x] `GET /courts/{court_id}` - Récupère un terrain par ID
-- [x] `GET /tournaments` - Liste tous les tournois
-- [x] `GET /tournaments/{tournament_id}` - Récupère un tournoi par ID
-- [x] `GET /tournaments/{tournament_id}/phases` - Liste les phases d'un tournoi
-- [x] `GET /tournaments/{tournament_id}/ranking` - Classement final du tournoi
-- [x] `GET /tournaments/{tournament_id}/configuration` - Configuration d'un tournoi
-- [x] `GET /tournament-phases/{phase_id}` - Récupère une phase
-- [x] `GET /tournament-phases/{phase_id}/matches` - Liste les matchs d'une phase
-- [x] `GET /pools/{pool_id}` - Récupère une poule
-- [x] `GET /pools/{pool_id}/teams` - Liste les équipes d'une poule
-- [x] `GET /pools/{pool_id}/matches` - Liste les matchs d'une poule
-- [x] `GET /pools/{pool_id}/standings` - Classement d'une poule (calcul automatique)
-- [x] `GET /team-pools/{team_pool_id}` - Récupère une équipe-poule
-- [x] `GET /matches` - Liste tous les matchs (avec filtres : sport, phase, statut, date)
-- [x] `GET /matches/{match_id}` - Récupère un match par ID
-- [x] `GET /matches/{match_id}/sets` - Liste les sets d'un match
-- [x] `GET /matches/{match_id}/schedule` - Planification d'un match
-- [x] `GET /courts/{court_id}/schedule` - Planning d'un terrain
-- [x] `GET /match-sets/{set_id}` - Récupère un set par ID
-
-#### Backend - API REST - Endpoints Admin (🔐)
-- [x] `POST /sports` - Crée un nouveau sport
-- [x] `PUT /sports/{sport_id}` - Modifie un sport
-- [x] `DELETE /sports/{sport_id}` - Supprime un sport
-- [x] `POST /teams` - Crée une nouvelle équipe
-- [x] `PUT /teams/{team_id}` - Modifie une équipe
-- [x] `DELETE /teams/{team_id}` - Supprime une équipe
-- [x] `GET /teams/{team_id}/sports` - Liste les sports d'une équipe (avec statut actif/inactif)
-- [x] `POST /teams/{team_id}/sports` - Inscrit une équipe à un ou plusieurs sportsInscrit une équipe à un ou plusieurs sports
-- [x] `DELETE /teams/{team_id}/sports/{sport_id}` - Supprime l'inscription d'une équipe à un sport
-- [x] `PATCH /teams/{team_id}/sports/{sport_id}` - Modifie le statut ou le nom spécifique
-- [ ] `POST /courts` - Crée un nouveau terrain
-- [ ] `PUT /courts/{court_id}` - Modifie un terrain
-- [ ] `DELETE /courts/{court_id}` - Supprime un terrain
-- [ ] `PATCH /courts/{court_id}/activate` - Active un terrain
-- [ ] `PATCH /courts/{court_id}/deactivate` - Désactive un terrain
-- [ ] `POST /tournaments` - Crée un nouveau tournoi
-- [ ] `PUT /tournaments/{tournament_id}` - Modifie un tournoi
-- [ ] `DELETE /tournaments/{tournament_id}` - Supprime un tournoi
-- [ ] `POST /tournaments/{tournament_id}/configuration` - Crée la configuration
-- [ ] `PUT /tournaments/{tournament_id}/configuration` - Modifie la configuration
-- [ ] `POST /tournaments/{tournament_id}/phases` - Crée une nouvelle phase
-- [ ] `PUT /tournament-phases/{phase_id}` - Modifie une phase
-- [ ] `DELETE /tournament-phases/{phase_id}` - Supprime une phase
-- [ ] `POST /tournament-phases/{phase_id}/pools` - Crée une nouvelle poule
-- [ ] `PUT /pools/{pool_id}` - Modifie une poule
-- [ ] `DELETE /pools/{pool_id}` - Supprime une poule
-- [ ] `POST /pools/{pool_id}/teams` - Ajoute une équipe à une poule
-- [ ] `DELETE /team-pools/{team_pool_id}` - Retire une équipe d'une poule
-- [ ] `POST /matches` - Crée un nouveau match
-- [ ] `DELETE /matches/{match_id}` - Supprime un match
-
-#### Backend - API REST - Endpoints Staff (👨‍💼)
-- [ ] `POST /players` - Crée un nouveau joueur
-- [ ] `PUT /players/{player_id}` - Modifie un joueur
-- [ ] `DELETE /players/{player_id}` - Supprime un joueur
-- [ ] `PATCH /players/{player_id}/activate` - Active un joueur
-- [ ] `PATCH /players/{player_id}/deactivate` - Désactive un joueur
-- [ ] `PATCH /tournaments/{tournament_id}/status` - Change le statut du tournoi
-- [ ] `PATCH /team-pools/{team_pool_id}/stats` - Met à jour les stats d'une équipe en poule
-- [ ] `PUT /matches/{match_id}` - Modifie un match
-- [ ] `PATCH /matches/{match_id}/status` - Change le statut du match
-- [ ] `PATCH /matches/{match_id}/score` - Met à jour le score du match (avec recalcul automatique des classements)
-- [ ] `POST /matches/{match_id}/schedule` - Planifie un match
-- [ ] `PUT /matches/{match_id}/schedule` - Modifie la planification
-- [ ] `DELETE /matches/{match_id}/schedule` - Supprime la planification
-- [ ] `PATCH /matches/{match_id}/schedule/start` - Enregistre l'heure de début réelle
-- [ ] `PATCH /matches/{match_id}/schedule/end` - Enregistre l'heure de fin réelle
-- [ ] `POST /matches/{match_id}/sets` - Crée un nouveau set
-- [ ] `PUT /match-sets/{set_id}` - Met à jour le score d'un set
-- [ ] `DELETE /match-sets/{set_id}` - Supprime un set
-
-#### Backend - Système de permissions
-- [ ] Implémenter les décorateurs de permissions (public, authenticated, staff, admin)
-- [ ] Créer les dépendances FastAPI pour vérifier les rôles
-- [ ] Tester les restrictions d'accès sur tous les endpoints
-
-#### Frontend Admin/Staff - Configuration
-- [ ] Initialiser le projet React + TypeScript
-- [ ] Configurer le routage (React Router)
-- [ ] Configurer les appels API (axios/fetch avec intercepteurs)
-- [ ] Mettre en place la gestion d'état (Context API ou Zustand/Redux)
-- [ ] Configurer les styles (CSS modules, Tailwind ou styled-components)
-
-#### Frontend Admin/Staff - Interface de gestion
-- [ ] Page de connexion (avant auth, placeholder)
-- [ ] Layout principal avec navigation
-- [ ] Page gestion des sports (CRUD)
-- [ ] Page gestion des équipes (CRUD)
-- [ ] Page gestion des inscriptions équipe-sport
-- [ ] Page gestion des joueurs (par équipe-sport)
-- [ ] Page gestion des terrains (CRUD)
-- [ ] Page gestion des tournois (CRUD)
-- [ ] Page création/édition de tournoi (phases, poules, équipes)
-- [ ] Page gestion des matchs (liste, création, édition)
-- [ ] Page saisie des scores (basique, sans temps restant pour l'instant)
-- [ ] Page classements (par tournoi, par sport, général)
-- [ ] Page planification des matchs (calendrier/planning)
-
-#### Déploiement
-- [ ] Créer le Dockerfile pour le backend
-- [ ] Créer le Dockerfile pour le frontend admin
-- [ ] Configurer docker-compose.yml (backend, frontend admin, nginx)
-- [ ] Configurer Nginx comme reverse proxy
-- [ ] Tester le déploiement local avec Docker
-- [ ] Documenter les variables d'environnement
-
----
-
-### Livrable 2 (26/01/2026) : Authentification et affichage du temps restant alloué pour le match
-
-#### Backend - Authentification OAuth Google
-- [ ] Implémenter le modèle `RefreshToken` (si pas déjà fait)
-- [ ] Intégrer Google OAuth (bibliothèque `authlib` ou `google-auth`)
-- [ ] Créer les endpoints d'authentification :
-  - [ ] `GET /auth/login` - Redirige vers Google OAuth
-  - [ ] `GET /auth/callback` - Callback Google OAuth (création/récupération utilisateur)
-  - [ ] `POST /auth/refresh` - Rafraîchit l'access token
-  - [ ] `POST /auth/logout` - Révoque le refresh token
-  - [ ] `GET /auth/me` - Récupère l'utilisateur actuel
-- [ ] Implémenter la génération des tokens JWT (access token + refresh token)
-- [ ] Implémenter la whitelist d'emails/domaines Google pour restriction d'accès staff
-- [ ] Créer le middleware JWT pour protéger les routes
-- [ ] Adapter le modèle `User` pour Google OAuth (google_id, display_name, profile_picture_url)
-- [ ] Implémenter la gestion des rôles (admin/staff) basée sur la whitelist ou la base de données
-
-#### Backend - API REST - Gestion des utilisateurs (Admin)
-- [ ] `GET /users` - Liste tous les utilisateurs autorisés
-- [ ] `GET /users/{user_id}` - Récupère un utilisateur par ID
-- [ ] `POST /users` - Ajoute un utilisateur à la whitelist (création manuelle)
-- [ ] `PUT /users/{user_id}` - Modifie un utilisateur (rôle, statut)
-- [ ] `DELETE /users/{user_id}` - Supprime un utilisateur de la whitelist
-- [ ] `PATCH /users/{user_id}/activate` - Active un utilisateur
-- [ ] `PATCH /users/{user_id}/deactivate` - Désactive un utilisateur
-
-#### Backend - Temps restant pour les matchs
-- [ ] Ajouter le champ `estimated_duration_minutes` dans `MatchSchedule` (déjà prévu dans le modèle)
-- [ ] Créer un endpoint ou logique pour calculer le temps restant :
-  - [ ] Calcul basé sur `scheduled_datetime` + `estimated_duration_minutes` - `now()`
-  - [ ] Prendre en compte `actual_start_datetime` si le match a commencé
-  - [ ] Retourner le temps restant dans la réponse `GET /matches/{match_id}` ou endpoint dédié
-- [ ] Implémenter la mise à jour du temps restant en temps réel (optionnel : WebSocket, ou calcul côté client)
-
-#### Frontend Admin/Staff - Authentification
-- [ ] Page de connexion avec bouton "Connexion Google"
-- [ ] Intégrer le flux OAuth Google (redirection vers backend)
-- [ ] Gérer le stockage des tokens (localStorage/sessionStorage, avec gestion de sécurité)
-- [ ] Créer un contexte d'authentification (AuthContext)
-- [ ] Implémenter les routes protégées (redirection si non authentifié)
-- [ ] Créer un composant de vérification de rôle (staff/admin)
-- [ ] Gérer la déconnexion
-- [ ] Afficher les informations utilisateur (nom, photo de profil) dans la navigation
-- [ ] Page de gestion des utilisateurs (admin uniquement)
-
-#### Frontend Admin/Staff - Affichage du temps restant
-- [ ] Ajouter l'affichage du temps restant dans la page détail d'un match
-- [ ] Créer un composant de compte à rebours (timer)
-- [ ] Afficher le temps restant dans la liste des matchs (si pertinent)
-- [ ] Gérer les différents états : temps prévu, match en cours, match terminé
-
----
-
-### Livrable 3 (06/02/2026) : Page score en direct, page affichant les règles par sport, feuille de matchs et événements du matchs
-
-#### Backend - Feuille de match (MatchSheet)
-- [ ] Finaliser les modèles `MatchSheet` et `PlayerMatchSheet` si pas déjà fait
-- [ ] Créer les endpoints pour la feuille de match :
-  - [ ] `GET /matches/{match_id}/sheets` - Liste les feuilles de match (une par équipe)
-  - [ ] `GET /matches/{match_id}/sheets/{team_sport_id}` - Récupère une feuille de match spécifique
-  - [ ] `POST /matches/{match_id}/sheets` - Crée une feuille de match pour une équipe
-  - [ ] `PUT /matches/{match_id}/sheets/{team_sport_id}` - Modifie une feuille de match
-  - [ ] `POST /matches/{match_id}/sheets/{team_sport_id}/players` - Ajoute un joueur à la feuille
-  - [ ] `PUT /player-match-sheets/{player_match_sheet_id}` - Modifie un joueur sur la feuille (starter, jersey_number, captain)
-  - [ ] `DELETE /player-match-sheets/{player_match_sheet_id}` - Retire un joueur de la feuille
-
-#### Backend - Événements de match (MatchEvent)
-- [ ] Finaliser le modèle `MatchEvent` avec tous les types d'événements (enum)
-- [ ] Créer les endpoints pour les événements :
-  - [ ] `GET /matches/{match_id}/events` - Liste tous les événements d'un match (triés par minute)
-  - [ ] `GET /matches/{match_id}/events/{event_id}` - Récupère un événement
-  - [ ] `POST /matches/{match_id}/events` - Crée un événement (but, carton, remplacement, etc.)
-  - [ ] `PUT /matches/{match_id}/events/{event_id}` - Modifie un événement
-  - [ ] `DELETE /matches/{match_id}/events/{event_id}` - Supprime un événement
-
-#### Backend - Règles par sport
-- [ ] Ajouter le champ `rules` dans le modèle `Sport` (ou créer une table dédiée si nécessaire)
-- [ ] Créer les endpoints pour les règles :
-  - [ ] `GET /sports/{sport_id}/rules` - Récupère les règles d'un sport
-  - [ ] `PUT /sports/{sport_id}/rules` - Modifie les règles (admin uniquement)
-- [ ] Implémenter le stockage des règles (texte ou JSON structuré)
-
-#### Backend - Score en direct (WebSocket optionnel)
-- [ ] Implémenter WebSocket avec FastAPI (optionnel mais recommandé)
-- [ ] Créer un endpoint WebSocket pour les mises à jour en temps réel
-- [ ] Diffuser les mises à jour de scores, événements, statuts de match
-- [ ] Gérer les connexions multiples et la gestion des rooms par match
-
-#### Frontend Admin/Staff - Feuille de match
-- [ ] Page de gestion de feuille de match (création/édition)
-- [ ] Interface pour sélectionner les joueurs de l'équipe (depuis TeamSport)
-- [ ] Interface pour définir les titulaires (starters) et remplaçants
-- [ ] Interface pour attribuer les numéros de maillot pour le match
-- [ ] Interface pour désigner le capitaine du match
-- [ ] Affichage de la composition d'équipe (liste ordonnée)
-- [ ] Validation avant enregistrement (nombre min/max de joueurs selon le sport)
-
-#### Frontend Admin/Staff - Événements de match
-- [ ] Page ou modal de saisie d'événements en temps réel
-- [ ] Interface pour ajouter un événement (type, joueur, minute, description)
-- [ ] Liste chronologique des événements du match
-- [ ] Filtres par type d'événement
-- [ ] Possibilité de modifier/supprimer un événement
-- [ ] Affichage visuel des événements (icônes selon le type : but, carton, remplacement)
-
-#### Frontend Admin/Staff - Règles par sport
-- [ ] Page d'affichage des règles par sport (lecture seule pour staff)
-- [ ] Page d'édition des règles (admin uniquement, éditeur de texte riche si possible)
-- [ ] Navigation entre les sports pour consulter les règles
-
-#### Frontend Admin/Staff - Score en direct
-- [ ] Page dédiée "Score en direct" avec liste des matchs en cours
-- [ ] Affichage en temps réel des scores (mise à jour automatique ou WebSocket)
-- [ ] Affichage des événements en direct
-- [ ] Interface optimisée pour saisie rapide des scores et événements
-- [ ] Indicateur visuel pour les matchs en cours vs terminés
-
----
-
-### Livrable 4 (13/02/2026) : Interface public, tests complets et correctifs
-
-#### Frontend Public - Configuration
-- [ ] Initialiser le projet React + TypeScript
-- [ ] Configurer le routage (React Router)
-- [ ] Configurer les appels API (axios/fetch)
-- [ ] Mettre en place la gestion d'état légère
-- [ ] Configurer les styles (cohérents avec l'interface admin mais adaptés au public)
-
-#### Frontend Public - Pages principales
-- [ ] Page d'accueil (présentation, prochains matchs, classements généraux)
-- [ ] Page liste des sports
-- [ ] Page détail d'un sport (équipes, tournois, classements)
-- [ ] Page liste des équipes
-- [ ] Page détail d'une équipe (sports, joueurs, résultats)
-- [ ] Page liste des tournois
-- [ ] Page détail d'un tournoi (phases, poules, matchs, classement)
-- [ ] Page classements (général, par sport, par tournoi)
-- [ ] Page planning/calendrier des matchs (vue calendrier ou liste)
-- [ ] Page détail d'un match (scores, sets, événements, compositions)
-- [ ] Page score en direct (matchs en cours en temps réel)
-- [ ] Page règles par sport (affichage des règles)
-- [ ] Navigation principale et footer
-
-#### Frontend Public - Fonctionnalités temps réel
-- [ ] Intégration WebSocket pour mises à jour en direct (si implémenté côté backend)
-- [ ] Affichage des scores mis à jour automatiquement
-- [ ] Notification des nouveaux événements de match
-- [ ] Indicateur "En direct" pour les matchs en cours
-
-#### Frontend Public - Optimisations
-- [ ] Design responsive (mobile-first)
-- [ ] Optimisation des performances (lazy loading, pagination)
-- [ ] Gestion des erreurs et états de chargement
-- [ ] SEO de base (meta tags, structure sémantique)
-
-#### Tests - Backend
-- [ ] Tests unitaires pour les modèles
-- [ ] Tests unitaires pour les services (calculs de classements, validations)
-- [ ] Tests d'intégration pour les endpoints API (avec pytest)
-- [ ] Tests d'authentification et permissions
-- [ ] Tests de validation des schémas Pydantic
-- [ ] Tests de régression pour les règles métier critiques
-
-#### Tests - Frontend
-- [ ] Tests unitaires pour les composants critiques (calculs, formatage)
-- [ ] Tests d'intégration pour les flux principaux (navigation, appels API)
-- [ ] Tests E2E pour les scénarios clés (avec Playwright ou Cypress) :
-  - [ ] Création d'un tournoi (admin)
-  - [ ] Saisie d'un score (staff)
-  - [ ] Consultation des classements (public)
-
-#### Déploiement - Finalisation
-- [ ] Configuration HTTPS avec certificats SSL (Let's Encrypt)
-- [ ] Configuration Nginx complète (reverse proxy, cache, compression)
-- [ ] Variables d'environnement de production
-- [ ] Scripts de déploiement et documentation
-- [ ] Backup de la base de données (stratégie et scripts)
-- [ ] Monitoring de base (logs, health checks)
-
-#### Documentation
-- [ ] Documentation API complète (vérifier Swagger/OpenAPI)
-- [ ] Guide de déploiement détaillé
-- [ ] Guide utilisateur pour le staff/admin
-- [ ] README mis à jour avec instructions complètes
-
-#### Correctifs et polish
-- [ ] Correction des bugs identifiés pendant les tests
-- [ ] Optimisations de performance (requêtes DB, cache)
-- [ ] Amélioration de l'UX/UI (feedback utilisateur, messages d'erreur clairs)
-- [ ] Vérification de l'accessibilité (a11y) de base
-- [ ] Revue de sécurité (injection, XSS, CSRF)
-- [ ] Tests de charge basiques (si possible)
-
-#### Préparation production
-- [ ] Vérification de toutes les fonctionnalités selon les spécifications
-- [ ] Tests sur environnement de staging/production
-- [ ] Formation des utilisateurs finaux (staff/admin)
-- [ ] Documentation finale
-
----
-
-## 12. Règles pour l’IA (Cursor – Mémoire Projet)
-
-> À respecter pour toute nouvelle feature
-
-* Seuls les **admins** peuvent créer ou modifier un tournoi
-* Un tournoi possède **un type** (poules, élimination, mixte)
-* Un tournoi est composé de **phases ordonnées**
-* Les matchs appartiennent toujours à une **phase de tournoi**
-* Les points sont attribués **selon le classement final du tournoi**
-* Les classements globaux sont calculés à partir des classements de tournois
-* Toute modification de score passe par `PUT /matches/{id}/score`
-* Le frontend public est strictement **read-only**
-
----
-
-## 13. Évolutions possibles
-
-* Arbitrage avancé par sport
-* Historique et statistiques détaillées
-* Export PDF / CSV
-* Application mobile
-
----
-
-## 14. Philosophie du projet
-
-> Une application simple, robuste et maintenable, adaptée aux contraintes réelles d’un événement sportif universitaire, tout en restant évolutive pour les éditions futures.
-
----
-
-Fin du document.
+# Auteurs :
+- Franck VALMONT
