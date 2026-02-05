@@ -12,12 +12,17 @@ entryPoints:
           scheme: https
   websecure:
     address: ":443"
+    http:
+      middlewares:
+        - security-headers@file
 
 providers:
   docker:
     endpoint: "unix:///var/run/docker.sock"
     exposedByDefault: false
     network: coupe-network
+  file:
+    filename: /etc/traefik/traefik.yml
 
 tls:
   stores:
@@ -26,6 +31,21 @@ tls:
         certFile: /certs/coupedeluniversite.pem
         keyFile: /certs/coupedeluniversite.key
 
+http:
+  middlewares:
+    security-headers:
+      headers:
+        browserXssFilter: true
+        contentTypeNosniff: true
+        frameDeny: true
+        stsIncludeSubdomains: true
+        stsPreload: true
+        stsSeconds: 31536000
+        customFrameOptionsValue: "SAMEORIGIN"
 
 log:
   level: INFO
+
+accessLog:
+  filePath: "/var/log/traefik/access.log"
+  bufferingSize: 100

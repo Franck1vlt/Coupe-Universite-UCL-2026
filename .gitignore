@@ -1,6 +1,108 @@
-traefik/certs/
-traefik/traefik.yml
+# ============================================
+# Fichiers sensibles - NE JAMAIS COMMITER
+# ============================================
 .env
+.env.*
+!.env.example
+
+# Certificats SSL
+traefik/certs/
 certs/
+*.pem
+*.key
+*.crt
+acme.json
+
+# ============================================
+# Dependances
+# ============================================
+# Node.js
+node_modules/
+.npm
+.pnpm-store/
+
+# Python
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+*.so
+.eggs/
+*.egg-info/
+*.egg
+
+# ============================================
+# Build et cache
+# ============================================
+# Next.js
+.next/
+out/
+.vercel
+
+# Python
+dist/
+build/
+*.manifest
+*.spec
+
+# Cache
+.cache/
+*.cache
+
+# ============================================
+# Base de donnees
+# ============================================
+# Ne pas commiter la base de donnees de production
+Backend/data/*.db
+!Backend/data/.gitkeep
+
+# SQLite
+*.sqlite
+*.sqlite3
+
+# ============================================
+# IDE et editeurs
+# ============================================
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ============================================
+# Logs
+# ============================================
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ============================================
+# Tests
+# ============================================
+coverage/
+.nyc_output/
+.pytest_cache/
+htmlcov/
+
+# ============================================
+# Docker
+# ============================================
+# docker-compose.override.yml est garde dans le repo pour le dev local
+
+# ============================================
+# Claude Code
+# ============================================
 .claude/
 CLAUDE.md
+
+# ============================================
+# Divers
+# ============================================
+*.bak
+*.tmp
+*.temp

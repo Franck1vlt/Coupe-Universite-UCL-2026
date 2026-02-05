@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { v4 as uuidv4 } from "uuid";
 import { 
   resolveTeamName, 
@@ -233,6 +234,8 @@ const getUsedTeamsByPhase = (
 };
 
 export default function TournamentsPage() {
+    const { data: session } = useSession();
+
     // Vérifie si un terrain est disponible pour un créneau donné
     const isCourtAvailable = (
       courtName: string,
@@ -385,7 +388,10 @@ export default function TournamentsPage() {
       // Essayer d'abord un PUT (mise à jour)
       let res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/match-schedules/${matchId}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.accessToken && { "Authorization": `Bearer ${session.accessToken}` })
+        },
         body: JSON.stringify(payload)
       });
 
@@ -394,7 +400,10 @@ export default function TournamentsPage() {
         console.log(`⚠️ Schedule inexistant pour match ${matchId}, création...`);
         res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/match-schedules/`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            ...(session?.accessToken && { "Authorization": `Bearer ${session.accessToken}` })
+          },
           body: JSON.stringify(payload)
         });
       }
@@ -1837,7 +1846,10 @@ export default function TournamentsPage() {
         
         const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/tournaments/${tournamentId}/structure`, {
           method: 'DELETE',
-          headers: { 'Accept': 'application/json' }
+          headers: {
+            'Accept': 'application/json',
+            ...(session?.accessToken && { Authorization: `Bearer ${session.accessToken}` })
+          }
         });
         
         if (response.ok) {
@@ -2102,7 +2114,10 @@ export default function TournamentsPage() {
 
         const response = await fetch(url, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            ...(session?.accessToken && { "Authorization": `Bearer ${session.accessToken}` })
+          },
           body: JSON.stringify(payload),
         });
 

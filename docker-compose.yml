@@ -1,3 +1,14 @@
+# ============================================
+# Podman Compose - Production (VPS Linux)
+# ============================================
+# Utilise les variables du fichier .env
+# Voir .env.example pour la configuration
+#
+# Commandes avec alias:
+#   pc -f docker-compose.yml up -d --build
+#   pc -f docker-compose.yml down
+#   pc -f docker-compose.yml logs -f
+
 services:
   traefik:
     image: traefik:v3.0
@@ -6,66 +17,112 @@ services:
     ports:
       - "80:80"
       - "443:443"
-      - "8080:8080"  # Dashboard Traefik
+      - "8080:8080"  # Dashboard Traefik (a desactiver en prod si non necessaire)
     volumes:
-      - //./pipe/docker_engine:/var/run/docker.sock:ro
+      # Socket Podman (rootless user)
+      - /run/user/1000/podman/podman.sock:/var/run/docker.sock:ro
       - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
       - ./traefik/certs:/certs:ro
     networks:
       - coupe-network
+    labels:
+      - "traefik.enable=true"
+      # Dashboard Traefik (optionnel)
+      - "traefik.http.routers.traefik.rule=Host(`traefik.${DOMAIN}`)"
+      - "traefik.http.routers.traefik.entrypoints=websecure"
+      - "traefik.http.routers.traefik.tls=true"
+      - "traefik.http.routers.traefik.service=api@internal"
 
   backend:
     container_name: coupe-backend
-    build: ./backend
+    build: ./Backend
     restart: unless-stopped
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
     volumes:
-      - ./Backend/data:/app/data
+      # Volume pour la persistance de la base de donnees
+      - backend-data:/app/data
     environment:
       - DATABASE_PATH=/app/data/coupe_ucl_2026.db
-    ports:
-      - "8000:8000"
+      - SECRET_KEY=${SECRET_KEY}
+      - DOMAIN=${DOMAIN}
+      - API_URL=https://api.${DOMAIN}
+      - ADMIN_FRONTEND_NEXTJS_URL=https://admin.${DOMAIN}
+      - PUBLIC_FRONTEND_NEXTJS_URL=https://${DOMAIN}
     labels:
-      - "traefik.enable=false"
+      - "traefik.enable=true"
+      - "traefik.http.routers.backend.rule=Host(`api.${DOMAIN}`)"
+      - "traefik.http.routers.backend.entrypoints=websecure"
+      - "traefik.http.routers.backend.tls=true"
+      - "traefik.http.services.backend.loadbalancer.server.port=8000"
+      # CORS headers
+      - "traefik.http.middlewares.backend-cors.headers.accesscontrolallowmethods=GET,OPTIONS,PUT,POST,DELETE,PATCH"
+      - "traefik.http.middlewares.backend-cors.headers.accesscontrolallowheaders=Content-Type,Authorization"
+      - "traefik.http.middlewares.backend-cors.headers.accesscontrolalloworiginlist=https://${DOMAIN},https://admin.${DOMAIN}"
+      - "traefik.http.middlewares.backend-cors.headers.accesscontrolmaxage=100"
+      - "traefik.http.middlewares.backend-cors.headers.addvaryheader=true"
+      - "traefik.http.routers.backend.middlewares=backend-cors"
     networks:
       - coupe-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
   frontend-public:
     container_name: coupe-frontend-public
     build: ./frontend-public
     restart: unless-stopped
     command: ["npm", "start", "--", "-p", "3100"]
-    ports:
-      - "3100:3100"
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NEXT_PUBLIC_API_URL=https://api.${DOMAIN}
+      - DOMAIN=${DOMAIN}
     labels:
-      - "traefik.enable=false"
+      - "traefik.enable=true"
+      - "traefik.http.routers.frontend-public.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.frontend-public.entrypoints=websecure"
+      - "traefik.http.routers.frontend-public.tls=true"
+      - "traefik.http.services.frontend-public.loadbalancer.server.port=3100"
     networks:
       - coupe-network
+    depends_on:
+      - backend
 
   frontend-admin:
     container_name: coupe-frontend-admin
     build: ./frontend-admin
     restart: unless-stopped
     command: ["npm", "start"]
-    ports:
-      - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NEXT_PUBLIC_API_URL=https://api.${DOMAIN}
       - API_URL=http://coupe-backend:8000
-      - NEXTAUTH_URL=http://localhost:3000
-      - NEXTAUTH_URL_INTERNAL=http://localhost:3000
-      - AUTH_SECRET=8V80sENYQ7mn8Bwd9R2Q7pGXMqERMpx=
+      - NEXTAUTH_URL=https://admin.${DOMAIN}
+      - NEXTAUTH_URL_INTERNAL=http://coupe-frontend-admin:3000
+      - AUTH_SECRET=${AUTH_SECRET}
       - AUTH_TRUST_HOST=true
+      - DOMAIN=${DOMAIN}
+      # Credentials admin (pour l'auth credentials provider)
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - STAFF_USERNAME=${STAFF_USERNAME:-staff}
+      - STAFF_PASSWORD=${STAFF_PASSWORD}
     labels:
-      - "traefik.enable=false"
+      - "traefik.enable=true"
+      - "traefik.http.routers.frontend-admin.rule=Host(`admin.${DOMAIN}`)"
+      - "traefik.http.routers.frontend-admin.entrypoints=websecure"
+      - "traefik.http.routers.frontend-admin.tls=true"
+      - "traefik.http.services.frontend-admin.loadbalancer.server.port=3000"
     networks:
       - coupe-network
+    depends_on:
+      - backend
 
 networks:
   coupe-network:
     driver: bridge
 
 volumes:
-  data:
+  # Volume nomme pour la persistance de la BDD
+  # Les donnees sont stockees dans /var/lib/containers/storage/volumes/
+  backend-data:
