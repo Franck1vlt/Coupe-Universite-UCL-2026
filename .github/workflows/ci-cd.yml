@@ -138,12 +138,13 @@ jobs:
             # Build et deploiement avec Podman Compose
             # Note: utilise podman-compose (pas l'alias pc) car shell non-interactif
             echo "Deploiement des containers..."
-            podman-compose -f docker-compose.yml down
-            podman-compose -f docker-compose.yml up -d --build
+            podman-compose -p coupe -f docker-compose.yml down
+            podman-compose -p coupe -f docker-compose.yml up -d --build
 
             # Verification du deploiement
             echo "Verification des services..."
             sleep 10
-            podman-compose -f docker-compose.yml ps
+            podman-compose -p coupe -f docker-compose.yml ps
+            podman image prune -f
 
             echo "Deploiement termine!"

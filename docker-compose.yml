@@ -63,12 +63,6 @@ services:
       - "traefik.http.routers.backend.middlewares=backend-cors"
     networks:
       - coupe-network
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
 
   frontend-public:
     container_name: coupe-frontend-public
