@@ -118,6 +118,9 @@ jobs:
             [ -f /tmp/env_backup/frontend-public.env ] && cp /tmp/env_backup/frontend-public.env frontend-public/.env.production
             [ -d /tmp/env_backup/certs ] && mkdir -p traefik/certs && cp -r /tmp/env_backup/certs/* traefik/certs/
 
+            # Supprimer le fichier override (pour dev local Windows uniquement)
+            rm -f docker-compose.override.yml
+
             # Verifier que le fichier .env existe
             if [ ! -f ".env" ]; then
               echo "ERREUR: Le fichier .env n'existe pas!"
