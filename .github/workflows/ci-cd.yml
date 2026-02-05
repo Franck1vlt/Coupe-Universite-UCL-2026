@@ -96,10 +96,27 @@ jobs:
 
             cd $PROJECT_DIR
 
+            # Sauvegarder les fichiers .env et certs avant le git reset
+            echo "Sauvegarde des fichiers de configuration..."
+            mkdir -p /tmp/env_backup
+            [ -f .env ] && cp .env /tmp/env_backup/
+            [ -f Backend/.env ] && cp Backend/.env /tmp/env_backup/backend.env
+            [ -f frontend-admin/.env.production ] && cp frontend-admin/.env.production /tmp/env_backup/frontend-admin.env
+            [ -f frontend-public/.env.production ] && cp frontend-public/.env.production /tmp/env_backup/frontend-public.env
+            [ -d traefik/certs ] && cp -r traefik/certs /tmp/env_backup/
+
             # Pull des dernieres modifications
             echo "Mise a jour du code..."
             git fetch origin main
             git reset --hard origin/main
+
+            # Restaurer les fichiers .env et certs
+            echo "Restauration des fichiers de configuration..."
+            [ -f /tmp/env_backup/.env ] && cp /tmp/env_backup/.env .env
+            [ -f /tmp/env_backup/backend.env ] && cp /tmp/env_backup/backend.env Backend/.env
+            [ -f /tmp/env_backup/frontend-admin.env ] && cp /tmp/env_backup/frontend-admin.env frontend-admin/.env.production
+            [ -f /tmp/env_backup/frontend-public.env ] && cp /tmp/env_backup/frontend-public.env frontend-public/.env.production
+            [ -d /tmp/env_backup/certs ] && mkdir -p traefik/certs && cp -r /tmp/env_backup/certs/* traefik/certs/
 
             # Verifier que le fichier .env existe
             if [ ! -f ".env" ]; then
