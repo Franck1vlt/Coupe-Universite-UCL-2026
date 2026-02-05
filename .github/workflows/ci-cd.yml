@@ -1,4 +1,4 @@
-name: CI/CD - Coupe de l'Université
+name: CI/CD - Coupe de l'Universite
 
 on:
   push:
@@ -6,34 +6,36 @@ on:
       - main
 
 jobs:
-  ci-cd:
+  # =============================================
+  # JOB 1: Tests et Lint
+  # =============================================
+  test:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       # ======================
-      # BACKEND TESTS (FastAPI)
+      # BACKEND (FastAPI)
       # ======================
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: 3.13
+          python-version: "3.13"
 
       - name: Install backend dependencies
         run: |
           cd Backend
           pip install -r requirements.txt
 
-      # Les tests backend seront ajoutés ultérieurement
+      # Activer quand les tests seront prets
       # - name: Run backend tests
       #   run: |
       #     cd Backend
       #     pytest --maxfail=1 --disable-warnings
 
       # ======================
-      # FRONTEND ADMIN TESTS
+      # FRONTEND ADMIN
       # ======================
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -47,8 +49,13 @@ jobs:
         run: npm run lint --prefix frontend-admin
         continue-on-error: true
 
+      - name: Build frontend-admin
+        run: npm run build --prefix frontend-admin
+        env:
+          NEXT_PUBLIC_API_URL: https://api.coupedeluniversite.fr
+
       # ======================
-      # FRONTEND PUBLIC TESTS
+      # FRONTEND PUBLIC
       # ======================
       - name: Install frontend-public deps
         run: npm ci --prefix frontend-public
@@ -57,19 +64,66 @@ jobs:
         run: npm run lint --prefix frontend-public
         continue-on-error: true
 
-      # ======================
-      # DEPLOYMENT
-      # ======================
-      # Déploiement SSH désactivé - à activer quand le VPS sera configuré
-      # - name: Deploy via SSH (Docker Compose)
-      #   uses: appleboy/ssh-action@v1.0.3
-      #   with:
-      #     host: ${{ secrets.SERVER_HOST }}
-      #     username: ${{ secrets.SERVER_USER }}
-      #     key: ${{ secrets.SERVER_SSH_KEY }}
-      #     port: 22
-      #     script: |
-      #       set -e
-      #       cd /var/www/coupe-universitaire
-      #       git pull origin main
-      #       docker compose up -d --build
+      - name: Build frontend-public
+        run: npm run build --prefix frontend-public
+        env:
+          NEXT_PUBLIC_API_URL: https://api.coupedeluniversite.fr
+
+  # =============================================
+  # JOB 2: Deploiement sur VPS
+  # =============================================
+  deploy:
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            # Configuration
+            PROJECT_DIR=~/coupe-universite-ucl-2026
+
+            # Verifier si le projet existe
+            if [ ! -d "$PROJECT_DIR" ]; then
+              echo "Clonage initial du projet..."
+              git clone https://github.com/${{ github.repository }}.git $PROJECT_DIR
+            fi
+
+            cd $PROJECT_DIR
+
+            # Pull des dernieres modifications
+            echo "Mise a jour du code..."
+            git fetch origin main
+            git reset --hard origin/main
+
+            # Verifier que le fichier .env existe
+            if [ ! -f ".env" ]; then
+              echo "ERREUR: Le fichier .env n'existe pas!"
+              echo "Copiez .env.example vers .env et configurez les variables."
+              exit 1
+            fi
+
+            # Verifier que la base de donnees existe
+            if [ ! -f "Backend/data/coupe_ucl_2026.db" ]; then
+              echo "ATTENTION: Base de donnees non trouvee."
+              echo "Une nouvelle base sera creee au premier demarrage."
+              mkdir -p Backend/data
+            fi
+
+            # Build et deploiement avec Podman Compose
+            # Note: utilise podman-compose (pas l'alias pc) car shell non-interactif
+            echo "Deploiement des containers..."
+            podman-compose -f docker-compose.yml down
+            podman-compose -f docker-compose.yml up -d --build
+
+            # Verification du deploiement
+            echo "Verification des services..."
+            sleep 10
+            podman-compose -f docker-compose.yml ps
+
+            echo "Deploiement termine!"

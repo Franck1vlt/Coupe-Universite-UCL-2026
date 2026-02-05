@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 
 // Types pour les équipes côté UI et API
 type Team = {
@@ -41,6 +42,7 @@ function computeLogoUrlFromName(name: string): string {
 }
 
 export default function GestionTeams() {
+  const { data: session } = useSession();
   const [teams, setTeams] = useState<Team[]>([]);
   const [inputName, setInputName] = useState("");
   const [inputColor, setInputColor] = useState("");
@@ -98,7 +100,10 @@ export default function GestionTeams() {
     try {
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/teams/${teamId}`, {
         method: "DELETE",
-        headers: { Accept: "application/json" },
+        headers: {
+          Accept: "application/json",
+          ...(session?.accessToken && { Authorization: `Bearer ${session.accessToken}` })
+        },
       });
       const data = await res.json();
       if (!res.ok || data.success === false) {
@@ -183,7 +188,10 @@ export default function GestionTeams() {
       const url = `${process.env.NEXT_PUBLIC_API_URL}/teams?name=${encodeURIComponent(nom)}&primary_color=${encodeURIComponent(color)}&logo_url=${encodeURIComponent(logoUrl)}`;
       const res = await fetch(url, {
         method: "POST",
-        headers: { Accept: "application/json" }
+        headers: {
+          Accept: "application/json",
+          ...(session?.accessToken && { Authorization: `Bearer ${session.accessToken}` })
+        }
       });
 
       const data = await res.json();
@@ -234,7 +242,8 @@ export default function GestionTeams() {
         method: "PUT",
         headers: {
           Accept: "application/json",
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
+          ...(session?.accessToken && { Authorization: `Bearer ${session.accessToken}` })
         },
         body: JSON.stringify(payload),
       });

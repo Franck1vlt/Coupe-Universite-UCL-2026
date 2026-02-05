@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import {
   resolveTeamName,
   calculatePoolStandings,
@@ -179,6 +180,7 @@ const formatTeamName = (
 export default function TournamentViewPage() {
   const params = useParams();
   const router = useRouter();
+  const { data: session } = useSession();
   const [sport, setSport] = useState<Sport | null>(null);
   const [sportCode, setSportCode] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -843,6 +845,7 @@ export default function TournamentViewPage() {
             headers: {
               "Content-Type": "application/json",
               "Accept": "application/json",
+              ...(session?.accessToken && { Authorization: `Bearer ${session.accessToken}` })
             },
           });
           
@@ -998,6 +1001,7 @@ export default function TournamentViewPage() {
         headers: {
           "Content-Type": "application/json",
           "Accept": "application/json",
+          ...(session?.accessToken && { Authorization: `Bearer ${session.accessToken}` })
         },
       });
       

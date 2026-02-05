@@ -3,34 +3,16 @@ export default function ContactPage() {
     const contacts = [
         {
             role: "Président",
-            name: "Alice Dupont",
-            phone: "06 00 00 00 01",
-            email: "president@ucl-coupe.fr",
+            name: "Thomas Courtois",
+            phone: "",
+            email: ""
         },
         {
-            role: "Vice-Président Events",
-            name: "Benoît Martin",
-            phone: "06 00 00 00 02",
-            email: "vp.events@ucl-coupe.fr",
-        },
-        {
-            role: "Responsable Communication",
-            name: "Claire Leroy",
-            phone: "06 00 00 00 03",
-            email: "com@ucl-coupe.fr",
-        },
-        {
-            role: "Responsable Sports",
-            name: "David Morel",
-            phone: "06 00 00 00 04",
-            email: "sports@ucl-coupe.fr",
-        },
-        {
-            role: "Trésorier",
-            name: "Emma Petit",
-            phone: "06 00 00 00 05",
-            email: "tresorier@ucl-coupe.fr",
-        },
+            role: "VP EVENTS",
+            name: "Julien Croppi",
+            phone: "",
+            email: ""
+        }
     ];
 
     return (

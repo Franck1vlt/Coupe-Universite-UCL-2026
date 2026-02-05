@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 
 // Types côté UI (français pour affichage), et type API (backend)
 type TypeScore = "Points" | "Buts" | "Sets";
@@ -64,6 +65,7 @@ const formatDate = (dateString: string): string => {
 };
 
 export default function GestionSports() {
+  const { data: session } = useSession();
   const [sports, setSports] = useState<Sport[]>([]);
   const [inputNom, setInputNom] = useState("");
   const [inputTypeScore, setInputTypeScore] = useState<TypeScore>("Points");
@@ -125,7 +127,10 @@ export default function GestionSports() {
       )}`;
       const res = await fetch(url, {
         method: "POST",
-        headers: { Accept: "application/json" },
+        headers: {
+          Accept: "application/json",
+          ...(session?.accessToken && { Authorization: `Bearer ${session.accessToken}` })
+        },
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
@@ -152,7 +157,10 @@ export default function GestionSports() {
     try {
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/sports/${sportId}`, {
         method: "DELETE",
-        headers: { Accept: "application/json" },
+        headers: {
+          Accept: "application/json",
+          ...(session?.accessToken && { Authorization: `Bearer ${session.accessToken}` })
+        },
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
@@ -176,7 +184,10 @@ export default function GestionSports() {
       const url = `${process.env.NEXT_PUBLIC_API_URL}/sports/${sportId}?name=${encodeURIComponent(name)}&score_type=${encodeURIComponent(score_type)}`;
       const res = await fetch(url, {
         method: "PUT",
-        headers: { Accept: "application/json" },
+        headers: {
+          Accept: "application/json",
+          ...(session?.accessToken && { Authorization: `Bearer ${session.accessToken}` })
+        },
       });
       const data = await res.json();
       if (!res.ok || !data.success) {

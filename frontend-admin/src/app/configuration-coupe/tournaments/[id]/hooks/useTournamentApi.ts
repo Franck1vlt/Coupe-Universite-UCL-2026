@@ -1,8 +1,10 @@
 import { useState, useCallback } from "react";
+import { useSession } from "next-auth/react";
 import { v4 as uuidv4 } from "uuid";
 import { Match, Pool, Bracket, LoserBracket, MatchStatus } from "../types/tournament.types";
 
 export function useTournamentApi(tournamentId: number | null) {
+  const { data: session } = useSession();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -162,7 +164,10 @@ export function useTournamentApi(tournamentId: number | null) {
         `${process.env.NEXT_PUBLIC_API_URL}/tournament_structure/${tournamentId}/structure`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            ...(session?.accessToken && { Authorization: `Bearer ${session.accessToken}` })
+          },
           body: JSON.stringify(structure),
         }
       );
@@ -210,7 +215,7 @@ export function useTournamentApi(tournamentId: number | null) {
     } finally {
       setIsLoading(false);
     }
-  }, [tournamentId]);
+  }, [tournamentId, session?.accessToken]);
 
   return {
     loadTournament,

@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 
 // Types
 type Court = {
@@ -21,6 +22,7 @@ type MatchSchedule = {
 
 export default function CourtsPage() {
   const router = useRouter();
+  const { data: session } = useSession();
 
   const [courts, setCourts] = useState<Court[]>([]);
   const [matchSchedules, setMatchSchedules] = useState<MatchSchedule[]>([]);
@@ -120,7 +122,10 @@ export default function CourtsPage() {
       const url = `${API_BASE_URL}/courts?name=${encodeURIComponent(inputName.trim())}&is_active=false&created_at=${encodeURIComponent(now)}`;
       const res = await fetch(url, {
         method: "POST",
-        headers: { "Accept": "application/json" }
+        headers: {
+          Accept: "application/json",
+          ...(session?.accessToken && { Authorization: `Bearer ${session.accessToken}` })
+        }
       });
 
       if (res.ok) {
@@ -151,7 +156,10 @@ export default function CourtsPage() {
     try {
       const res = await fetch(`${API_BASE_URL}/courts/${courtId}`, {
         method: "DELETE",
-        headers: { Accept: "application/json" },
+        headers: {
+          Accept: "application/json",
+          ...(session?.accessToken && { Authorization: `Bearer ${session.accessToken}` })
+        },
       });
       const data = await res.json();
       if (!res.ok || data.success === false) {
@@ -185,7 +193,8 @@ export default function CourtsPage() {
         method: "PUT",
         headers: {
           Accept: "application/json",
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
+          ...(session?.accessToken && { Authorization: `Bearer ${session.accessToken}` })
         },
         body: JSON.stringify(payload),
       });
