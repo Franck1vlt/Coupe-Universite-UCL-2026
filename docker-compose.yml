@@ -1,37 +1,19 @@
-# ============================================
-# Podman Compose - Production (VPS Linux)
-# ============================================
-# Utilise les variables du fichier .env
-# Voir .env.example pour la configuration
-#
-# Commandes avec alias:
-#   pc -f docker-compose.yml up -d --build
-#   pc -f docker-compose.yml down
-#   pc -f docker-compose.yml logs -f
-
 services:
   traefik:
     image: docker.io/library/traefik:v3.0
     container_name: coupe-traefik
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     ports:
       - "80:80"
       - "443:443"
-      - "8080:8080"  # Dashboard Traefik (a desactiver en prod si non necessaire)
     volumes:
-      # Socket Podman (rootless user)
-      - /run/user/1000/podman/podman.sock:/var/run/docker.sock:ro
+      - /run/user/1001/podman/podman.sock:/var/run/docker.sock:ro
       - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
-      - ./traefik/certs:/certs:ro
+      - ./traefik/acme:/letsencrypt
     networks:
       - coupe-network
-    labels:
-      - "traefik.enable=true"
-      # Dashboard Traefik (optionnel)
-      - "traefik.http.routers.traefik.rule=Host(`traefik.${DOMAIN}`)"
-      - "traefik.http.routers.traefik.entrypoints=websecure"
-      - "traefik.http.routers.traefik.tls=true"
-      - "traefik.http.routers.traefik.service=api@internal"
 
   backend:
     container_name: coupe-backend
@@ -39,8 +21,7 @@ services:
     restart: unless-stopped
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
     volumes:
-      # Volume pour la persistance de la base de donnees
-      - backend-data:/app/data
+      - ./Backend/data:/app/data
     environment:
       - DATABASE_PATH=/app/data/coupe_ucl_2026.db
       - SECRET_KEY=${SECRET_KEY}
@@ -53,14 +34,8 @@ services:
       - "traefik.http.routers.backend.rule=Host(`api.${DOMAIN}`)"
       - "traefik.http.routers.backend.entrypoints=websecure"
       - "traefik.http.routers.backend.tls=true"
+      - "traefik.http.routers.backend.tls.certresolver=myresolver"
       - "traefik.http.services.backend.loadbalancer.server.port=8000"
-      # CORS headers
-      - "traefik.http.middlewares.backend-cors.headers.accesscontrolallowmethods=GET,OPTIONS,PUT,POST,DELETE,PATCH"
-      - "traefik.http.middlewares.backend-cors.headers.accesscontrolallowheaders=Content-Type,Authorization"
-      - "traefik.http.middlewares.backend-cors.headers.accesscontrolalloworiginlist=https://${DOMAIN},https://admin.${DOMAIN}"
-      - "traefik.http.middlewares.backend-cors.headers.accesscontrolmaxage=100"
-      - "traefik.http.middlewares.backend-cors.headers.addvaryheader=true"
-      - "traefik.http.routers.backend.middlewares=backend-cors"
     networks:
       - coupe-network
 
@@ -77,6 +52,7 @@ services:
       - "traefik.http.routers.frontend-public.rule=Host(`${DOMAIN}`)"
       - "traefik.http.routers.frontend-public.entrypoints=websecure"
       - "traefik.http.routers.frontend-public.tls=true"
+      - "traefik.http.routers.frontend-public.tls.certresolver=myresolver"
       - "traefik.http.services.frontend-public.loadbalancer.server.port=3100"
     networks:
       - coupe-network
@@ -92,20 +68,15 @@ services:
       - NEXT_PUBLIC_API_URL=https://api.${DOMAIN}
       - API_URL=http://coupe-backend:8000
       - NEXTAUTH_URL=https://admin.${DOMAIN}
-      - NEXTAUTH_URL_INTERNAL=http://coupe-frontend-admin:3000
       - AUTH_SECRET=${AUTH_SECRET}
-      - AUTH_TRUST_HOST=true
       - DOMAIN=${DOMAIN}
-      # Credentials admin (pour l'auth credentials provider)
-      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD}
-      - STAFF_USERNAME=${STAFF_USERNAME:-staff}
-      - STAFF_PASSWORD=${STAFF_PASSWORD}
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.frontend-admin.rule=Host(`admin.${DOMAIN}`)"
       - "traefik.http.routers.frontend-admin.entrypoints=websecure"
       - "traefik.http.routers.frontend-admin.tls=true"
+      - "traefik.http.routers.frontend-admin.tls.certresolver=myresolver"
       - "traefik.http.services.frontend-admin.loadbalancer.server.port=3000"
     networks:
       - coupe-network
@@ -114,9 +85,5 @@ services:
 
 networks:
   coupe-network:
+    name: coupe-network
     driver: bridge
-
-volumes:
-  # Volume nomme pour la persistance de la BDD
-  # Les donnees sont stockees dans /var/lib/containers/storage/volumes/
-  backend-data:

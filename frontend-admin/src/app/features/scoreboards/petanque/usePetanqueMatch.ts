@@ -493,9 +493,15 @@ export function usePetanqueMatch(initialMatchId: string | null) {
     const persistLiveScore = async () => {
         if (!initialMatchId) return;
         try {
+            const headers: HeadersInit = {
+                'Content-Type': 'application/json',
+            };
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
             await fetch(`${process.env.NEXT_PUBLIC_API_URL}/matches/${initialMatchId}`, {
                 method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
+                headers,
                 body: JSON.stringify({
                     score_a: matchData.teamA.score,
                     score_b: matchData.teamB.score,

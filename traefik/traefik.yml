@@ -12,40 +12,21 @@ entryPoints:
           scheme: https
   websecure:
     address: ":443"
-    http:
-      middlewares:
-        - security-headers@file
 
 providers:
   docker:
     endpoint: "unix:///var/run/docker.sock"
     exposedByDefault: false
     network: coupe-network
-  file:
-    filename: /etc/traefik/traefik.yml
 
-tls:
-  stores:
-    default:
-      defaultCertificate:
-        certFile: /certs/coupedeluniversite.pem
-        keyFile: /certs/coupedeluniversite.key
-
-http:
-  middlewares:
-    security-headers:
-      headers:
-        browserXssFilter: true
-        contentTypeNosniff: true
-        frameDeny: true
-        stsIncludeSubdomains: true
-        stsPreload: true
-        stsSeconds: 31536000
-        customFrameOptionsValue: "SAMEORIGIN"
+# C'est cette partie qui crée le cadenas vert gratuitement
+certificatesResolvers:
+  myresolver:
+    acme:
+      email: valmont.franck@gmail.com
+      storage: /letsencrypt/acme.json
+      httpChallenge:
+        entryPoint: web
 
 log:
-  level: INFO
-
-accessLog:
-  filePath: "/var/log/traefik/access.log"
-  bufferingSize: 100
+  level: INFO # DEBUG est trop bavard, INFO suffit pour voir les certs

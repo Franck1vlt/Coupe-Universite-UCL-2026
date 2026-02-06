@@ -285,9 +285,15 @@ export function useHandballMatch(initialMatchId: string | null) {
     const syncMatchStatus = async (scoreA: number, scoreB: number, currentChrono: string) => {
         if (!initialMatchId) return;
         try {
+            const headers: HeadersInit = {
+                'Content-Type': 'application/json',
+            };
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
             await fetch(`${API_URL}/matches/${initialMatchId}`, {
                 method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
+                headers,
                 body: JSON.stringify({
                     score_a: scoreA,
                     score_b: scoreB,

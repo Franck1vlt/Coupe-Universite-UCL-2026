@@ -421,7 +421,10 @@ export default function TournamentViewPage() {
                   console.log("🔄 Propagation automatique des résultats...");
                   const propagateRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/tournaments/${tournament.id}/propagate-results`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
+                    headers: {
+                      'Content-Type': 'application/json',
+                      ...(session?.accessToken && { Authorization: `Bearer ${session.accessToken}` })
+                    }
                   });
 
                   if (propagateRes.ok) {
@@ -574,7 +577,10 @@ export default function TournamentViewPage() {
           
           const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/matches/${match.id}`, {
             method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              ...(session?.accessToken && { Authorization: `Bearer ${session.accessToken}` })
+            },
             body: JSON.stringify({
               team_sport_a_id: teamA.id,
               team_sport_b_id: teamB.id
@@ -814,7 +820,10 @@ export default function TournamentViewPage() {
             
             const resetResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/matches/${match.id}`, {
               method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
+              headers: {
+                'Content-Type': 'application/json',
+                ...(session?.accessToken && { Authorization: `Bearer ${session.accessToken}` })
+              },
               body: JSON.stringify(resetPayload),
             });
             

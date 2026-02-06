@@ -66,31 +66,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             return user
           }
         } catch (error) {
-          console.log("Backend API not available, falling back to env credentials")
-        }
-
-        // Fallback: Verifier Admin via env
-        if (
-          username === process.env.ADMIN_USERNAME &&
-          password === process.env.ADMIN_PASSWORD
-        ) {
-          return { id: "env_admin", name: "Admin", role: "admin" as UserRole }
-        }
-
-        // Fallback: Verifier Staff via env
-        if (
-          username === process.env.STAFF_USERNAME &&
-          password === process.env.STAFF_PASSWORD
-        ) {
-          return { id: "env_staff", name: "Staff", role: "staff" as UserRole }
-        }
-
-        // Fallback: Verifier Technicien via env
-        if (
-          username === process.env.TECHNICIAN_USERNAME &&
-          password === process.env.TECHNICIAN_PASSWORD
-        ) {
-          return { id: "env_tech", name: "Technician", role: "technicien" as UserRole }
+          console.log("Backend API not available")
         }
 
         return null
@@ -122,5 +98,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   },
   pages: {
     signIn: "/login",
+  },
+  session: {
+    strategy: "jwt",
+    maxAge: 24 * 60 * 60, // 24 heures en secondes
   },
 })
