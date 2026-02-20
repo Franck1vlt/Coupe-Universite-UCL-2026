@@ -979,17 +979,21 @@ async def update_court(
         logger.error(f"Error updating court: {str(e)}")
         raise
 
-@app.patch("/courts/{court_id}", status_code=status.HTTP_200_OK, tags=["Courts"], dependencies=[Depends(require_admin)])
-async def partial_update_court(court_id: int, payload: CourtUpdate, db: Session = Depends(get_db)):
+@app.patch("/courts/{court_id}", status_code=status.HTTP_200_OK, tags=["Courts"], dependencies=[Depends(require_admin_or_staff)])
+async def partial_update_court(court_id: int, payload: CourtUpdate = Body(...), db: Session = Depends(get_db)):
     """
     Modifie partiellement un terrain
     """
     try:
+        logger.info(f"PATCH /courts/{court_id} - Payload: {payload.model_dump()}")
         court = db.query(Court).filter(Court.id == court_id).first()
         if not court:
             raise NotFoundError(f"Terrain avec l'ID {court_id} introuvable")
         
+        logger.info(f"Terrain trouvé: {court.name} (id={court.id})")
+        
         if payload.name is not None:
+            logger.info(f"Changement de nom: '{court.name}' → '{payload.name}'")
             # Vérifier l'unicité du nom
             existing = db.query(Court).filter(
                 Court.name == payload.name, Court.id != court_id
@@ -997,6 +1001,7 @@ async def partial_update_court(court_id: int, payload: CourtUpdate, db: Session 
             if existing:
                 raise ConflictError(f"Un autre terrain avec le nom '{payload.name}' existe déjà")
             court.name = payload.name
+            logger.info(f"Nom changé en: {court.name}")
             
         if payload.sport_id is not None:
             # Vérifier que le sport existe
@@ -1019,7 +1024,7 @@ async def partial_update_court(court_id: int, payload: CourtUpdate, db: Session 
         logger.error(f"Error updating court: {str(e)}")
         raise
 
-@app.delete("/courts/{court_id}", status_code=status.HTTP_200_OK, tags=["Courts"], dependencies=[Depends(require_admin)])
+@app.delete("/courts/{court_id}", status_code=status.HTTP_200_OK, tags=["Courts"], dependencies=[Depends(require_admin_or_staff)])
 async def delete_court(court_id: int, db: Session = Depends(get_db)):
     """
     Supprime un terrain

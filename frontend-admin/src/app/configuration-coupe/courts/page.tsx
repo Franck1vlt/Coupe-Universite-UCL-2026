@@ -45,7 +45,7 @@ export default function CourtsPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE_URL}/courts`);
+      const res = await fetch(`${API_BASE_URL}/courts`, { cache: "no-store" });
       if (!res.ok) throw new Error("Impossible de charger les terrains.");
       const data = await res.json();
       const items = Array.isArray(data?.data?.items) ? data.data.items : [];
@@ -189,8 +189,10 @@ export default function CourtsPage() {
         name: name.trim(),
       };
 
+      console.log("Envoi PATCH avec payload:", payload);
+
       const res = await fetch(`${API_BASE_URL}/courts/${court.id}`, {
-        method: "PUT",
+        method: "PATCH",
         headers: {
           Accept: "application/json",
           "Content-Type": "application/json",
@@ -200,13 +202,19 @@ export default function CourtsPage() {
       });
 
       const data = await res.json();
+      console.log("Réponse PATCH:", data);
+      
       if (!res.ok || data.success === false) {
         throw new Error(data?.error?.message || data?.message || "Erreur lors de la modification.");
       }
 
+      console.log("Modification réussie, rechargement des terrains...");
       await fetchCourts();
+      console.log("Terrains rechargés, fermeture de l'édition");
       setEditMode(null);
+      setEditName("");
     } catch (e: any) {
+      console.error("Erreur lors de la modification:", e);
       setError(e?.message || "Erreur lors de la modification.");
     } finally {
       setUpdating(null);
@@ -373,6 +381,7 @@ export default function CourtsPage() {
                       <div className="flex gap-2 justify-center">
                         <button
                           onClick={() => {
+                            console.log("❌ Annuler modification");
                             setEditMode(null);
                           }}
                           className="px-2 py-1 rounded bg-gray-100 text-gray-600 hover:bg-gray-200 text-sm"
@@ -382,7 +391,10 @@ export default function CourtsPage() {
                           Annuler
                         </button>
                         <button
-                          onClick={() => handleUpdateCourt(court, editName.trim())}
+                          onClick={() => {
+                            console.log("✅ Clic sur Valider, editName:", editName, "disabled:", (updating === court.id || !editName.trim()));
+                            handleUpdateCourt(court, editName.trim());
+                          }}
                           className="px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 text-sm"
                           type="button"
                           disabled={updating === court.id || !editName.trim()}
@@ -416,6 +428,7 @@ export default function CourtsPage() {
                             <button
                               className="block w-full text-left px-4 py-2 text-gray-700 hover:bg-blue-50 text-sm"
                               onClick={() => {
+                                console.log("🔧 Clic sur Modifier, terrain:", court.id, "nom actuel:", court.name);
                                 setEditMode(court.id);
                                 setEditName(court.name);
                                 setMenuOpenId(null);
