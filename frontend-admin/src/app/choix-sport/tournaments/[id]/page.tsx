@@ -68,6 +68,18 @@ type RankingEntry = {
   scoreDiff?: number; // Ajouté pour la différence de buts
 };
 
+type MatchPlayer = {
+  id: number;
+  team_sport_id: number;
+  team: "A" | "B";
+  first_name?: string | null;
+  last_name?: string | null;
+  jersey_number?: number | null;
+  position?: string | null;
+  is_captain: boolean;
+  is_active: boolean;
+};
+
 type RankingFilter = "poules" | "final";
 
 const formatScoreType = (scoreType: ApiScoreType): string => {
@@ -199,6 +211,16 @@ export default function TournamentViewPage() {
   const [tournamentPools, setTournamentPools] = useState<TournamentLogicPool[]>([]);
   const [tournamentBrackets, setTournamentBrackets] = useState<TournamentLogicBracket[]>([]);
   const [tournamentLoserBrackets, setTournamentLoserBrackets] = useState<TournamentLogicLoserBracket[]>([]);
+
+  // État pour les scores en direct des matchs à sets (volleyball, badminton, fléchettes...)
+  const [liveScores, setLiveScores] = useState<Record<string, { sets1: number; sets2: number; score1: number; score2: number; }>>({});
+
+  // États pour la fiche de match (joueurs)
+  const [rosterMatchId, setRosterMatchId] = useState<string | null>(null);
+  const [rosterPlayers, setRosterPlayers] = useState<MatchPlayer[]>([]);
+  const [rosterLoading, setRosterLoading] = useState(false);
+  const [newPlayerForm, setNewPlayerForm] = useState({ team: "A" as "A" | "B", jersey_number: "", first_name: "", last_name: "" });
+  const [addingPlayer, setAddingPlayer] = useState(false);
 
   // Charger le mapping des équipes au chargement
   useEffect(() => {
@@ -737,6 +759,114 @@ export default function TournamentViewPage() {
     loadFinalRanking();
   }, [params.id, matches]);
 
+  // Polling des scores en direct pour les matchs à sets (en-cours ET terminés)
+  // Les données live restent en mémoire côté backend après la fin du match
+  useEffect(() => {
+    if (sport?.score_type !== 'sets') return;
+
+    const setsMatches = matches.filter(m => m.status === 'en-cours' || m.status === 'terminé');
+    if (setsMatches.length === 0) return;
+
+    const fetchLiveScores = async () => {
+      const updates: Record<string, { sets1: number; sets2: number; score1: number; score2: number; }> = {};
+      for (const match of setsMatches) {
+        try {
+          const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/matches/${match.id}/live-score`);
+          if (res.ok) {
+            const data = await res.json();
+            const liveData = data.data?.data;
+            if (liveData) {
+              updates[match.id] = {
+                sets1: liveData.sets1 ?? 0,
+                sets2: liveData.sets2 ?? 0,
+                score1: liveData.score1 ?? 0,
+                score2: liveData.score2 ?? 0,
+              };
+            }
+          }
+        } catch {
+          // Ignorer les erreurs de fetch individuel
+        }
+      }
+      if (Object.keys(updates).length > 0) {
+        setLiveScores(prev => ({ ...prev, ...updates }));
+      }
+    };
+
+    fetchLiveScores();
+    // Polling continu seulement si des matchs sont en cours
+    const hasInProgress = setsMatches.some(m => m.status === 'en-cours');
+    if (!hasInProgress) return;
+    const interval = setInterval(fetchLiveScores, 5000);
+    return () => clearInterval(interval);
+  }, [matches, sport?.score_type]);
+
+  // ── Fiche de match : fonctions ────────────────────────────────────────────
+
+  const openRosterModal = async (matchId: string) => {
+    setRosterMatchId(matchId);
+    setRosterLoading(true);
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/matches/${matchId}/players`);
+      if (res.ok) {
+        const data = await res.json();
+        setRosterPlayers(data.data || []);
+      }
+    } catch { /* silencieux */ }
+    setRosterLoading(false);
+  };
+
+  const closeRosterModal = () => {
+    setRosterMatchId(null);
+    setRosterPlayers([]);
+    setNewPlayerForm({ team: "A", jersey_number: "", first_name: "", last_name: "" });
+  };
+
+  const handleAddPlayer = async () => {
+    if (!rosterMatchId) return;
+    const token = (session as { accessToken?: string } | null)?.accessToken;
+    setAddingPlayer(true);
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/matches/${rosterMatchId}/players`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          team: newPlayerForm.team,
+          jersey_number: newPlayerForm.jersey_number ? parseInt(newPlayerForm.jersey_number) : null,
+          first_name: newPlayerForm.first_name || null,
+          last_name: newPlayerForm.last_name || null,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setRosterPlayers(prev => [...prev, data.data]);
+        setNewPlayerForm(prev => ({ ...prev, jersey_number: "", first_name: "", last_name: "" }));
+      } else {
+        const err = await res.json();
+        alert(err.message || "Erreur lors de l'ajout du joueur");
+      }
+    } catch { alert("Erreur réseau"); }
+    setAddingPlayer(false);
+  };
+
+  const handleDeletePlayer = async (playerId: number) => {
+    if (!rosterMatchId) return;
+    const token = (session as { accessToken?: string } | null)?.accessToken;
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/matches/${rosterMatchId}/players/${playerId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        setRosterPlayers(prev => prev.filter(p => p.id !== playerId));
+      } else {
+        alert("Erreur lors de la suppression");
+      }
+    } catch { alert("Erreur réseau"); }
+  };
+
+  // ── Fin fiche de match ─────────────────────────────────────────────────────
+
   const handleResetAllMatches = async () => {
     if (!params.id || typeof params.id !== 'string') return;
     
@@ -1224,6 +1354,20 @@ export default function TournamentViewPage() {
                       {match.status === "terminé" && match.scoreA !== undefined && match.scoreB !== undefined && (
                         <div className="mt-2 text-center text-sm font-bold text-blue-600">
                           {match.scoreA} - {match.scoreB}
+                          {sport?.score_type === "sets" && (
+                            <span className="text-xs font-normal text-gray-500 ml-1">sets</span>
+                          )}
+                        </div>
+                      )}
+                      {match.status === "en-cours" && sport?.score_type === "sets" && liveScores[match.id] && (
+                        <div className="mt-2 text-center">
+                          <span className="text-sm font-bold text-yellow-600">
+                            {liveScores[match.id].sets1} - {liveScores[match.id].sets2}
+                            <span className="text-xs font-normal text-gray-500 ml-1">sets</span>
+                          </span>
+                          <span className="ml-2 text-xs text-blue-600 font-semibold">
+                            {liveScores[match.id].score1} - {liveScores[match.id].score2} pts
+                          </span>
                         </div>
                       )}
                     </button>
@@ -1273,8 +1417,8 @@ export default function TournamentViewPage() {
           }).map((match) => {
             const isTermine = match.status === "terminé";
             return (
+            <div key={match.id} className="flex flex-col gap-1">
             <button
-            key={match.id}
             onClick={() => {
               if (isTermine) return; // Double sécurité
               if (sportCode) {
@@ -1282,9 +1426,9 @@ export default function TournamentViewPage() {
               }
             }}
             disabled={isTermine}
-            className={`text-left border rounded-xl p-4 shadow-sm flex flex-col gap-2 transition-all ${
-              isTermine 
-                ? "bg-gray-100 border-gray-300 cursor-not-allowed opacity-75" 
+            className={`text-left border rounded-xl p-4 shadow-sm flex flex-col gap-2 transition-all w-full ${
+              isTermine
+                ? "bg-gray-100 border-gray-300 cursor-not-allowed opacity-75"
                 : "bg-gray-50 hover:bg-gray-100 border-gray-200 hover:shadow-md"
             }`}
             >
@@ -1323,13 +1467,46 @@ export default function TournamentViewPage() {
                 {formatTeamName(match.teamA, tournamentMatches, tournamentPools, tournamentBrackets, tournamentLoserBrackets)}
               </span>
               <div className="flex items-center gap-2">
-                {/* Affichage du score : 0-0 par défaut si planifié, sinon score ou VS */}
-                {match.status === "planifié" ? (
-                  <span className="text-black font-bold text-base">0 - 0</span>
-                ) : match.scoreA !== undefined && match.scoreB !== undefined ? (
-                  <span className="text-black font-bold text-base">{match.scoreA} - {match.scoreB}</span>
+                {sport?.score_type === "sets" ? (
+                  /* Affichage pour sports à sets : sets remportés + pts (en cours et terminés) */
+                  <div className="flex flex-col items-center gap-0 min-w-[60px]">
+                    {match.status === "planifié" ? (
+                      <>
+                        <span className="text-black font-bold text-sm">0 - 0</span>
+                        <span className="text-[10px] text-gray-400">sets</span>
+                      </>
+                    ) : liveScores[match.id] ? (
+                      /* Données live disponibles (en cours ou terminé) */
+                      <>
+                        <span className="text-black font-bold text-sm">
+                          {liveScores[match.id].sets1} - {liveScores[match.id].sets2}
+                          <span className="text-[10px] font-normal text-gray-500 ml-1">sets</span>
+                        </span>
+                        <span className={`font-semibold text-xs ${match.status === "terminé" ? "text-green-600" : "text-blue-600"}`}>
+                          {liveScores[match.id].score1} - {liveScores[match.id].score2} pts
+                        </span>
+                      </>
+                    ) : match.scoreA !== undefined && match.scoreB !== undefined ? (
+                      /* Fallback sur le score DB si pas de données live */
+                      <>
+                        <span className="text-black font-bold text-sm">{match.scoreA} - {match.scoreB}</span>
+                        <span className="text-[10px] text-gray-400">sets</span>
+                      </>
+                    ) : (
+                      <span className="text-black text-xs">VS</span>
+                    )}
+                  </div>
                 ) : (
-                  <span className="text-black text-xs">VS</span>
+                  /* Affichage standard pour sports sans sets */
+                  <>
+                    {match.status === "planifié" ? (
+                      <span className="text-black font-bold text-base">0 - 0</span>
+                    ) : match.scoreA !== undefined && match.scoreB !== undefined ? (
+                      <span className="text-black font-bold text-base">{match.scoreA} - {match.scoreB}</span>
+                    ) : (
+                      <span className="text-black text-xs">VS</span>
+                    )}
+                  </>
                 )}
               </div>
               <span className={match.status === "terminé" && match.scoreA !== undefined && match.scoreB !== undefined && match.scoreB > match.scoreA ? "font-bold text-green-600" : ""}>
@@ -1376,6 +1553,18 @@ export default function TournamentViewPage() {
               )}
             </div>
             </button>
+            {sport?.score_type === "goals" && (
+              <button
+                onClick={(e) => { e.stopPropagation(); openRosterModal(match.id); }}
+                className="mt-1 w-full flex items-center justify-center gap-1 text-[11px] text-blue-600 hover:text-blue-800 py-1 border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors"
+              >
+                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                Fiche de match
+              </button>
+            )}
+            </div>
             );
           })}
                 </div>
@@ -1617,6 +1806,119 @@ export default function TournamentViewPage() {
             </div>
             </section>
       </div>
+
+      {/* Modal Fiche de match */}
+      {rosterMatchId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={closeRosterModal}>
+          <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold text-black">Fiche de match</h2>
+              <button onClick={closeRosterModal} className="text-gray-400 hover:text-gray-600 text-xl font-bold">&times;</button>
+            </div>
+
+            {rosterLoading ? (
+              <p className="text-center text-gray-500 py-4">Chargement...</p>
+            ) : (
+              <>
+                {/* Liste des joueurs par équipe */}
+                {(["A", "B"] as const).map(team => {
+                  const teamPlayers = rosterPlayers.filter(p => p.team === team);
+                  const matchData = matches.find(m => m.id === rosterMatchId);
+                  const teamLabel = team === "A" ? matchData?.teamA || "Équipe A" : matchData?.teamB || "Équipe B";
+                  return (
+                    <div key={team} className="mb-4">
+                      <h3 className="text-sm font-semibold text-black mb-2">
+                        Équipe {team} — {teamLabel}
+                      </h3>
+                      {teamPlayers.length === 0 ? (
+                        <p className="text-xs text-gray-400 italic mb-2">Aucun joueur</p>
+                      ) : (
+                        <div className="space-y-1 mb-2">
+                          {teamPlayers
+                            .slice()
+                            .sort((a, b) => (a.jersey_number ?? 99) - (b.jersey_number ?? 99))
+                            .map(player => (
+                              <div key={player.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
+                                <span className="text-sm text-black">
+                                  <span className="font-bold text-blue-600 mr-2">#{player.jersey_number ?? "?"}</span>
+                                  {[player.first_name, player.last_name].filter(Boolean).join(" ") || "Anonyme"}
+                                  {player.is_captain && <span className="ml-1 text-[10px] bg-yellow-100 text-yellow-700 px-1 rounded">C</span>}
+                                </span>
+                                <button
+                                  onClick={() => handleDeletePlayer(player.id)}
+                                  className="text-red-400 hover:text-red-600 text-xs font-medium"
+                                >
+                                  Retirer
+                                </button>
+                              </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {/* Formulaire d'ajout */}
+                <div className="border-t pt-4 mt-2">
+                  <h3 className="text-sm font-semibold text-black mb-3">Ajouter un joueur</h3>
+                  <div className="grid grid-cols-2 gap-2 mb-2">
+                    <div>
+                      <label className="text-xs text-gray-500 mb-1 block">Équipe</label>
+                      <select
+                        value={newPlayerForm.team}
+                        onChange={e => setNewPlayerForm(prev => ({ ...prev, team: e.target.value as "A" | "B" }))}
+                        className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-black"
+                      >
+                        <option value="A">Équipe A</option>
+                        <option value="B">Équipe B</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-500 mb-1 block">N° maillot</label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={99}
+                        value={newPlayerForm.jersey_number}
+                        onChange={e => setNewPlayerForm(prev => ({ ...prev, jersey_number: e.target.value }))}
+                        className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-black"
+                        placeholder="Ex: 9"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-500 mb-1 block">Prénom</label>
+                      <input
+                        type="text"
+                        value={newPlayerForm.first_name}
+                        onChange={e => setNewPlayerForm(prev => ({ ...prev, first_name: e.target.value }))}
+                        className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-black"
+                        placeholder="Prénom"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-500 mb-1 block">Nom</label>
+                      <input
+                        type="text"
+                        value={newPlayerForm.last_name}
+                        onChange={e => setNewPlayerForm(prev => ({ ...prev, last_name: e.target.value }))}
+                        className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-black"
+                        placeholder="Nom"
+                      />
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleAddPlayer}
+                    disabled={addingPlayer || !newPlayerForm.jersey_number}
+                    className="w-full bg-blue-600 text-white rounded-lg py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {addingPlayer ? "Ajout..." : "Ajouter le joueur"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </main>
   );
 }

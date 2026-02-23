@@ -1,9 +1,18 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import "./spectators.css";
+
+interface LastGoal {
+    minute: number;
+    playerNumber: number | null;
+    playerName: string | null;
+    teamName: string;
+    team: "A" | "B";
+    timestamp: string;
+}
 
 interface MatchData {
     team1?: string;
@@ -21,6 +30,7 @@ interface MatchData {
     winner?: string;
     logo1?: string;
     logo2?: string;
+    lastGoal?: LastGoal | null;
 }
 
 export default function FootballTableSpectatorPage() {
@@ -32,6 +42,8 @@ export default function FootballTableSpectatorPage() {
     const [logoB, setLogoB] = useState('/img/no-logo.png');
     const [animateScoreA, setAnimateScoreA] = useState(false);
     const [animateScoreB, setAnimateScoreB] = useState(false);
+    const [goalAnimation, setGoalAnimation] = useState<LastGoal | null>(null);
+    const lastGoalTimestampRef = useRef<string | null>(null);
 
     // Clé localStorage spécifique au match si matchId présent
     const storageKey = matchId ? `liveFootballMatch_${matchId}` : 'liveFootballMatch';
@@ -47,11 +59,20 @@ export default function FootballTableSpectatorPage() {
             console.error('Erreur lors du chargement des données initiales:', error);
         }
 
+        const triggerGoalAnimation = (newData: MatchData) => {
+            if (newData.lastGoal?.timestamp && newData.lastGoal.timestamp !== lastGoalTimestampRef.current) {
+                lastGoalTimestampRef.current = newData.lastGoal.timestamp;
+                setGoalAnimation(newData.lastGoal);
+                setTimeout(() => setGoalAnimation(null), 4000);
+            }
+        };
+
         // Écouter les mises à jour de localStorage provenant d'un autre onglet
         const onStorage = (e: StorageEvent) => {
             if (e.key !== storageKey || !e.newValue) return;
             try {
                 const newData: MatchData = JSON.parse(e.newValue);
+                triggerGoalAnimation(newData);
                 setMatchData(prevData => {
                     if (prevData.score1 !== newData.score1) {
                         setAnimateScoreA(true);
@@ -76,6 +97,7 @@ export default function FootballTableSpectatorPage() {
                 const raw = localStorage.getItem(storageKey);
                 if (!raw) return;
                 const newData: MatchData = JSON.parse(raw);
+                triggerGoalAnimation(newData);
                 setMatchData(prevData => {
                     if (JSON.stringify(prevData) !== JSON.stringify(newData)) {
                         if (prevData.score1 !== newData.score1) {
@@ -179,6 +201,28 @@ return (
 )}
 
             </section>
+
+            {/* Animation BUT ! */}
+            {goalAnimation && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
+                    <div className="goal-animation-overlay animate-goal-in">
+                        <div className="text-8xl font-black text-white drop-shadow-2xl mb-4 tracking-widest">
+                            BUT !
+                        </div>
+                        {goalAnimation.playerNumber != null && (
+                            <div className="text-3xl font-bold text-white mb-1">
+                                N°{goalAnimation.playerNumber} — {goalAnimation.playerName || "Anonyme"}
+                            </div>
+                        )}
+                        <div className="text-2xl font-semibold text-yellow-300 mb-2">
+                            {goalAnimation.teamName}
+                        </div>
+                        <div className="text-xl text-gray-300">
+                            {goalAnimation.minute}&apos;
+                        </div>
+                    </div>
+                </div>
+            )}
         </main>
     );
 }

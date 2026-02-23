@@ -107,6 +107,7 @@ from app.routers import tournament_structure
 from app.routers import courts_status
 from app.routers import auth as auth_router
 from app.routers import users as users_router
+from app.routers import matches as matches_router
 
 # Router d'authentification
 app.include_router(auth_router.router, tags=["Authentication"])
@@ -123,6 +124,9 @@ app.include_router(
 
 # Router des terrains
 app.include_router(courts_status.router, tags=["Courts"])
+
+# Router des matchs (fiche de match + événements)
+app.include_router(matches_router.router, prefix="")
 
 @app.on_event("startup")
 async def startup_event():

@@ -18,6 +18,22 @@ type Court = {
   name: string;
 };
 
+type CourtSchedule = {
+  court_id: number | string;
+  scheduled_datetime: string;
+};
+
+type TeamApiResponse = {
+  id: number;
+  name: string;
+  logo_url: string;
+};
+
+type CourtApiResponse = {
+  id: number;
+  name: string;
+};
+
 export default function FlechettesTableMarquagePage() {
   const [loadingTeams, setLoadingTeams] = useState(true);
   const [teams, setTeams] = useState<Team[]>([]);
@@ -31,7 +47,7 @@ export default function FlechettesTableMarquagePage() {
   const [matchGround, setMatchGround] = useState("Terrain");
 
   const [courts, setCourts] = useState<Court[]>([]);
-  const [courtSchedules, setCourtSchedules] = useState<any[]>([]);
+  const [courtSchedules, setCourtSchedules] = useState<CourtSchedule[]>([]);
   const [loadingCourts, setLoadingCourts] = useState(true);
   const [selectedDateTime, setSelectedDateTime] = useState<string>("");
 
@@ -89,13 +105,11 @@ export default function FlechettesTableMarquagePage() {
     declareBust,
     resetSet,
     getCurrentPlayer,
-    getCurrentTeam,
     gameMode,
     setGameMode,
     setTeamName,
     setTeamLogo,
     setMatchType: setMatchTypeMeta,
-    setPlayerName,
     swipeGameMode,
     swapSides,
     court,
@@ -169,7 +183,7 @@ export default function FlechettesTableMarquagePage() {
       if (!res.ok) throw new Error("Impossible de charger les équipes");
       const data = await res.json();
       const teamsData = Array.isArray(data?.data?.items) ? data.data.items : [];
-      setTeams(teamsData.map((team: any) => ({
+      setTeams(teamsData.map((team: TeamApiResponse) => ({
         id: team.id.toString(),
         name: team.name,
         logo_url: team.logo_url
@@ -192,9 +206,9 @@ export default function FlechettesTableMarquagePage() {
       if (!res.ok) throw new Error("Impossible de charger les terrains");
       const data = await res.json();
       const courtsData = Array.isArray(data?.data?.items) ? data.data.items : [];
-      setCourts(courtsData.map((court: any) => ({
-        id: court.id.toString(),
-        name: court.name
+      setCourts(courtsData.map((c: CourtApiResponse) => ({
+        id: c.id.toString(),
+        name: c.name
       })));
     } catch (error) {
       console.error("Erreur lors du chargement des terrains:", error);

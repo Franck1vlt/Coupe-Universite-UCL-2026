@@ -154,7 +154,7 @@ export default function FlechettesTableSpectatorPage() {
                     {/* Joueur actuel - CLAIREMENT VISIBLE */}
                     <div className="current-player-section">
                         <div className="current-player-text">
-                            🎯 À {matchData.currentPlayer || 'Joueur 1A'} de jouer
+                            🎯 À {matchData.currentPlayer || 'Équipe A'} de jouer
                         </div>
                         {matchData.currentThrows && matchData.currentThrows.length > 0 && (
                             <div className="current-throw-info">

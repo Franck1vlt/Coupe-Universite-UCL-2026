@@ -78,7 +78,9 @@ export default function BadmintonTableMarquagePage() {
     changeService,
     updateMatchStatus,
     setNumSets,
-    resetChrono
+    resetChrono,
+    undoLastAction,
+    canUndo,
   } = useBadmintonMatch(matchId);
 
   // Redéfinir les handlers pour intégrer la gestion du statut
@@ -421,6 +423,14 @@ export default function BadmintonTableMarquagePage() {
             <button onClick={resetChrono}>Reset</button>
             <button onClick={changeService}>Service</button>
             <button onClick={handleSwipe}>Swipe</button>
+            <button
+              onClick={undoLastAction}
+              disabled={!canUndo()}
+              title="Annuler la dernière action (correction de score)"
+              style={{ opacity: canUndo() ? 1 : 0.4 }}
+            >
+              Annuler
+            </button>
               <button
                 onClick={async () => {
                   console.log('🔵 END button clicked');

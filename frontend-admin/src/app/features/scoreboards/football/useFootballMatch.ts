@@ -4,9 +4,38 @@ import { MatchData } from "./types";
 import { submitMatchResultWithPropagation, updateMatchStatus as updateStatus } from "../common/useMatchPropagation";
 import { useLiveScoreSync } from "../common/useLiveScoreSync";
 
+export type MatchPlayer = {
+  id: number;
+  team_sport_id: number;
+  team: "A" | "B";
+  first_name?: string | null;
+  last_name?: string | null;
+  jersey_number?: number | null;
+  is_captain: boolean;
+  is_active: boolean;
+};
+
+// Événement local (en mémoire pendant le match, persisté en lot sur END)
+export type LocalMatchEvent = {
+  localId: number;
+  team: "A" | "B";
+  player_id?: number | null;
+  match_time_seconds?: number | null;
+  timestamp: string; // ISO, utilisé pour l'animation spectateur
+  player?: {
+    id: number;
+    first_name?: string | null;
+    last_name?: string | null;
+    jersey_number?: number | null;
+  } | null;
+};
+
+// Calcule la minute football : 45s → 1', 0s → 0'
+const toMinute = (secs: number | null | undefined): number =>
+    Math.ceil((secs ?? 0) / 60);
+
 // Ajout du type tournamentId si besoin
 type MatchDataWithTournament = MatchData & { tournamentId?: string | number; court?: string; numericId?: number };
-type TournamentMatchStatus = "planifié" | "en-cours" | "terminé" | "annulé";
 
 export function useFootballMatch(initialMatchId: string | null) {
     const { data: session } = useSession();
@@ -58,6 +87,12 @@ export function useFootballMatch(initialMatchId: string | null) {
     const intervalRef = useRef<number | null>(null);
     const [court, setCourt] = useState<string>("");
 
+    // Événements locaux (en mémoire uniquement, persistés en lot sur END)
+    const [players, setPlayers] = useState<MatchPlayer[]>([]);
+    const [pendingEvents, setPendingEvents] = useState<LocalMatchEvent[]>([]);
+    const pendingEventCounter = useRef(0);
+    const [pendingGoalTeam, setPendingGoalTeam] = useState<"A" | "B" | null>(null);
+
     // UN SEUL useEffect pour récupérer les données du match
     useEffect(() => {
         if (!initialMatchId) return;
@@ -108,7 +143,6 @@ export function useFootballMatch(initialMatchId: string | null) {
                         }
                     }
                 } else if (match.team_a_source) {
-                    // Fallback: afficher la source si l'équipe n'est pas encore résolue
                     teamAName = match.team_a_source;
                     console.log('[Football Hook] Team A (source fallback):', teamAName);
                 }
@@ -129,7 +163,6 @@ export function useFootballMatch(initialMatchId: string | null) {
                         }
                     }
                 } else if (match.team_b_source) {
-                    // Fallback: afficher la source si l'équipe n'est pas encore résolue
                     teamBName = match.team_b_source;
                     console.log('[Football Hook] Team B (source fallback):', teamBName);
                 }
@@ -182,6 +215,17 @@ export function useFootballMatch(initialMatchId: string | null) {
             } catch (error) {
                 console.error('[Football Hook] Error fetching match data:', error);
             }
+
+            // Charger la fiche de match (joueurs uniquement — les événements sont en mémoire)
+            try {
+                const playersRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/matches/${initialMatchId}/players`);
+                if (playersRes.ok) {
+                    const playersData = await playersRes.json();
+                    setPlayers(playersData.data || []);
+                }
+            } catch (e) {
+                console.warn('[Football Hook] Erreur chargement joueurs:', e);
+            }
         }
 
         fetchMatchData();
@@ -193,25 +237,19 @@ export function useFootballMatch(initialMatchId: string | null) {
     }
 
     /** ---------- CHRONO ---------- */
-    // Chrono logic
     const [formattedTime, setFormattedTime] = useState<string>("00:00");
     function formatChrono(time: number): string {
         const min = Math.floor(time / 60);
         const sec = time % 60;
         return `${min.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
     }
-    // Update formattedTime when chrono changes
     useEffect(() => {
         setFormattedTime(formatChrono(matchData.chrono.time));
     }, [matchData.chrono.time]);
 
-    // Chrono handlers
     const startChrono = () => {
         if (matchData.chrono.running) return;
-
-        // Mettre à jour le statut du match à "in_progress"
         updateMatchStatus('in_progress');
-
         setMatchData((prev) => ({
             ...prev,
             chrono: { ...prev.chrono, running: true }
@@ -235,34 +273,6 @@ export function useFootballMatch(initialMatchId: string | null) {
         }
     };
 
-    // 1. Synchronisation automatique SANS winner
-    useEffect(() => {
-        try {
-            const payload = {
-                team1: matchData.teamA.name || "ÉQUIPE A",
-                team2: matchData.teamB.name || "ÉQUIPE B",
-                matchType: matchData.matchType || "Match",
-                court: matchData.court || court || "Terrain",
-                score1: matchData.teamA.score,
-                score2: matchData.teamB.score,
-                yellowCards1: Math.max(0, matchData.teamA.yellowCards),
-                yellowCards2: Math.max(0, matchData.teamB.yellowCards),
-                redCards1: Math.max(0, matchData.teamA.redCards),
-                redCards2: Math.max(0, matchData.teamB.redCards),
-                chrono: formattedTime,
-                lastUpdate: new Date().toISOString(),
-                // PAS de winner ici
-            };
-            localStorage.setItem("liveFootballMatch", JSON.stringify(payload));
-            if (initialMatchId) {
-                localStorage.setItem(`liveFootballMatch_${initialMatchId}`, JSON.stringify(payload));
-            }
-        } catch (e) {
-            // Ignore storage errors
-        }
-    }, [matchData, formattedTime]);
-
-    // 2. Ajoute winner dans handleEnd
     const handleEnd = async () => {
         stopChrono();
 
@@ -273,6 +283,7 @@ export function useFootballMatch(initialMatchId: string | null) {
         } else if (matchData.teamB.score > matchData.teamA.score) {
             winner = matchData.teamB.name || "ÉQUIPE B";
         }
+
         // Met à jour le localStorage avec le vainqueur
         try {
             const payload = {
@@ -298,101 +309,180 @@ export function useFootballMatch(initialMatchId: string | null) {
             // Ignore storage errors
         }
 
-        // Soumettre les résultats du match
+        // 1. Soumettre le résultat du match (score + statut)
         await submitMatchResult();
+
+        // 2. Persister les événements en lot — uniquement si END est pressé
+        const currentPendingEvents = pendingEvents; // snapshot au moment du END
+        if (currentPendingEvents.length > 0) {
+            const matchId = matchData.numericId?.toString() || initialMatchId;
+            if (matchId) {
+                try {
+                    await fetch(
+                        `${process.env.NEXT_PUBLIC_API_URL}/matches/${matchId}/events/batch`,
+                        {
+                            method: "POST",
+                            headers: {
+                                "Content-Type": "application/json",
+                                ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                            },
+                            body: JSON.stringify(
+                                currentPendingEvents.map(e => ({
+                                    team: e.team,
+                                    player_id: e.player_id ?? null,
+                                    match_time_seconds: e.match_time_seconds ?? null,
+                                }))
+                            ),
+                        }
+                    );
+                } catch (e) {
+                    console.error('[Football Hook] Erreur sauvegarde événements batch:', e);
+                }
+            }
+        }
     };
 
-    /** ---------- POINTS ---------- */
-    const addPoint = (team: "A" | "B") =>
+    /** ---------- POINTS / BUTS ---------- */
+
+    const addPoint = (team: "A" | "B") => {
+        const teamPlayers = players.filter(p => p.team === team);
+        if (teamPlayers.length > 0) {
+            // Ouvrir le modal de sélection du buteur
+            setPendingGoalTeam(team);
+        } else {
+            // Comportement direct si aucun roster configuré
+            setMatchData((p: MatchDataWithTournament) => {
+                const k = teamKey(team);
+                return { ...p, [k]: { ...p[k], score: p[k].score + 1 } };
+            });
+        }
+    };
+
+    const cancelGoalModal = () => setPendingGoalTeam(null);
+
+    const confirmGoal = (playerId?: number) => {
+        if (!pendingGoalTeam) return;
+        const team = pendingGoalTeam;
+        setPendingGoalTeam(null);
+
+        // Chercher les infos du joueur dans le roster
+        const player = playerId ? players.find(p => p.id === playerId) ?? null : null;
+
+        // Ajouter l'événement en mémoire locale (pas d'appel API)
+        const localId = ++pendingEventCounter.current;
+        setPendingEvents(prev => [...prev, {
+            localId,
+            team,
+            player_id: player?.id ?? null,
+            match_time_seconds: matchData.chrono.time,
+            timestamp: new Date().toISOString(),
+            player: player ? {
+                id: player.id,
+                first_name: player.first_name,
+                last_name: player.last_name,
+                jersey_number: player.jersey_number,
+            } : null,
+        }]);
+
+        // Incrémenter le score localement
         setMatchData((p: MatchDataWithTournament) => {
             const k = teamKey(team);
-            return {
-                ...p,
-                [k]: { ...p[k], score: p[k].score + 1 },
-            };
+            return { ...p, [k]: { ...p[k], score: p[k].score + 1 } };
+        });
+    };
+
+    const subPoint = (team: "A" | "B") => {
+        // Supprimer le dernier événement local de cette équipe
+        setPendingEvents(prev => {
+            const lastIdx = [...prev].map((e, i) => ({ e, i }))
+                .filter(({ e }) => e.team === team)
+                .pop()?.i ?? -1;
+            return lastIdx === -1 ? prev : prev.filter((_, i) => i !== lastIdx);
         });
 
-    const subPoint = (team: "A" | "B") =>
+        // Décrémenter le score localement
         setMatchData((p: MatchDataWithTournament) => {
             const k = teamKey(team);
-            return {
-                ...p,
-                [k]: { ...p[k], score: Math.max(0, p[k].score - 1) },
-            };
+            return { ...p, [k]: { ...p[k], score: Math.max(0, p[k].score - 1) } };
         });
+    };
 
     /** ---------- CARTONS ---------- */
     const addYellowCard = (team: "A" | "B") =>
         setMatchData((p: MatchDataWithTournament) => {
             const k = teamKey(team);
-            return {
-                ...p,
-                [k]: { ...p[k], yellowCards: p[k].yellowCards + 1 },
-            };
+            return { ...p, [k]: { ...p[k], yellowCards: p[k].yellowCards + 1 } };
         });
 
     const subYellowCard = (team: "A" | "B") =>
         setMatchData((p: MatchDataWithTournament) => {
             const k = teamKey(team);
-            return {
-                ...p,
-                [k]: { ...p[k], yellowCards: Math.max(0, p[k].yellowCards - 1) },
-            };
+            return { ...p, [k]: { ...p[k], yellowCards: Math.max(0, p[k].yellowCards - 1) } };
         });
 
     const addRedCard = (team: "A" | "B") =>
         setMatchData((p: MatchDataWithTournament) => {
             const k = teamKey(team);
-            return {
-                ...p,
-                [k]: { ...p[k], redCards: p[k].redCards + 1 },
-            };
+            return { ...p, [k]: { ...p[k], redCards: p[k].redCards + 1 } };
         });
 
     const subRedCard = (team: "A" | "B") =>
         setMatchData((p: MatchDataWithTournament) => {
             const k = teamKey(team);
-            return {
-                ...p,
-                [k]: { ...p[k], redCards: Math.max(0, p[k].redCards - 1) },
-            };
+            return { ...p, [k]: { ...p[k], redCards: Math.max(0, p[k].redCards - 1) } };
         });
 
     /** ---------- METADATA UPDATES ---------- */
     const setTeamName = (team: "A" | "B", name: string) =>
         setMatchData((p: MatchDataWithTournament) => ({
             ...p,
-            [`team${team}`]: {
-                ...p[`team${team}` as "teamA" | "teamB"],
-                name,
-            },
+            [`team${team}`]: { ...p[`team${team}` as "teamA" | "teamB"], name },
         }));
 
     const setTeamLogo = (team: "A" | "B", logo_url: string) =>
         setMatchData((p: MatchDataWithTournament) => ({
             ...p,
-            [`team${team}`]: {
-                ...p[`team${team}` as "teamA" | "teamB"],
-                logo_url,
-            },
+            [`team${team}`]: { ...p[`team${team}` as "teamA" | "teamB"], logo_url },
         }));
 
     const setMatchType = (type: string) =>
-        setMatchData((p: MatchDataWithTournament) => ({
-            ...p,
-            matchType: type,
-        }));
+        setMatchData((p: MatchDataWithTournament) => ({ ...p, matchType: type }));
 
     /** ---------- SYNC TO LOCAL STORAGE + BACKEND SSE ---------- */
     useEffect(() => {
         try {
+            // Construire la liste des événements pour les spectateurs (minutes arrondies au supérieur)
+            const eventsForSpectators = pendingEvents.map(e => ({
+                minute: toMinute(e.match_time_seconds),
+                playerNumber: e.player?.jersey_number ?? null,
+                playerName: e.player
+                    ? [e.player.first_name, e.player.last_name].filter(Boolean).join(" ") || null
+                    : null,
+                team: e.team,
+            }));
+
+            // Dernier but pour l'animation spectateur
+            const lastEvent = pendingEvents[pendingEvents.length - 1];
+            const lastGoal = lastEvent ? {
+                minute: toMinute(lastEvent.match_time_seconds),
+                playerNumber: lastEvent.player?.jersey_number ?? null,
+                playerName: lastEvent.player
+                    ? [lastEvent.player.first_name, lastEvent.player.last_name].filter(Boolean).join(" ") || null
+                    : null,
+                teamName: lastEvent.team === "A"
+                    ? (matchData.teamA.name || "Équipe A")
+                    : (matchData.teamB.name || "Équipe B"),
+                team: lastEvent.team,
+                timestamp: lastEvent.timestamp,
+            } : null;
+
             const payload = {
                 team1: matchData.teamA.name || "ÉQUIPE A",
                 team2: matchData.teamB.name || "ÉQUIPE B",
                 logo1: matchData.teamA.logo_url || "",
                 logo2: matchData.teamB.logo_url || "",
                 matchType: matchData.matchType || "Match",
-                matchGround: matchData.court || court || "Terrain",
+                court: matchData.court || court || "Terrain",
                 score1: matchData.teamA.score,
                 score2: matchData.teamB.score,
                 yellowCards1: Math.max(0, matchData.teamA.yellowCards),
@@ -400,27 +490,27 @@ export function useFootballMatch(initialMatchId: string | null) {
                 redCards1: Math.max(0, matchData.teamA.redCards),
                 redCards2: Math.max(0, matchData.teamB.redCards),
                 chrono: formattedTime,
+                lastGoal,
                 lastUpdate: new Date().toISOString(),
             };
-            // Sync to localStorage (for same-device spectator)
+
             localStorage.setItem("liveFootballMatch", JSON.stringify(payload));
             if (initialMatchId) {
                 localStorage.setItem(`liveFootballMatch_${initialMatchId}`, JSON.stringify(payload));
             }
 
-            // Sync to backend SSE (for cross-device split-screen spectators)
             if (initialMatchId) {
                 const sseMatchId = matchData.numericId?.toString() || initialMatchId;
                 sendLiveScore({
                     matchId: sseMatchId,
-                    sport: 'football' as any, // Extended sport type
+                    sport: 'football' as any,
                     payload,
                 });
             }
         } catch (e) {
             // Ignore storage errors
         }
-    }, [matchData, formattedTime, court, initialMatchId, sendLiveScore]);
+    }, [matchData, formattedTime, court, initialMatchId, sendLiveScore, pendingEvents]);
 
     // Cleanup à l'unmount
     useEffect(() => {
@@ -429,7 +519,6 @@ export function useFootballMatch(initialMatchId: string | null) {
                 window.clearInterval(intervalRef.current);
                 intervalRef.current = null;
             }
-            // Cleanup live score sync
             if (initialMatchId) {
                 cleanupLiveScore(initialMatchId);
             }
@@ -444,5 +533,12 @@ export function useFootballMatch(initialMatchId: string | null) {
             teamB: { ...p.teamA },
         }));
 
-    return { matchData, formattedTime, handleEnd, startChrono, stopChrono, addPoint, subPoint, addYellowCard, subYellowCard, addRedCard, subRedCard, setTeamName, setTeamLogo, setMatchType, swapSides, court };
+    return {
+        matchData, formattedTime, handleEnd, startChrono, stopChrono,
+        addPoint, subPoint,
+        addYellowCard, subYellowCard, addRedCard, subRedCard,
+        setTeamName, setTeamLogo, setMatchType, swapSides, court,
+        // Fiche de match & événements
+        players, pendingEvents, pendingGoalTeam, confirmGoal, cancelGoalModal,
+    };
 }

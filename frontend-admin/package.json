@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "node dev-debug.js",
+    "dev:debug": "node dev-debug.js",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"

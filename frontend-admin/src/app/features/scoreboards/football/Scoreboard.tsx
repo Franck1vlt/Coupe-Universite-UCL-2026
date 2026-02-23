@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { getAvailableCourts } from "./courtUtils";
 import "./football.css";
 import { useSearchParams } from "next/navigation";
@@ -48,15 +48,19 @@ export default function FootballTableMarquagePage() {
       if (!matchId) return;
       try {
         // 1. Récupérer le match pour obtenir phase_id
-        const matchRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/matches/${matchId}`);
-        if (!matchRes.ok) throw new Error('Match not found');
+        const matchRes = await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL}/matches/${matchId}`,
+        );
+        if (!matchRes.ok) throw new Error("Match not found");
         const matchData = await matchRes.json();
-        
+
         // 2. Récupérer la phase pour obtenir tournament_id
-        const phaseRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/tournament-phases/${matchData.data.phase_id}`);
-        if (!phaseRes.ok) throw new Error('Phase not found');
+        const phaseRes = await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL}/tournament-phases/${matchData.data.phase_id}`,
+        );
+        if (!phaseRes.ok) throw new Error("Phase not found");
         const phaseData = await phaseRes.json();
-        
+
         setTournamentId(phaseData.data.tournament_id.toString());
       } catch (err) {
         console.error("Erreur récupération tournamentId:", err);
@@ -68,13 +72,18 @@ export default function FootballTableMarquagePage() {
   // Récupérer les plannings de tous les terrains (pour filtrer les dispos)
   const fetchCourtSchedules = async () => {
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/match-schedules?skip=0&limit=200`, {
-        method: "GET",
-        headers: { "Accept": "application/json" }
-      });
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/match-schedules?skip=0&limit=200`,
+        {
+          method: "GET",
+          headers: { Accept: "application/json" },
+        },
+      );
       if (!res.ok) throw new Error("Impossible de charger les plannings");
       const data = await res.json();
-      setCourtSchedules(Array.isArray(data?.data?.items) ? data.data.items : []);
+      setCourtSchedules(
+        Array.isArray(data?.data?.items) ? data.data.items : [],
+      );
     } catch (error) {
       setCourtSchedules([]);
     }
@@ -96,29 +105,75 @@ export default function FootballTableMarquagePage() {
     setMatchType: setMatchTypeMeta,
     swapSides,
     court,
-    handleEnd
+    handleEnd,
+    players,
+    pendingEvents,
+    pendingGoalTeam,
+    confirmGoal,
+    cancelGoalModal,
   } = useFootballMatch(matchId);
+
+  const [selectedScorerPlayerId, setSelectedScorerPlayerId] = useState<
+    number | "none" | null
+  >(null);
+  const [showEventPanel, setShowEventPanel] = useState(false);
+  const scorerFirstOptionRef = useRef<HTMLButtonElement | null>(null);
+  const previousFocusedElementRef = useRef<HTMLElement | null>(null);
+  const goalModalRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (pendingGoalTeam) {
+      previousFocusedElementRef.current = document.activeElement as HTMLElement;
+      const focusFirstControl = () => {
+        scorerFirstOptionRef.current?.focus({ preventScroll: true });
+      };
+      requestAnimationFrame(focusFirstControl);
+      return;
+    }
+
+    if (previousFocusedElementRef.current?.isConnected) {
+      previousFocusedElementRef.current.focus({ preventScroll: true });
+      previousFocusedElementRef.current = null;
+    }
+  }, [pendingGoalTeam]);
+
+  useEffect(() => {
+    if (!pendingGoalTeam) return;
+
+    const handleFocusIn = (event: FocusEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (goalModalRef.current?.contains(target)) return;
+      scorerFirstOptionRef.current?.focus({ preventScroll: true });
+    };
+
+    document.addEventListener("focusin", handleFocusIn);
+    return () => document.removeEventListener("focusin", handleFocusIn);
+  }, [pendingGoalTeam]);
 
   // Synchroniser les données du match avec les states locaux
   useEffect(() => {
-    console.log('[Football Scoreboard] Match data changed:', matchData);
-    console.log('[Football Scoreboard] Court:', court);
-    
+    console.log("[Football Scoreboard] Match data changed:", matchData);
+    console.log("[Football Scoreboard] Court:", court);
+
     if (matchData.teamA.name && matchData.teamA.name !== "Team A") {
       setTeamA(matchData.teamA.name);
-      console.log('[Football Scoreboard] Set Team A to:', matchData.teamA.name);
+      console.log("[Football Scoreboard] Set Team A to:", matchData.teamA.name);
     }
     if (matchData.teamB.name && matchData.teamB.name !== "Team B") {
       setTeamB(matchData.teamB.name);
-      console.log('[Football Scoreboard] Set Team B to:', matchData.teamB.name);
+      console.log("[Football Scoreboard] Set Team B to:", matchData.teamB.name);
     }
     if (matchData.matchType) {
       setMatchType(matchData.matchType);
-      console.log('[Football Scoreboard] Set Match Type to:', matchData.matchType);
+      console.log(
+        "[Football Scoreboard] Set Match Type to:",
+        matchData.matchType,
+      );
     }
     if (court) {
       setMatchGround(court);
-      console.log('[Football Scoreboard] Set Court to:', court);
+      console.log("[Football Scoreboard] Set Court to:", court);
     }
   }, [matchData, court]);
 
@@ -152,18 +207,23 @@ export default function FootballTableMarquagePage() {
   const fetchTeams = async () => {
     setLoadingTeams(true);
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/teams?skip=0&limit=100`, {
-        method: "GET",
-        headers: { "Accept": "application/json" }
-      });
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/teams?skip=0&limit=100`,
+        {
+          method: "GET",
+          headers: { Accept: "application/json" },
+        },
+      );
       if (!res.ok) throw new Error("Impossible de charger les équipes");
       const data = await res.json();
       const teamsData = Array.isArray(data?.data?.items) ? data.data.items : [];
-      setTeams(teamsData.map((team: any) => ({
-        id: team.id.toString(),
-        name: team.name,
-        logo_url: team.logo_url
-      })));
+      setTeams(
+        teamsData.map((team: any) => ({
+          id: team.id.toString(),
+          name: team.name,
+          logo_url: team.logo_url,
+        })),
+      );
     } catch (error) {
       console.error("Erreur lors du chargement des équipes:", error);
       setTeams([]);
@@ -175,17 +235,24 @@ export default function FootballTableMarquagePage() {
   const fetchCourts = async () => {
     setLoadingCourts(true);
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/courts?skip=0&limit=100`, {
-        method: "GET",
-        headers: { "Accept": "application/json" }
-      });
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/courts?skip=0&limit=100`,
+        {
+          method: "GET",
+          headers: { Accept: "application/json" },
+        },
+      );
       if (!res.ok) throw new Error("Impossible de charger les terrains");
       const data = await res.json();
-      const courtsData = Array.isArray(data?.data?.items) ? data.data.items : [];
-      setCourts(courtsData.map((court: any) => ({
-        id: court.id.toString(),
-        name: court.name
-      })));
+      const courtsData = Array.isArray(data?.data?.items)
+        ? data.data.items
+        : [];
+      setCourts(
+        courtsData.map((court: any) => ({
+          id: court.id.toString(),
+          name: court.name,
+        })),
+      );
     } catch (error) {
       console.error("Erreur lors du chargement des terrains:", error);
       setCourts([]);
@@ -213,23 +280,30 @@ export default function FootballTableMarquagePage() {
       <div className="gauche">
         <div className="parametres-match mb-6">
           <label htmlFor="teamA">Équipe A :</label>
-            {matchId ? (
+          {matchId ? (
             <input
               type="text"
               value={matchData.teamA.name}
               disabled
               className="w-full text-center rounded-md border-none mb-2.5 bg-white text-black cursor-not-allowed p-2"
             />
-            ) : (
-            <select name="teamA" value={teamA} onChange={handleTeamAChange} disabled={loadingTeams}>
-              <option value="">{loadingTeams ? "Chargement..." : "Sélectionner"}</option>
-              {teams.map((team) => (
-              <option key={team.id} value={team.id}>
-                {team.name}
+          ) : (
+            <select
+              name="teamA"
+              value={teamA}
+              onChange={handleTeamAChange}
+              disabled={loadingTeams}
+            >
+              <option value="">
+                {loadingTeams ? "Chargement..." : "Sélectionner"}
               </option>
+              {teams.map((team) => (
+                <option key={team.id} value={team.id}>
+                  {team.name}
+                </option>
               ))}
             </select>
-            )}
+          )}
 
           <label htmlFor="teamB">Équipe B :</label>
           {matchId ? (
@@ -240,8 +314,16 @@ export default function FootballTableMarquagePage() {
               className="w-full text-center rounded-md border-none mb-2.5 bg-white text-black cursor-not-allowed p-2"
             />
           ) : (
-            <select id="teamB" name="teamB" value={teamB} onChange={handleTeamBChange} disabled={loadingTeams}>
-              <option value="">{loadingTeams ? "Chargement..." : "Sélectionner"}</option>
+            <select
+              id="teamB"
+              name="teamB"
+              value={teamB}
+              onChange={handleTeamBChange}
+              disabled={loadingTeams}
+            >
+              <option value="">
+                {loadingTeams ? "Chargement..." : "Sélectionner"}
+              </option>
               {teams.map((team) => (
                 <option key={team.id} value={team.id}>
                   {team.name}
@@ -259,7 +341,11 @@ export default function FootballTableMarquagePage() {
               className="w-full text-center rounded-md border-none mb-2.5 bg-white text-black cursor-not-allowed p-2"
             />
           ) : (
-            <select id="matchTypeSelector" value={matchType} onChange={handleMatchTypeChange}>
+            <select
+              id="matchTypeSelector"
+              value={matchType}
+              onChange={handleMatchTypeChange}
+            >
               <option value="">Sélectionner</option>
               <option value="Qualification">Qualification</option>
               <option value="Poule">Poule</option>
@@ -276,14 +362,17 @@ export default function FootballTableMarquagePage() {
               type="text"
               value={
                 // Affiche toujours le nom du terrain si possible
-                courts.find(c => c.id === matchData.court?.toString())?.name
-                || courts.find(c => c.name === matchData.court)?.name
-                || courts.find(c => c.id === court?.toString())?.name
-                || courts.find(c => c.name === court)?.name
-                || courts.find(c => c.id === matchGround)?.name
-                || matchData.court
-                || court
-                || (matchGround !== "Terrain" ? courts.find(c => c.id === matchGround)?.name : "Terrain")
+                courts.find((c) => c.id === matchData.court?.toString())
+                  ?.name ||
+                courts.find((c) => c.name === matchData.court)?.name ||
+                courts.find((c) => c.id === court?.toString())?.name ||
+                courts.find((c) => c.name === court)?.name ||
+                courts.find((c) => c.id === matchGround)?.name ||
+                matchData.court ||
+                court ||
+                (matchGround !== "Terrain"
+                  ? courts.find((c) => c.id === matchGround)?.name
+                  : "Terrain")
               }
               disabled
               className="w-full text-center rounded-md border-none mb-2.5 bg-white text-black cursor-not-allowed p-2"
@@ -297,9 +386,19 @@ export default function FootballTableMarquagePage() {
                 onChange={(e) => setMatchGround(e.target.value)}
                 disabled={loadingCourts}
               >
-                <option value="">{loadingCourts ? "Chargement..." : "Sélectionner"}</option>
-                {getAvailableCourts(courts, courtSchedules, selectedDateTime).map((court: any) => (
-                  <option key={court.id} value={court.id} disabled={court.isOccupied}>
+                <option value="">
+                  {loadingCourts ? "Chargement..." : "Sélectionner"}
+                </option>
+                {getAvailableCourts(
+                  courts,
+                  courtSchedules,
+                  selectedDateTime,
+                ).map((court: any) => (
+                  <option
+                    key={court.id}
+                    value={court.id}
+                    disabled={court.isOccupied}
+                  >
                     {court.name} {court.isOccupied ? "(occupé)" : ""}
                   </option>
                 ))}
@@ -308,7 +407,7 @@ export default function FootballTableMarquagePage() {
               <input
                 type="datetime-local"
                 value={selectedDateTime}
-                onChange={e => setSelectedDateTime(e.target.value)}
+                onChange={(e) => setSelectedDateTime(e.target.value)}
                 className="border border-gray-300 rounded px-2 py-1 mt-2"
               />
             </>
@@ -319,9 +418,13 @@ export default function FootballTableMarquagePage() {
           <div className="button-row1">
             <button onClick={() => router.back()}>Retour</button>
           </div>
-            <div className="button-row2">
-            <button onClick={() => window.open("./football/spectators", "_blank")}>Spectateurs</button>
-            </div>
+          <div className="button-row2">
+            <button
+              onClick={() => window.open("./football/spectators", "_blank")}
+            >
+              Spectateurs
+            </button>
+          </div>
         </div>
       </div>
 
@@ -330,20 +433,42 @@ export default function FootballTableMarquagePage() {
         <div className="scoreboard grid grid-cols-1 gap-2">
           <div className="score-display">
             <div className="score-line">
-              <span>{matchData.teamA.name !== "Team A" ? matchData.teamA.name : (teamA != "" ? teams.find((c: Team) => c.id === teamA)?.name : "Team A")} {matchData.teamA.score} - {matchData.teamB.score} {matchData.teamB.name !== "Team B" ? matchData.teamB.name : (teamB != "" ? teams.find((c: Team) => c.id === teamB)?.name : "Team B")}</span>
+              <span>
+                {matchData.teamA.name !== "Team A"
+                  ? matchData.teamA.name
+                  : teamA != ""
+                    ? teams.find((c: Team) => c.id === teamA)?.name
+                    : "Team A"}{" "}
+                {matchData.teamA.score} - {matchData.teamB.score}{" "}
+                {matchData.teamB.name !== "Team B"
+                  ? matchData.teamB.name
+                  : teamB != ""
+                    ? teams.find((c: Team) => c.id === teamB)?.name
+                    : "Team B"}
+              </span>
             </div>
             <div className="info-line">
-              <p>{matchData.matchType || (matchType !== "Type de match" ? matchType : "Type de match")} - {
-                // Affiche toujours le nom du terrain si possible
-                courts.find(c => c.id === matchData.court?.toString())?.name
-                || courts.find(c => c.name === matchData.court)?.name
-                || courts.find(c => c.id === court?.toString())?.name
-                || courts.find(c => c.name === court)?.name
-                || courts.find(c => c.id === matchGround)?.name
-                || matchData.court
-                || court
-                || (matchGround !== "Terrain" ? courts.find(c => c.id === matchGround)?.name : "Terrain")
-              }</p>
+              <p>
+                {matchData.matchType ||
+                  (matchType !== "Type de match"
+                    ? matchType
+                    : "Type de match")}{" "}
+                -{" "}
+                {
+                  // Affiche toujours le nom du terrain si possible
+                  courts.find((c) => c.id === matchData.court?.toString())
+                    ?.name ||
+                    courts.find((c) => c.name === matchData.court)?.name ||
+                    courts.find((c) => c.id === court?.toString())?.name ||
+                    courts.find((c) => c.name === court)?.name ||
+                    courts.find((c) => c.id === matchGround)?.name ||
+                    matchData.court ||
+                    court ||
+                    (matchGround !== "Terrain"
+                      ? courts.find((c) => c.id === matchGround)?.name
+                      : "Terrain")
+                }
+              </p>
             </div>
           </div>
 
@@ -365,27 +490,83 @@ export default function FootballTableMarquagePage() {
             {/* Cartons Équipe A */}
             <div className="flex flex-col items-center gap-4">
               <div className="flex items-center gap-2">
-                <p>Cartons Jaunes : {matchData.teamA.yellowCards != 0 ? matchData.teamA.yellowCards : 0}</p>
-                <button style={{ backgroundColor: 'var(--bg-yellow-900)' }} onClick={() => subYellowCard("A")}>-</button>
-                <button style={{ backgroundColor: 'var(--bg-yellow-900)' }} onClick={() => addYellowCard("A")}>+</button>
+                <p>
+                  Cartons Jaunes :{" "}
+                  {matchData.teamA.yellowCards != 0
+                    ? matchData.teamA.yellowCards
+                    : 0}
+                </p>
+                <button
+                  style={{ backgroundColor: "var(--bg-yellow-900)" }}
+                  onClick={() => subYellowCard("A")}
+                >
+                  -
+                </button>
+                <button
+                  style={{ backgroundColor: "var(--bg-yellow-900)" }}
+                  onClick={() => addYellowCard("A")}
+                >
+                  +
+                </button>
               </div>
               <div className="flex items-center gap-2">
-                <p>Cartons Rouges : {matchData.teamA.redCards != 0 ? matchData.teamA.redCards : 0}</p>
-                <button style={{ backgroundColor: 'var(--bg-red-900)' }} onClick={() => subRedCard("A")}>-</button>
-                <button style={{ backgroundColor: 'var(--bg-red-900)' }} onClick={() => addRedCard("A")}>+</button>
+                <p>
+                  Cartons Rouges :{" "}
+                  {matchData.teamA.redCards != 0 ? matchData.teamA.redCards : 0}
+                </p>
+                <button
+                  style={{ backgroundColor: "var(--bg-red-900)" }}
+                  onClick={() => subRedCard("A")}
+                >
+                  -
+                </button>
+                <button
+                  style={{ backgroundColor: "var(--bg-red-900)" }}
+                  onClick={() => addRedCard("A")}
+                >
+                  +
+                </button>
               </div>
             </div>
             {/* Cartons Équipe B */}
             <div className="flex flex-col items-center gap-4">
               <div className="flex items-center gap-2">
-                <p>Cartons Jaunes : {matchData.teamB.yellowCards != 0 ? matchData.teamB.yellowCards : 0}</p>
-                <button style={{ backgroundColor: 'var(--bg-yellow-900)' }} onClick={() => subYellowCard("B")}>-</button>
-                <button style={{ backgroundColor: 'var(--bg-yellow-900)' }} onClick={() => addYellowCard("B")}>+</button>
+                <p>
+                  Cartons Jaunes :{" "}
+                  {matchData.teamB.yellowCards != 0
+                    ? matchData.teamB.yellowCards
+                    : 0}
+                </p>
+                <button
+                  style={{ backgroundColor: "var(--bg-yellow-900)" }}
+                  onClick={() => subYellowCard("B")}
+                >
+                  -
+                </button>
+                <button
+                  style={{ backgroundColor: "var(--bg-yellow-900)" }}
+                  onClick={() => addYellowCard("B")}
+                >
+                  +
+                </button>
               </div>
               <div className="flex items-center gap-2">
-                <p>Cartons Rouges : {matchData.teamB.redCards != 0 ? matchData.teamB.redCards : 0}</p>
-                <button style={{ backgroundColor: 'var(--bg-red-900)' }} onClick={() => subRedCard("B")}>-</button>
-                <button style={{ backgroundColor: 'var(--bg-red-900)' }} onClick={() => addRedCard("B")}>+</button>
+                <p>
+                  Cartons Rouges :{" "}
+                  {matchData.teamB.redCards != 0 ? matchData.teamB.redCards : 0}
+                </p>
+                <button
+                  style={{ backgroundColor: "var(--bg-red-900)" }}
+                  onClick={() => subRedCard("B")}
+                >
+                  -
+                </button>
+                <button
+                  style={{ backgroundColor: "var(--bg-red-900)" }}
+                  onClick={() => addRedCard("B")}
+                >
+                  +
+                </button>
               </div>
             </div>
           </div>
@@ -397,7 +578,9 @@ export default function FootballTableMarquagePage() {
             <button
               onClick={async () => {
                 if (!tournamentId) {
-                  alert("Impossible de retrouver l'ID du tournoi pour la redirection.");
+                  alert(
+                    "Impossible de retrouver l'ID du tournoi pour la redirection.",
+                  );
                   return;
                 }
                 await handleEnd();
@@ -409,6 +592,167 @@ export default function FootballTableMarquagePage() {
           </div>
         </div>
       </div>
+
+      {/* Icône notification buts — fixée en haut à droite */}
+      {pendingEvents.length > 0 && (
+        <div className="goal-events-fab">
+          <div className="goal-events-shell">
+            <button
+              onClick={() => setShowEventPanel((v) => !v)}
+              className="goal-events-button"
+              aria-label="Afficher les buts"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="goal-events-icon"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
+                />
+              </svg>
+              <span className="goal-events-badge">{pendingEvents.length}</span>
+            </button>
+            {showEventPanel && (
+              <div className="goal-events-panel">
+                <p className="goal-events-panel-title">Buts enregistrés</p>
+                <div className="goal-events-list">
+                  {pendingEvents.map((e) => {
+                    const minute = Math.ceil((e.match_time_seconds ?? 0) / 60);
+                    const playerName = e.player
+                      ? [e.player.first_name, e.player.last_name]
+                          .filter(Boolean)
+                          .join(" ") || "Anonyme"
+                      : "Non attribué";
+                    const teamLabel =
+                      e.team === "A"
+                        ? matchData.teamA.name || "Équipe A"
+                        : matchData.teamB.name || "Équipe B";
+                    return (
+                      <article key={e.localId} className="goal-event-item">
+                        <span className="goal-event-minute">
+                          {minute}&apos;
+                        </span>
+                        <div className="goal-event-main">
+                          <div className="goal-event-playerline">
+                            {e.player && (
+                              <span className="goal-event-number">
+                                #{e.player.jersey_number ?? "?"}
+                              </span>
+                            )}
+                            <span className="goal-event-player">
+                              {playerName}
+                            </span>
+                          </div>
+                          <span className="goal-event-team">{teamLabel}</span>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Modal sélection du buteur */}
+      {pendingGoalTeam && (
+        <div className="goal-modal-overlay">
+          <div
+            ref={goalModalRef}
+            className="goal-modal-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="goal-modal-title"
+          >
+            <h2 id="goal-modal-title" className="goal-modal-title">
+              Qui a marqué ?
+            </h2>
+            <p className="goal-modal-team">
+              {pendingGoalTeam === "A"
+                ? matchData.teamA.name || "Équipe A"
+                : matchData.teamB.name || "Équipe B"}
+            </p>
+
+            <div className="goal-modal-players">
+              {/* Option non attribué */}
+              <button
+                ref={scorerFirstOptionRef}
+                onClick={() => setSelectedScorerPlayerId("none")}
+                className={`goal-modal-player-button ${
+                  selectedScorerPlayerId === "none"
+                    ? "goal-modal-player-button-active"
+                    : ""
+                }`}
+              >
+                Non attribué
+              </button>
+              {/* Liste des joueurs de l'équipe */}
+              {players
+                .filter((p) => p.team === pendingGoalTeam)
+                .sort(
+                  (a, b) => (a.jersey_number ?? 99) - (b.jersey_number ?? 99),
+                )
+                .map((player) => (
+                  <button
+                    key={player.id}
+                    onClick={() => setSelectedScorerPlayerId(player.id)}
+                    className={`goal-modal-player-button ${
+                      selectedScorerPlayerId === player.id
+                        ? "goal-modal-player-button-active"
+                        : ""
+                    }`}
+                  >
+                    <span className="font-bold mr-2">
+                      #{player.jersey_number ?? "?"}
+                    </span>
+                    {[player.first_name, player.last_name]
+                      .filter(Boolean)
+                      .join(" ") || "Anonyme"}
+                    {player.is_captain && (
+                      <span className="ml-2 text-[10px] bg-yellow-200 text-yellow-800 px-1 rounded">
+                        C
+                      </span>
+                    )}
+                  </button>
+                ))}
+            </div>
+
+            <div className="goal-modal-actions">
+              <button
+                onClick={() => {
+                  cancelGoalModal();
+                  setSelectedScorerPlayerId(null);
+                }}
+                className="goal-modal-cancel"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={() => {
+                  if (selectedScorerPlayerId === null) return;
+                  confirmGoal(
+                    selectedScorerPlayerId === "none"
+                      ? undefined
+                      : selectedScorerPlayerId,
+                  );
+                  setSelectedScorerPlayerId(null);
+                }}
+                disabled={selectedScorerPlayerId === null}
+                className="goal-modal-confirm"
+              >
+                Valider le but
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

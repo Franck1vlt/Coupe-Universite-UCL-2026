@@ -42,6 +42,23 @@ export function useBadmintonMatch(initialMatchId: string | null) {
     const intervalRef = useRef<number | null>(null);
     const [court, setCourt] = useState<string>("");
 
+    // Historique des états pour le système d'annulation
+    const historyRef = useRef<MatchDataWithTournament[]>([]);
+
+    const saveToHistory = (state: MatchDataWithTournament) => {
+        historyRef.current = [...historyRef.current.slice(-19), structuredClone(state)];
+    };
+
+    const undoLastAction = () => {
+        const history = historyRef.current;
+        if (history.length === 0) return;
+        const previousState = history[history.length - 1];
+        historyRef.current = history.slice(0, -1);
+        setMatchData(structuredClone(previousState));
+    };
+
+    const canUndo = () => historyRef.current.length > 0;
+
     // Hook pour synchronisation live vers backend SSE
     const { sendLiveScore, cleanup: cleanupLiveScore } = useLiveScoreSync();
 
@@ -252,38 +269,44 @@ export function useBadmintonMatch(initialMatchId: string | null) {
     /** ---------- POINTS ---------- */
     function addPoint(team: "A" | "B") {
         setMatchData(prev => {
-            // 1. Bloquer si le match est déjà terminé
-            if (prev.teamA.sets >= prev.numberOfSets || prev.teamB.sets >= prev.numberOfSets) {
-                return prev; 
+            // Sauvegarder l'état avant modification (pour l'annulation)
+            saveToHistory(prev);
+
+            // Si le match est terminé, permettre la correction (sans changer les sets)
+            const matchFinished = prev.teamA.sets >= prev.numberOfSets || prev.teamB.sets >= prev.numberOfSets;
+            if (matchFinished) {
+                const next = structuredClone(prev) as MatchDataWithTournament;
+                next[team === "A" ? "teamA" : "teamB"].score += 1;
+                return next;
             }
 
             const next = structuredClone(prev) as MatchDataWithTournament;
             const key = team === "A" ? "teamA" : "teamB";
-            
-            // 2. Ajouter le point
+
+            // Ajouter le point
             next[key].score += 1;
 
-            // 3. TRANSFERT DU SERVICE : l'équipe qui marque prend le service
+            // TRANSFERT DU SERVICE : l'équipe qui marque prend le service
             next.serviceTeam = team;
 
-            // 4. Vérifier si le set est fini (toujours à 21 points)
+            // Vérifier si le set est fini (toujours à 21 points en badminton)
             if (isSetFinished(next.teamA.score, next.teamB.score)) {
                 const winner = next.teamA.score > next.teamB.score ? "A" : "B";
                 const winnerKey = winner === "A" ? "teamA" : "teamB";
-                
+
                 // Incrémenter le set gagné
                 next[winnerKey].sets += 1;
 
-                // 5. Vérifier la victoire finale
+                // Vérifier la victoire finale
                 if (next[winnerKey].sets >= next.numberOfSets) {
+                    // Match terminé : on garde les scores affichés pour correction éventuelle
                     alert(`MATCH TERMINÉ ! Victoire de ${next[winnerKey].name}`);
-                    // On garde les scores affichés mais on arrête la logique
                 } else {
                     // Nouveau set : remise à zéro et le gagnant du set garde le service
                     next.teamA.score = 0;
                     next.teamB.score = 0;
                     next.currentSet += 1;
-                    next.serviceTeam = winner; 
+                    next.serviceTeam = winner;
                 }
             }
             return next;
@@ -292,14 +315,25 @@ export function useBadmintonMatch(initialMatchId: string | null) {
 
     const subPoint = (team: "A" | "B") =>
         setMatchData((p: MatchDataWithTournament) => {
-            // Empêcher la modification si le match est fini
-            if (p.teamA.sets >= p.numberOfSets || p.teamB.sets >= p.numberOfSets) {
-                return p;
+            // Sauvegarder l'état avant modification (pour l'annulation)
+            saveToHistory(p);
+
+            // Si le score actuel est un score de fin de set (ex: 20-21),
+            // annuler aussi l'incrément de sets du gagnant pour permettre la correction
+            let setsA = p.teamA.sets;
+            let setsB = p.teamB.sets;
+            if (isSetFinished(p.teamA.score, p.teamB.score)) {
+                if (p.teamA.score > p.teamB.score) {
+                    setsA = Math.max(0, setsA - 1);
+                } else {
+                    setsB = Math.max(0, setsB - 1);
+                }
             }
-            const k = teamKey(team);
+
             return {
                 ...p,
-                [k]: { ...p[k], score: Math.max(0, p[k].score - 1) },
+                teamA: { ...p.teamA, score: team === "A" ? Math.max(0, p.teamA.score - 1) : p.teamA.score, sets: setsA },
+                teamB: { ...p.teamB, score: team === "B" ? Math.max(0, p.teamB.score - 1) : p.teamB.score, sets: setsB },
             };
         });
 
@@ -432,23 +466,25 @@ export function useBadmintonMatch(initialMatchId: string | null) {
             serviceTeam: p.serviceTeam === "A" ? "B" : "A", // Inverser le service aussi
         }));
 
-    return { 
-        matchData, 
-        formattedTime, 
-        handleEnd, 
-        submitMatchResult, 
-        startChrono, 
-        stopChrono, 
-        addPoint, 
-        subPoint, 
-        setTeamName, 
-        setTeamLogo, 
-        setMatchType, 
-        swapSides, 
-        court, 
+    return {
+        matchData,
+        formattedTime,
+        handleEnd,
+        submitMatchResult,
+        startChrono,
+        stopChrono,
+        addPoint,
+        subPoint,
+        setTeamName,
+        setTeamLogo,
+        setMatchType,
+        swapSides,
+        court,
         changeService,
         updateMatchStatus,
         setNumSets,
-        resetChrono
+        resetChrono,
+        undoLastAction,
+        canUndo,
     };
 }

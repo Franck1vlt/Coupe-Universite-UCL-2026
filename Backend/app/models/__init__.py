@@ -18,6 +18,7 @@ from app.models.matchset import MatchSet
 from app.models.matchschedule import MatchSchedule
 from app.models.court import Court
 from app.models.player import Player
+from app.models.match_event import MatchEvent
 
 __all__ = [
     "User",
@@ -36,4 +37,5 @@ __all__ = [
     "MatchSchedule",
     "Court",
     "Player",
+    "MatchEvent",
 ]

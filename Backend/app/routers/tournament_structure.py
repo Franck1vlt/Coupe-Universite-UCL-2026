@@ -585,6 +585,17 @@ def create_tournament_structure(
         elif winner_dest_uuid or loser_dest_uuid:
             print(f"[COLLECT] ⚠️ Match sans identifiant mais avec destinations: winnerDest={winner_dest_uuid}, loserDest={loser_dest_uuid}")
 
+    # Récupérer tous les IDs de matchs existants pour ce tournoi (avant upsert)
+    existing_match_ids = {
+        m.id for m in (
+            db.query(Match)
+            .join(TournamentPhase)
+            .filter(TournamentPhase.tournament_id == tournament_id)
+            .all()
+        )
+    }
+    processed_match_ids = set()
+
     # --- TRAITEMENT DES SECTIONS (PASSE 1 : Création des matchs) ---
     if structure.qualification_matches:
         p = get_or_create_phase("qualifications", 1)
@@ -593,6 +604,8 @@ def create_tournament_structure(
             match_obj = upsert_match(m, p.id, "qualification")
             if match_obj and match_obj.uuid:
                 created_matches_by_uuid[match_obj.uuid] = match_obj
+            if match_obj and match_obj.id:
+                processed_match_ids.add(match_obj.id)
 
     if structure.pools:
         p = get_or_create_phase("pools", 2)
@@ -601,8 +614,8 @@ def create_tournament_structure(
             if not pool:
                 # ✅ FIX: Inclure qualified_to_finals et qualified_to_loser_bracket lors de la création
                 pool = Pool(
-                    phase_id=p.id, 
-                    name=p_data.name, 
+                    phase_id=p.id,
+                    name=p_data.name,
                     order=p_data.display_order,
                     qualified_to_finals=p_data.qualified_to_finals,
                     qualified_to_loser_bracket=p_data.qualified_to_loser_bracket
@@ -619,6 +632,8 @@ def create_tournament_structure(
                     match_obj = upsert_match(m, p.id, "pool", pool.id)
                     if match_obj and match_obj.uuid:
                         created_matches_by_uuid[match_obj.uuid] = match_obj
+                    if match_obj and match_obj.id:
+                        processed_match_ids.add(match_obj.id)
 
     if structure.brackets:
         phase_final = get_or_create_phase("final", 3)
@@ -628,6 +643,8 @@ def create_tournament_structure(
                 match_obj = upsert_match(m_data, phase_final.id, "bracket")
                 if match_obj and match_obj.uuid:
                     created_matches_by_uuid[match_obj.uuid] = match_obj
+                if match_obj and match_obj.id:
+                    processed_match_ids.add(match_obj.id)
 
     if structure.loser_brackets:
         # Utiliser "elimination" comme phase_type car c'est une valeur autorisée par la contrainte CHECK
@@ -643,9 +660,21 @@ def create_tournament_structure(
                 match_obj = upsert_match(m_dict, phase_loser.id, "bracket")
                 if match_obj and match_obj.uuid:
                     created_matches_by_uuid[match_obj.uuid] = match_obj
+                if match_obj and match_obj.id:
+                    processed_match_ids.add(match_obj.id)
 
     # Flush pour s'assurer que tous les matchs ont des IDs
     db.flush()
+
+    # Supprimer les matchs présents en BDD mais absents du payload (supprimés côté frontend)
+    orphaned_ids = existing_match_ids - processed_match_ids
+    if orphaned_ids:
+        print(f"[DELETE] Suppression de {len(orphaned_ids)} match(s) orphelin(s): {orphaned_ids}")
+        for match_id in orphaned_ids:
+            db.query(MatchSchedule).filter(MatchSchedule.match_id == match_id).delete()
+            db.query(MatchSet).filter(MatchSet.match_id == match_id).delete()
+            db.query(Match).filter(Match.id == match_id).delete()
+        db.flush()
 
     # --- PASSE 2 : Résolution des UUIDs de destination en IDs ---
     if pending_destinations:
