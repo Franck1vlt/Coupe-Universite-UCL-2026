@@ -687,7 +687,6 @@ button:hover {
 
 .goal-events-button:hover {
   transform: translateY(-1px);
-  box-shadow: 0 14px 24px rgba(2, 31, 72, 0.34);
 }
 
 .goal-events-icon {

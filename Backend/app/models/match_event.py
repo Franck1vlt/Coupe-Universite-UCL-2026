@@ -26,7 +26,7 @@ class MatchEvent(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "event_type IN ('goal')",
+            "event_type IN ('goal', 'yellow_card', 'red_card')",
             name="ck_match_event_type"
         ),
         CheckConstraint(

@@ -111,9 +111,15 @@ export default function FootballTableMarquagePage() {
     pendingGoalTeam,
     confirmGoal,
     cancelGoalModal,
+    pendingCardEvent,
+    confirmCard,
+    cancelCardModal,
   } = useFootballMatch(matchId);
 
   const [selectedScorerPlayerId, setSelectedScorerPlayerId] = useState<
+    number | "none" | null
+  >(null);
+  const [selectedCardPlayerId, setSelectedCardPlayerId] = useState<
     number | "none" | null
   >(null);
   const [showEventPanel, setShowEventPanel] = useState(false);
@@ -620,19 +626,68 @@ export default function FootballTableMarquagePage() {
             </button>
             {showEventPanel && (
               <div className="goal-events-panel">
-                <p className="goal-events-panel-title">Buts enregistrés</p>
+                <p className="goal-events-panel-title">Événements</p>
                 <div className="goal-events-list">
                   {pendingEvents.map((e) => {
                     const minute = Math.ceil((e.match_time_seconds ?? 0) / 60);
+                    const teamLabel =
+                      e.team === "A"
+                        ? matchData.teamA.name || "Équipe A"
+                        : matchData.teamB.name || "Équipe B";
                     const playerName = e.player
                       ? [e.player.first_name, e.player.last_name]
                           .filter(Boolean)
                           .join(" ") || "Anonyme"
                       : "Non attribué";
-                    const teamLabel =
-                      e.team === "A"
-                        ? matchData.teamA.name || "Équipe A"
-                        : matchData.teamB.name || "Équipe B";
+
+                    if (e.event_type === "goal") {
+                      return (
+                        <article key={e.localId} className="goal-event-item">
+                          <span className="goal-event-minute">
+                            {minute}&apos;
+                          </span>
+                          <div className="goal-event-main">
+                            <div className="goal-event-playerline">
+                              <span className="goal-event-icon">⚽</span>
+                              {e.player && (
+                                <span className="goal-event-number">
+                                  #{e.player.jersey_number ?? "?"}
+                                </span>
+                              )}
+                              <span className="goal-event-player">
+                                {playerName}
+                              </span>
+                            </div>
+                            <span className="goal-event-team">{teamLabel}</span>
+                          </div>
+                        </article>
+                      );
+                    }
+
+                    if (e.event_type === "yellow_card") {
+                      return (
+                        <article key={e.localId} className="goal-event-item">
+                          <span className="goal-event-minute">
+                            {minute}&apos;
+                          </span>
+                          <div className="goal-event-main">
+                            <div className="goal-event-playerline">
+                              <span className="goal-event-icon">🟨</span>
+                              {e.player && (
+                                <span className="goal-event-number">
+                                  #{e.player.jersey_number ?? "?"}
+                                </span>
+                              )}
+                              <span className="goal-event-player">
+                                {playerName}
+                              </span>{" "}
+                            </div>
+                            <span className="goal-event-team">{teamLabel}</span>
+                          </div>
+                        </article>
+                      );
+                    }
+
                     return (
                       <article key={e.localId} className="goal-event-item">
                         <span className="goal-event-minute">
@@ -640,6 +695,7 @@ export default function FootballTableMarquagePage() {
                         </span>
                         <div className="goal-event-main">
                           <div className="goal-event-playerline">
+                            <span className="goal-event-icon">🟥</span>
                             {e.player && (
                               <span className="goal-event-number">
                                 #{e.player.jersey_number ?? "?"}
@@ -657,6 +713,97 @@ export default function FootballTableMarquagePage() {
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Modal sélection du joueur cartonné */}
+      {pendingCardEvent && (
+        <div className="goal-modal-overlay">
+          <div
+            className="goal-modal-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="card-modal-title"
+          >
+            <h2 id="card-modal-title" className="goal-modal-title">
+              {pendingCardEvent.event_type === "yellow_card"
+                ? "🟨 Carton jaune"
+                : "🟥 Carton rouge"}
+            </h2>
+            <p className="goal-modal-team">
+              {pendingCardEvent.team === "A"
+                ? matchData.teamA.name || "Équipe A"
+                : matchData.teamB.name || "Équipe B"}
+            </p>
+
+            <div className="goal-modal-players">
+              <button
+                onClick={() => setSelectedCardPlayerId("none")}
+                className={`goal-modal-player-button ${
+                  selectedCardPlayerId === "none"
+                    ? "goal-modal-player-button-active"
+                    : ""
+                }`}
+              >
+                Non attribué
+              </button>
+              {players
+                .filter((p) => p.team === pendingCardEvent.team)
+                .sort(
+                  (a, b) => (a.jersey_number ?? 99) - (b.jersey_number ?? 99),
+                )
+                .map((player) => (
+                  <button
+                    key={player.id}
+                    onClick={() => setSelectedCardPlayerId(player.id)}
+                    className={`goal-modal-player-button ${
+                      selectedCardPlayerId === player.id
+                        ? "goal-modal-player-button-active"
+                        : ""
+                    }`}
+                  >
+                    <span className="font-bold mr-2">
+                      #{player.jersey_number ?? "?"}
+                    </span>
+                    {[player.first_name, player.last_name]
+                      .filter(Boolean)
+                      .join(" ") || "Anonyme"}
+                    {player.is_captain && (
+                      <span className="ml-2 text-[10px] bg-yellow-200 text-yellow-800 px-1 rounded">
+                        C
+                      </span>
+                    )}
+                  </button>
+                ))}
+            </div>
+
+            <div className="goal-modal-actions">
+              <button
+                onClick={() => {
+                  cancelCardModal();
+                  setSelectedCardPlayerId(null);
+                }}
+                className="goal-modal-cancel"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={() => {
+                  if (selectedCardPlayerId === null) return;
+                  confirmCard(
+                    selectedCardPlayerId === "none"
+                      ? undefined
+                      : selectedCardPlayerId,
+                  );
+                  setSelectedCardPlayerId(null);
+                }}
+                disabled={selectedCardPlayerId === null}
+                className="goal-modal-confirm"
+              >
+                Valider
+              </button>
+            </div>
           </div>
         </div>
       )}

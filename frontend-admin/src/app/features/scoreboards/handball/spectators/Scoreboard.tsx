@@ -1,14 +1,25 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import "./spectators.css";
+
+interface LastGoal {
+    event_type?: "goal" | "yellow_card" | "red_card";
+    minute: number;
+    playerNumber: number | null;
+    playerName: string | null;
+    teamName: string;
+    team: "A" | "B";
+    timestamp: string;
+}
 
 interface MatchData {
     team1?: string;
     team2?: string;
     matchType?: string;
+    matchGround?: string;
     score1?: number;
     score2?: number;
     yellowCards1?: number;
@@ -20,6 +31,8 @@ interface MatchData {
     period?: string;
     logo1?: string;
     logo2?: string;
+    winner?: string;
+    lastGoal?: LastGoal | null;
 }
 
 export default function HandballTableSpectatorPage() {
@@ -31,6 +44,8 @@ export default function HandballTableSpectatorPage() {
     const [animateScoreA, setAnimateScoreA] = useState(false);
     const [animateScoreB, setAnimateScoreB] = useState(false);
     const [matchData, setMatchData] = useState<MatchData>({});
+    const [goalAnimation, setGoalAnimation] = useState<LastGoal | null>(null);
+    const lastGoalTimestampRef = useRef<string | null>(null);
 
     // Clé localStorage spécifique au match si matchId présent
     const storageKey = matchId ? `liveHandballMatch_${matchId}` : 'liveHandballMatch';
@@ -46,11 +61,23 @@ export default function HandballTableSpectatorPage() {
             console.error('Erreur lors du chargement des données initiales:', error);
         }
 
+        const triggerGoalAnimation = (newData: MatchData) => {
+            if (
+                newData.lastGoal?.timestamp &&
+                newData.lastGoal.timestamp !== lastGoalTimestampRef.current
+            ) {
+                lastGoalTimestampRef.current = newData.lastGoal.timestamp;
+                setGoalAnimation(newData.lastGoal);
+                setTimeout(() => setGoalAnimation(null), 4000);
+            }
+        };
+
         // Écouter les mises à jour de localStorage provenant d'un autre onglet
         const onStorage = (e: StorageEvent) => {
             if (e.key !== storageKey || !e.newValue) return;
             try {
                 const newData: MatchData = JSON.parse(e.newValue);
+                triggerGoalAnimation(newData);
                 setMatchData(prevData => {
                     if (prevData.score1 !== newData.score1) {
                         setAnimateScoreA(true);
@@ -75,6 +102,7 @@ export default function HandballTableSpectatorPage() {
                 const raw = localStorage.getItem(storageKey);
                 if (!raw) return;
                 const newData: MatchData = JSON.parse(raw);
+                triggerGoalAnimation(newData);
                 setMatchData(prevData => {
                     if (JSON.stringify(prevData) !== JSON.stringify(newData)) {
                         if (prevData.score1 !== newData.score1) {
@@ -115,7 +143,7 @@ export default function HandballTableSpectatorPage() {
         }
     }, [matchData.team1, matchData.team2, matchData.logo1, matchData.logo2]);
 
-return (
+    return (
         <main className="min-h-screen w-full bg-white flex items-center justify-center p-4 overflow-hidden">
             <section className="score-board-container gap-8">
 
@@ -156,6 +184,12 @@ return (
                     <div className="match-period">{matchData.period || "MT1"}</div>
                     <p>-</p>
                     <div className="match-type-label">{matchData.matchType || 'Match'}</div>
+                    {matchData.matchGround && (
+                        <>
+                            <p>-</p>
+                            <div className="match-ground-label">{matchData.matchGround}</div>
+                        </>
+                    )}
                 </div>
 
                 {/* Cartons */}
@@ -170,7 +204,81 @@ return (
                     </div>
                 </div>
 
+                {/* Vainqueur Overlay */}
+                {matchData.winner && (
+                    <div className="vainqueur-overlay">
+                        <div className="vainqueur-banner animate-vainqueur">
+                            Vainqueur : {matchData.winner}
+                        </div>
+                    </div>
+                )}
             </section>
+
+            {/* Animation BUT ! */}
+            {goalAnimation?.event_type === "goal" && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
+                    <div className="goal-animation-overlay animate-goal-in">
+                        <div className="text-8xl font-black text-white drop-shadow-2xl mb-4 tracking-widest">
+                            BUT !
+                        </div>
+                        {goalAnimation.playerNumber != null && (
+                            <div className="text-3xl font-bold text-white mb-1">
+                                N°{goalAnimation.playerNumber} — {goalAnimation.playerName || "Anonyme"}
+                            </div>
+                        )}
+                        <div className="text-2xl font-semibold text-gray-300 mb-2">
+                            {goalAnimation.teamName}
+                        </div>
+                        <div className="text-xl text-gray-300">
+                            {goalAnimation.minute}&apos;
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Animation Carton Jaune ! */}
+            {goalAnimation?.event_type === "yellow_card" && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
+                    <div className="yellowcard-animation-overlay animate-card-in">
+                        <div className="text-6xl font-black text-black drop-shadow-2xl mb-4 tracking-widest">
+                            Carton Jaune
+                        </div>
+                        {goalAnimation.playerNumber != null && (
+                            <div className="text-3xl font-bold text-black mb-1">
+                                N°{goalAnimation.playerNumber} — {goalAnimation.playerName || "Anonyme"}
+                            </div>
+                        )}
+                        <div className="text-2xl font-semibold text-yellow-900 mb-2">
+                            {goalAnimation.teamName}
+                        </div>
+                        <div className="text-xl text-gray-900">
+                            {goalAnimation.minute}&apos;
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Animation Carton Rouge ! */}
+            {goalAnimation?.event_type === "red_card" && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
+                    <div className="redcard-animation-overlay animate-card-in">
+                        <div className="text-6xl font-black text-black drop-shadow-2xl mb-4 tracking-widest">
+                            Carton Rouge
+                        </div>
+                        {goalAnimation.playerNumber != null && (
+                            <div className="text-3xl font-bold text-black mb-1">
+                                N°{goalAnimation.playerNumber} — {goalAnimation.playerName || "Anonyme"}
+                            </div>
+                        )}
+                        <div className="text-2xl font-semibold text-red-900 mb-2">
+                            {goalAnimation.teamName}
+                        </div>
+                        <div className="text-xl text-gray-900">
+                            {goalAnimation.minute}&apos;
+                        </div>
+                    </div>
+                </div>
+            )}
         </main>
     );
 }

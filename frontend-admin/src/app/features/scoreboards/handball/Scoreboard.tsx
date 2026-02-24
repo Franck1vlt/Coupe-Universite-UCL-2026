@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { getAvailableCourts } from "./courtUtils";
 import "./handball.css";
 import { useSearchParams } from "next/navigation";
@@ -46,7 +46,7 @@ export default function HandballTableMarquagePage() {
     fetchCourts();
     fetchCourtSchedules();
   }, []);
-  // Récupérer les plannings de tous les terrains (pour filtrer les dispos)
+
   const fetchCourtSchedules = async () => {
     try {
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/match-schedules?skip=0&limit=200`, {
@@ -83,35 +83,74 @@ export default function HandballTableMarquagePage() {
     togglePeriod,
     periodSwitchChecked,
     period,
-    updateMatchStatus
+    updateMatchStatus,
+    // Fiche de match & événements
+    players,
+    pendingEvents,
+    pendingGoalTeam,
+    confirmGoal,
+    cancelGoalModal,
+    pendingCardEvent,
+    confirmCard,
+    cancelCardModal,
   } = useHandballMatch(matchId);
+
+  // États pour les modals
+  const [selectedScorerPlayerId, setSelectedScorerPlayerId] = useState<number | "none" | null>(null);
+  const [selectedCardPlayerId, setSelectedCardPlayerId] = useState<number | "none" | null>(null);
+  const [showEventPanel, setShowEventPanel] = useState(false);
+  const scorerFirstOptionRef = useRef<HTMLButtonElement | null>(null);
+  const previousFocusedElementRef = useRef<HTMLElement | null>(null);
+  const goalModalRef = useRef<HTMLDivElement | null>(null);
+
+  // Gestion du focus trap pour le modal buteur
+  useEffect(() => {
+    if (pendingGoalTeam) {
+      previousFocusedElementRef.current = document.activeElement as HTMLElement;
+      requestAnimationFrame(() => {
+        scorerFirstOptionRef.current?.focus({ preventScroll: true });
+      });
+      return;
+    }
+    if (previousFocusedElementRef.current?.isConnected) {
+      previousFocusedElementRef.current.focus({ preventScroll: true });
+      previousFocusedElementRef.current = null;
+    }
+  }, [pendingGoalTeam]);
+
+  useEffect(() => {
+    if (!pendingGoalTeam) return;
+    const handleFocusIn = (event: FocusEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (goalModalRef.current?.contains(target)) return;
+      scorerFirstOptionRef.current?.focus({ preventScroll: true });
+    };
+    document.addEventListener("focusin", handleFocusIn);
+    return () => document.removeEventListener("focusin", handleFocusIn);
+  }, [pendingGoalTeam]);
 
   const handleStart = () => {
     updateMatchStatus('in_progress');
     startChrono();
   };
 
-
   // Synchroniser les données du match avec les states locaux
   useEffect(() => {
     console.log('[Handball Scoreboard] Match data changed:', matchData);
     console.log('[Handball Scoreboard] Court:', court);
-    
+
     if (matchData.teamA.name && matchData.teamA.name !== "Team A") {
       setTeamA(matchData.teamA.name);
-      console.log('[Handball Scoreboard] Set Team A to:', matchData.teamA.name);
     }
     if (matchData.teamB.name && matchData.teamB.name !== "Team B") {
       setTeamB(matchData.teamB.name);
-      console.log('[Handball Scoreboard] Set Team B to:', matchData.teamB.name);
     }
     if (matchData.matchType) {
       setMatchType(matchData.matchType);
-      console.log('[Handball Scoreboard] Set Match Type to:', matchData.matchType);
     }
     if (court) {
       setMatchGround(court);
-      console.log('[Handball Scoreboard] Set Court to:', court);
     }
   }, [matchData, court]);
 
@@ -141,7 +180,6 @@ export default function HandballTableMarquagePage() {
     setMatchTypeMeta(value);
   };
 
-  // Récupérer les équipes depuis l'API
   const fetchTeams = async () => {
     setLoadingTeams(true);
     try {
@@ -268,7 +306,6 @@ export default function HandballTableMarquagePage() {
             <input
               type="text"
               value={
-                // Affiche toujours le nom du terrain si possible
                 courts.find(c => c.id === matchData.court?.toString())?.name
                 || courts.find(c => c.name === matchData.court)?.name
                 || courts.find(c => c.id === court?.toString())?.name
@@ -283,7 +320,6 @@ export default function HandballTableMarquagePage() {
             />
           ) : (
             <>
-              {/* Sélection du terrain avec désactivation des terrains occupés */}
               <select
                 id="matchGroundSelector"
                 value={matchGround}
@@ -297,7 +333,6 @@ export default function HandballTableMarquagePage() {
                   </option>
                 ))}
               </select>
-              {/* Sélecteur de date/heure pour la planification (exemple simple) */}
               <input
                 type="datetime-local"
                 value={selectedDateTime}
@@ -336,7 +371,7 @@ export default function HandballTableMarquagePage() {
               className="bg-white text-black border border-gray-300 rounded px-1 py-1 mt-2 text-center w-12"
               placeholder="sec"
             />
-            </div>
+          </div>
         </div>
 
         <div className="bouton_pied_page">
@@ -358,7 +393,6 @@ export default function HandballTableMarquagePage() {
             </div>
             <div className="info-line">
               <p>{matchData.matchType || (matchType !== "Type de match" ? matchType : "Type de match")} - {period !== "MT1" ? period : "MT1"} - {
-                // Affiche toujours le nom du terrain si possible
                 courts.find(c => c.id === matchData.court?.toString())?.name
                 || courts.find(c => c.name === matchData.court)?.name
                 || courts.find(c => c.id === court?.toString())?.name
@@ -402,11 +436,11 @@ export default function HandballTableMarquagePage() {
             <div className="period-switch text-lg">
               <span>MT1</span>
               <label className="switch">
-                  <input 
-                    type="checkbox" 
-                    id="periodToggle" 
-                    checked={periodSwitchChecked}  // 👈 Ajoutez cette ligne
-                    onChange={togglePeriod} 
+                  <input
+                    type="checkbox"
+                    id="periodToggle"
+                    checked={periodSwitchChecked}
+                    onChange={togglePeriod}
                   />
                   <span className="slider round"></span>
               </label>
@@ -437,14 +471,11 @@ export default function HandballTableMarquagePage() {
                 try {
                   await handleEnd();
                   const tournamentId = matchData.tournamentId;
-                  console.log('[Handball] MatchData complet:', matchData);
-                  console.log('[Handball] TournamentId from matchData:', tournamentId);
-                  console.log('[Handball] MatchId:', matchId);
+                  console.log('[Handball] TournamentId:', tournamentId);
                   if (!tournamentId) {
                     alert("Impossible de retrouver l'ID du tournoi pour la redirection.");
                     return;
                   }
-                  console.log('[Handball] Redirecting to tournament:', tournamentId);
                   window.location.href = `/choix-sport/tournaments/${tournamentId}`;
                 } catch (error) {
                   console.error('[Handball] Error ending match:', error);
@@ -456,6 +487,240 @@ export default function HandballTableMarquagePage() {
           </div>
         </div>
       </div>
+
+      {/* FAB notification événements — fixée en haut à droite */}
+      {pendingEvents.length > 0 && (
+        <div className="goal-events-fab">
+          <div className="goal-events-shell">
+            <button
+              onClick={() => setShowEventPanel((v) => !v)}
+              className="goal-events-button"
+              aria-label="Afficher les événements"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="goal-events-icon"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
+                />
+              </svg>
+              <span className="goal-events-badge">{pendingEvents.length}</span>
+            </button>
+            {showEventPanel && (
+              <div className="goal-events-panel">
+                <p className="goal-events-panel-title">Événements</p>
+                <div className="goal-events-list">
+                  {pendingEvents.map((e) => {
+                    const minute = Math.ceil((e.match_time_seconds ?? 0) / 60);
+                    const teamLabel =
+                      e.team === "A"
+                        ? matchData.teamA.name || "Équipe A"
+                        : matchData.teamB.name || "Équipe B";
+                    const playerName = e.player
+                      ? [e.player.first_name, e.player.last_name]
+                          .filter(Boolean)
+                          .join(" ") || "Anonyme"
+                      : "Non attribué";
+
+                    if (e.event_type === "goal") {
+                      return (
+                        <article key={e.localId} className="goal-event-item">
+                          <span className="goal-event-minute">{minute}&apos;</span>
+                          <div className="goal-event-main">
+                            <div className="goal-event-playerline">
+                              <span className="goal-event-icon">🤾</span>
+                              {e.player && (
+                                <span className="goal-event-number">#{e.player.jersey_number ?? "?"}</span>
+                              )}
+                              <span className="goal-event-player">{playerName}</span>
+                            </div>
+                            <span className="goal-event-team">{teamLabel}</span>
+                          </div>
+                        </article>
+                      );
+                    }
+
+                    if (e.event_type === "yellow_card") {
+                      return (
+                        <article key={e.localId} className="goal-event-item">
+                          <span className="goal-event-minute">{minute}&apos;</span>
+                          <div className="goal-event-main">
+                            <div className="goal-event-playerline">
+                              <span className="goal-event-icon">🟨</span>
+                              {e.player && (
+                                <span className="goal-event-number">#{e.player.jersey_number ?? "?"}</span>
+                              )}
+                              <span className="goal-event-player">{playerName}</span>
+                            </div>
+                            <span className="goal-event-team">{teamLabel}</span>
+                          </div>
+                        </article>
+                      );
+                    }
+
+                    return (
+                      <article key={e.localId} className="goal-event-item">
+                        <span className="goal-event-minute">{minute}&apos;</span>
+                        <div className="goal-event-main">
+                          <div className="goal-event-playerline">
+                            <span className="goal-event-icon">🟥</span>
+                            {e.player && (
+                              <span className="goal-event-number">#{e.player.jersey_number ?? "?"}</span>
+                            )}
+                            <span className="goal-event-player">{playerName}</span>
+                          </div>
+                          <span className="goal-event-team">{teamLabel}</span>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Modal sélection du joueur cartonné */}
+      {pendingCardEvent && (
+        <div className="goal-modal-overlay">
+          <div
+            className="goal-modal-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="card-modal-title"
+          >
+            <h2 id="card-modal-title" className="goal-modal-title">
+              {pendingCardEvent.event_type === "yellow_card" ? "🟨 Carton jaune" : "🟥 Carton rouge"}
+            </h2>
+            <p className="goal-modal-team">
+              {pendingCardEvent.team === "A"
+                ? matchData.teamA.name || "Équipe A"
+                : matchData.teamB.name || "Équipe B"}
+            </p>
+
+            <div className="goal-modal-players">
+              <button
+                onClick={() => setSelectedCardPlayerId("none")}
+                className={`goal-modal-player-button ${selectedCardPlayerId === "none" ? "goal-modal-player-button-active" : ""}`}
+              >
+                Non attribué
+              </button>
+              {players
+                .filter((p) => p.team === pendingCardEvent.team)
+                .sort((a, b) => (a.jersey_number ?? 99) - (b.jersey_number ?? 99))
+                .map((player) => (
+                  <button
+                    key={player.id}
+                    onClick={() => setSelectedCardPlayerId(player.id)}
+                    className={`goal-modal-player-button ${selectedCardPlayerId === player.id ? "goal-modal-player-button-active" : ""}`}
+                  >
+                    <span className="font-bold mr-2">#{player.jersey_number ?? "?"}</span>
+                    {[player.first_name, player.last_name].filter(Boolean).join(" ") || "Anonyme"}
+                    {player.is_captain && (
+                      <span className="ml-2 text-[10px] bg-yellow-200 text-yellow-800 px-1 rounded">C</span>
+                    )}
+                  </button>
+                ))}
+            </div>
+
+            <div className="goal-modal-actions">
+              <button
+                onClick={() => { cancelCardModal(); setSelectedCardPlayerId(null); }}
+                className="goal-modal-cancel"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={() => {
+                  if (selectedCardPlayerId === null) return;
+                  confirmCard(selectedCardPlayerId === "none" ? undefined : selectedCardPlayerId);
+                  setSelectedCardPlayerId(null);
+                }}
+                disabled={selectedCardPlayerId === null}
+                className="goal-modal-confirm"
+              >
+                Valider
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal sélection du buteur */}
+      {pendingGoalTeam && (
+        <div className="goal-modal-overlay">
+          <div
+            ref={goalModalRef}
+            className="goal-modal-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="goal-modal-title"
+          >
+            <h2 id="goal-modal-title" className="goal-modal-title">
+              Qui a marqué ?
+            </h2>
+            <p className="goal-modal-team">
+              {pendingGoalTeam === "A"
+                ? matchData.teamA.name || "Équipe A"
+                : matchData.teamB.name || "Équipe B"}
+            </p>
+
+            <div className="goal-modal-players">
+              <button
+                ref={scorerFirstOptionRef}
+                onClick={() => setSelectedScorerPlayerId("none")}
+                className={`goal-modal-player-button ${selectedScorerPlayerId === "none" ? "goal-modal-player-button-active" : ""}`}
+              >
+                Non attribué
+              </button>
+              {players
+                .filter((p) => p.team === pendingGoalTeam)
+                .sort((a, b) => (a.jersey_number ?? 99) - (b.jersey_number ?? 99))
+                .map((player) => (
+                  <button
+                    key={player.id}
+                    onClick={() => setSelectedScorerPlayerId(player.id)}
+                    className={`goal-modal-player-button ${selectedScorerPlayerId === player.id ? "goal-modal-player-button-active" : ""}`}
+                  >
+                    <span className="font-bold mr-2">#{player.jersey_number ?? "?"}</span>
+                    {[player.first_name, player.last_name].filter(Boolean).join(" ") || "Anonyme"}
+                    {player.is_captain && (
+                      <span className="ml-2 text-[10px] bg-yellow-200 text-yellow-800 px-1 rounded">C</span>
+                    )}
+                  </button>
+                ))}
+            </div>
+
+            <div className="goal-modal-actions">
+              <button
+                onClick={() => { cancelGoalModal(); setSelectedScorerPlayerId(null); }}
+                className="goal-modal-cancel"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={() => {
+                  if (selectedScorerPlayerId === null) return;
+                  confirmGoal(selectedScorerPlayerId === "none" ? undefined : selectedScorerPlayerId);
+                  setSelectedScorerPlayerId(null);
+                }}
+                disabled={selectedScorerPlayerId === null}
+                className="goal-modal-confirm"
+              >
+                Valider le but
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
