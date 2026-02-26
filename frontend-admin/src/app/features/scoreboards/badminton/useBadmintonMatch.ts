@@ -416,6 +416,7 @@ export function useBadmintonMatch(initialMatchId: string | null) {
                 sets1: matchData.teamA.sets,
                 sets2: matchData.teamB.sets,
                 chrono: formattedTime,
+                timerRunning: matchData.chrono.running,
                 serviceTeam: matchData.serviceTeam,
                 matchGround: court || matchData.court || "Terrain",
                 logo1: matchData.teamA.logo_url || "",

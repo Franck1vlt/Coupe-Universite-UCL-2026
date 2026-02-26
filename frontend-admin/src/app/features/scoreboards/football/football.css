@@ -23,7 +23,7 @@
   --text-green-400: #16a34a;
 }
 
-* {
+.football-root * {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
@@ -33,11 +33,12 @@
 .football-root {
   display: flex;
   flex-direction: row;
+  flex-wrap: wrap;
   justify-content: center;
-  align-items: flex-start;
+  align-items: stretch;
   min-height: 100vh;
   width: 100vw;
-  overflow: hidden;
+  overflow-y: auto;
   background-color: white;
   padding-top: 15vh; /* espace pour le header fixe */
 }
@@ -54,7 +55,7 @@
   background: white;
 }
 
-button {
+.football-root button {
   background-color: #002f4a;
   color: #fff;
   border: none;
@@ -65,7 +66,7 @@ button {
   transition: background-color 0.3s;
 }
 
-button:hover {
+.football-root button:hover {
   filter: brightness(90%);
 }
 
@@ -78,7 +79,6 @@ button:hover {
 .football-root .gauche {
   background-color: #5c5c5c;
   width: 220px;
-  height: 72vh;
   color: #fff;
   padding: 20px;
   margin: 20px;
@@ -87,14 +87,16 @@ button:hover {
 }
 .football-root .droite {
   background-color: #222;
-  width: 62vw;
-  height: 72vh;
+  flex: 1;
+  min-width: 380px;
+  height: auto;
+  min-height: 400px;
   color: #fff;
   margin: 20px;
   border-radius: 10px;
   text-align: center;
   box-shadow: 0 0 15px rgba(0, 0, 0, 0.2);
-  overflow: hidden;
+  overflow: visible;
 }
 
 .parametres-match {
@@ -181,11 +183,9 @@ button:hover {
   padding: 20px;
   height: auto;
   color: #fff;
-  padding: 20px;
-  text-align: center;
-  margin: 30px auto;
-  transform: scale(0.88);
-  transform-origin: top center;
+  width: 100%;
+  max-width: 600px;
+  margin: 30px auto 0;
 }
 
 .scoreboard span {
@@ -293,9 +293,11 @@ button:hover {
 
 .bottom-controls {
   display: flex;
-  justify-content: space-around;
+  flex-wrap: wrap;
+  justify-content: center;
   gap: 10px;
-  margin-top: 60px;
+  margin-top: 30px;
+  padding: 0 10px 20px;
 }
 
 .action-button {
@@ -308,8 +310,21 @@ button:hover {
   flex: 1;
 }
 
-button:hover {
+.football-root button:hover {
   opacity: 0.9;
+}
+
+.shortcut-hint {
+  display: inline-block;
+  font-size: 0.65em;
+  font-weight: 600;
+  opacity: 0.6;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+  padding: 0 3px;
+  margin-left: 4px;
+  vertical-align: middle;
+  letter-spacing: 0;
 }
 
 /* Page Affichage */

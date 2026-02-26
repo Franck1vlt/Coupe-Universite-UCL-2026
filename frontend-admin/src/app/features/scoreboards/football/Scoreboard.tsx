@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { getAvailableCourts } from "./courtUtils";
 import "./football.css";
 import { useSearchParams } from "next/navigation";
@@ -267,13 +267,30 @@ export default function FootballTableMarquagePage() {
     }
   };
 
-  const handleSwipe = () => {
-    const a = teamA;
-    const b = teamB;
-    setTeamA(b);
-    setTeamB(a);
+  const handleSwipe = useCallback(() => {
+    setTeamA(teamB);
+    setTeamB(teamA);
     swapSides();
-  };
+  }, [teamA, teamB, swapSides]);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+      if (pendingGoalTeam || pendingCardEvent) return;
+      switch (e.key) {
+        case "w": case "W": addPoint("A"); break;
+        case "q": case "Q": subPoint("A"); break;
+        case "o": case "O": addPoint("B"); break;
+        case "l": case "L": subPoint("B"); break;
+        case "t": case "T": startChrono(); break;
+        case "Escape": stopChrono(); break;
+        case "x": case "X": handleSwipe(); break;
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [addPoint, subPoint, startChrono, stopChrono, handleSwipe, pendingGoalTeam, pendingCardEvent]);
 
   return (
     <main className="football-root">
@@ -481,14 +498,14 @@ export default function FootballTableMarquagePage() {
           <div className="points-section">
             <div className="flex items-center gap-2">
               <p>Buts : {matchData.teamA.score}</p>
-              <button onClick={() => subPoint("A")}>-</button>
-              <button onClick={() => addPoint("A")}>+</button>
+              <button title="Q" onClick={() => subPoint("A")}>- <span className="shortcut-hint">Q</span></button>
+              <button title="W" onClick={() => addPoint("A")}>+ <span className="shortcut-hint">W</span></button>
             </div>
             <div className="timer">{formattedTime}</div>
             <div className="flex items-center gap-2">
               <p>Buts : {matchData.teamB.score}</p>
-              <button onClick={() => subPoint("B")}>-</button>
-              <button onClick={() => addPoint("B")}>+</button>
+              <button title="L" onClick={() => subPoint("B")}>- <span className="shortcut-hint">L</span></button>
+              <button title="O" onClick={() => addPoint("B")}>+ <span className="shortcut-hint">O</span></button>
             </div>
           </div>
 
@@ -578,9 +595,9 @@ export default function FootballTableMarquagePage() {
           </div>
 
           <div className="bottom-controls">
-            <button onClick={startChrono}>Start</button>
-            <button onClick={stopChrono}>Stop</button>
-            <button onClick={handleSwipe}>Swipe</button>
+            <button onClick={startChrono}>Start <span className="shortcut-hint">T</span></button>
+            <button onClick={stopChrono}>Stop <span className="shortcut-hint">Échap</span></button>
+            <button onClick={handleSwipe}>Swipe <span className="shortcut-hint">X</span></button>
             <button
               onClick={async () => {
                 if (!tournamentId) {

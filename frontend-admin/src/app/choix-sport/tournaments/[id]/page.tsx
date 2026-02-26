@@ -219,8 +219,10 @@ export default function TournamentViewPage() {
   const [rosterMatchId, setRosterMatchId] = useState<string | null>(null);
   const [rosterPlayers, setRosterPlayers] = useState<MatchPlayer[]>([]);
   const [rosterLoading, setRosterLoading] = useState(false);
-  const [newPlayerForm, setNewPlayerForm] = useState({ team: "A" as "A" | "B", jersey_number: "", first_name: "", last_name: "" });
-  const [addingPlayer, setAddingPlayer] = useState(false);
+  type NewPlayerRow = { team: "A" | "B"; jersey_number: string; first_name: string; last_name: string };
+  const emptyPlayerRow = (): NewPlayerRow => ({ team: "A", jersey_number: "", first_name: "", last_name: "" });
+  const [newPlayerRows, setNewPlayerRows] = useState<NewPlayerRow[]>([emptyPlayerRow()]);
+  const [addingPlayers, setAddingPlayers] = useState(false);
 
   // Charger le mapping des équipes au chargement
   useEffect(() => {
@@ -819,37 +821,41 @@ export default function TournamentViewPage() {
   const closeRosterModal = () => {
     setRosterMatchId(null);
     setRosterPlayers([]);
-    setNewPlayerForm({ team: "A", jersey_number: "", first_name: "", last_name: "" });
+    setNewPlayerRows([emptyPlayerRow()]);
   };
 
-  const handleAddPlayer = async () => {
+  const handleAddPlayers = async () => {
     if (!rosterMatchId) return;
     const token = (session as { accessToken?: string } | null)?.accessToken;
-    setAddingPlayer(true);
-    try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/matches/${rosterMatchId}/players`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          team: newPlayerForm.team,
-          jersey_number: newPlayerForm.jersey_number ? parseInt(newPlayerForm.jersey_number) : null,
-          first_name: newPlayerForm.first_name || null,
-          last_name: newPlayerForm.last_name || null,
-        }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setRosterPlayers(prev => [...prev, data.data]);
-        setNewPlayerForm(prev => ({ ...prev, jersey_number: "", first_name: "", last_name: "" }));
-      } else {
-        const err = await res.json();
-        alert(err.message || "Erreur lors de l'ajout du joueur");
-      }
-    } catch { alert("Erreur réseau"); }
-    setAddingPlayer(false);
+    const valid = newPlayerRows.filter(r => r.jersey_number);
+    if (valid.length === 0) return;
+    setAddingPlayers(true);
+    let added = 0;
+    for (const row of valid) {
+      try {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/matches/${rosterMatchId}/players`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            team: row.team,
+            jersey_number: parseInt(row.jersey_number),
+            first_name: row.first_name || null,
+            last_name: row.last_name || null,
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setRosterPlayers(prev => [...prev, data.data]);
+          added++;
+        }
+      } catch { /* silencieux */ }
+    }
+    setAddingPlayers(false);
+    if (added > 0) setNewPlayerRows([emptyPlayerRow()]);
   };
 
   const handleDeletePlayer = async (playerId: number) => {
+    if (!window.confirm("Supprimer définitivement ce joueur de l'équipe ?")) return;
     if (!rosterMatchId) return;
     const token = (session as { accessToken?: string } | null)?.accessToken;
     try {
@@ -1820,6 +1826,9 @@ export default function TournamentViewPage() {
               <p className="text-center text-gray-500 py-4">Chargement...</p>
             ) : (
               <>
+                <p className="text-[11px] text-blue-600 bg-blue-50 border border-blue-100 rounded px-2 py-1 mb-3">
+                  Les joueurs s&apos;appliquent à tous les matchs de cette équipe dans ce tournoi.
+                </p>
                 {/* Liste des joueurs par équipe */}
                 {(["A", "B"] as const).map(team => {
                   const teamPlayers = rosterPlayers.filter(p => p.team === team);
@@ -1858,61 +1867,63 @@ export default function TournamentViewPage() {
                   );
                 })}
 
-                {/* Formulaire d'ajout */}
+                {/* Formulaire d'ajout en lot */}
                 <div className="border-t pt-4 mt-2">
-                  <h3 className="text-sm font-semibold text-black mb-3">Ajouter un joueur</h3>
-                  <div className="grid grid-cols-2 gap-2 mb-2">
-                    <div>
-                      <label className="text-xs text-gray-500 mb-1 block">Équipe</label>
-                      <select
-                        value={newPlayerForm.team}
-                        onChange={e => setNewPlayerForm(prev => ({ ...prev, team: e.target.value as "A" | "B" }))}
-                        className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-black"
-                      >
-                        <option value="A">Équipe A</option>
-                        <option value="B">Équipe B</option>
-                      </select>
+                  <h3 className="text-sm font-semibold text-black mb-3">Ajouter des joueurs</h3>
+                  <div className="space-y-1 mb-2">
+                    <div className="grid grid-cols-[60px_1fr_1fr_1fr_28px] gap-1 px-1 text-[10px] font-bold text-gray-400 uppercase">
+                      <span>Équipe</span><span>#</span><span>Prénom</span><span>Nom</span><span></span>
                     </div>
-                    <div>
-                      <label className="text-xs text-gray-500 mb-1 block">N° maillot</label>
-                      <input
-                        type="number"
-                        min={0}
-                        max={99}
-                        value={newPlayerForm.jersey_number}
-                        onChange={e => setNewPlayerForm(prev => ({ ...prev, jersey_number: e.target.value }))}
-                        className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-black"
-                        placeholder="Ex: 9"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs text-gray-500 mb-1 block">Prénom</label>
-                      <input
-                        type="text"
-                        value={newPlayerForm.first_name}
-                        onChange={e => setNewPlayerForm(prev => ({ ...prev, first_name: e.target.value }))}
-                        className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-black"
-                        placeholder="Prénom"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs text-gray-500 mb-1 block">Nom</label>
-                      <input
-                        type="text"
-                        value={newPlayerForm.last_name}
-                        onChange={e => setNewPlayerForm(prev => ({ ...prev, last_name: e.target.value }))}
-                        className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-black"
-                        placeholder="Nom"
-                      />
-                    </div>
+                    {newPlayerRows.map((row, i) => (
+                      <div key={i} className="grid grid-cols-[60px_1fr_1fr_1fr_28px] gap-1 items-center">
+                        <select
+                          value={row.team}
+                          onChange={e => setNewPlayerRows(prev => prev.map((r, j) => j === i ? { ...r, team: e.target.value as "A" | "B" } : r))}
+                          className="border border-gray-300 rounded px-1 py-1 text-xs text-black"
+                        >
+                          <option value="A">A</option>
+                          <option value="B">B</option>
+                        </select>
+                        <input
+                          type="number" min={0} max={99} placeholder="#"
+                          value={row.jersey_number}
+                          onChange={e => setNewPlayerRows(prev => prev.map((r, j) => j === i ? { ...r, jersey_number: e.target.value } : r))}
+                          className="border border-gray-300 rounded px-1 py-1 text-xs text-black"
+                        />
+                        <input
+                          type="text" placeholder="Prénom"
+                          value={row.first_name}
+                          onChange={e => setNewPlayerRows(prev => prev.map((r, j) => j === i ? { ...r, first_name: e.target.value } : r))}
+                          className="border border-gray-300 rounded px-1 py-1 text-xs text-black"
+                        />
+                        <input
+                          type="text" placeholder="Nom"
+                          value={row.last_name}
+                          onChange={e => setNewPlayerRows(prev => prev.map((r, j) => j === i ? { ...r, last_name: e.target.value } : r))}
+                          className="border border-gray-300 rounded px-1 py-1 text-xs text-black"
+                        />
+                        <button
+                          onClick={() => setNewPlayerRows(prev => prev.filter((_, j) => j !== i))}
+                          className="text-red-400 hover:text-red-600 text-sm font-bold"
+                        >×</button>
+                      </div>
+                    ))}
                   </div>
-                  <button
-                    onClick={handleAddPlayer}
-                    disabled={addingPlayer || !newPlayerForm.jersey_number}
-                    className="w-full bg-blue-600 text-white rounded-lg py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  >
-                    {addingPlayer ? "Ajout..." : "Ajouter le joueur"}
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setNewPlayerRows(prev => [...prev, emptyPlayerRow()])}
+                      className="flex-1 border border-gray-300 text-gray-600 rounded-lg py-1.5 text-sm hover:bg-gray-50"
+                    >
+                      + Ligne
+                    </button>
+                    <button
+                      onClick={handleAddPlayers}
+                      disabled={addingPlayers || newPlayerRows.every(r => !r.jersey_number)}
+                      className="flex-1 bg-blue-600 text-white rounded-lg py-1.5 text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {addingPlayers ? "Ajout..." : "Enregistrer"}
+                    </button>
+                  </div>
                 </div>
               </>
             )}

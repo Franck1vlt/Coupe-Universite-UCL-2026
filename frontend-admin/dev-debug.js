@@ -102,9 +102,7 @@ log(`Next.js PID: ${nextProcess.pid}`);
 nextProcess.stdout.on("data", (data) => {
   const text = data.toString();
   process.stdout.write(text);
-  if (!isLogFull()) {
-    try { fs.appendFileSync(LOG_FILE, text); } catch { /* ignore */ }
-  }
+  safeAppend(text);
 
   // DÃ©tecter si Turbopack est encore actif malgrÃ© les env vars
   if (text.includes("Turbopack")) {
@@ -120,9 +118,7 @@ nextProcess.stdout.on("data", (data) => {
 nextProcess.stderr.on("data", (data) => {
   const text = data.toString();
   process.stderr.write(text);
-  if (!isLogFull()) {
-    try { fs.appendFileSync(LOG_FILE, `[STDERR] ${text}`); } catch { /* ignore */ }
-  }
+  safeAppend(`[STDERR] ${text}`);
 });
 
 const memInterval = setInterval(logMemory, 10000);
