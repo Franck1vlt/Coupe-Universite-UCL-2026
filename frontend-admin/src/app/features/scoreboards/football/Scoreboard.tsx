@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { getAvailableCourts } from "./courtUtils";
 import "./football.css";
 import { useSearchParams } from "next/navigation";
-import { useFootballMatch } from "./useFootballMatch";
+import { useFootballMatch, MatchPlayer } from "./useFootballMatch";
 import { useRouter } from "next/navigation";
 
 type Team = {
@@ -17,6 +17,88 @@ type Court = {
   id: string;
   name: string;
 };
+
+type PlayerSelectModalProps = {
+  title: React.ReactNode;
+  teamName: string;
+  players: MatchPlayer[];
+  selectedId: number | "none" | null;
+  onSelect: (id: number | "none") => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+  confirmLabel: string;
+  firstButtonRef?: React.RefObject<HTMLButtonElement | null>;
+  dialogRef?: React.RefObject<HTMLDivElement | null>;
+};
+
+function PlayerSelectModal({
+  title,
+  teamName,
+  players,
+  selectedId,
+  onSelect,
+  onCancel,
+  onConfirm,
+  confirmLabel,
+  firstButtonRef,
+  dialogRef,
+}: PlayerSelectModalProps) {
+  return (
+    <div className="goal-modal-overlay">
+      <div
+        ref={dialogRef}
+        className="goal-modal-card"
+        role="dialog"
+        aria-modal="true"
+      >
+        <h2 className="goal-modal-title">{title}</h2>
+        <p className="goal-modal-team">{teamName}</p>
+        <div className="goal-modal-players">
+          <button
+            ref={firstButtonRef}
+            onClick={() => onSelect("none")}
+            className={`goal-modal-player-button${selectedId === "none" ? " goal-modal-player-button-active" : ""}`}
+          >
+            Non attribué
+          </button>
+          {players
+            .sort((a, b) => (a.jersey_number ?? 99) - (b.jersey_number ?? 99))
+            .map((player) => (
+              <button
+                key={player.id}
+                onClick={() => onSelect(player.id)}
+                className={`goal-modal-player-button${selectedId === player.id ? " goal-modal-player-button-active" : ""}`}
+              >
+                <span className="font-bold mr-2">
+                  #{player.jersey_number ?? "?"}{" "}
+                </span>
+                {[player.first_name, player.last_name]
+                  .filter(Boolean)
+                  .join(" ") || "Anonyme"}
+                {player.is_captain && (
+                  <span className="ml-2 text-[10px] bg-yellow-200 text-yellow-800 px-1 rounded">
+                    C
+                  </span>
+                )}
+              </button>
+            ))}
+        </div>
+        <div className="goal-modal-actions">
+          <button onClick={onCancel} className="goal-modal-cancel">
+            Annuler
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={selectedId === null}
+            className="goal-modal-confirm"
+          >
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function FootballTableMarquagePage() {
   const [loadingTeams, setLoadingTeams] = useState(true);
@@ -279,18 +361,46 @@ export default function FootballTableMarquagePage() {
       if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
       if (pendingGoalTeam || pendingCardEvent) return;
       switch (e.key) {
-        case "w": case "W": addPoint("A"); break;
-        case "q": case "Q": subPoint("A"); break;
-        case "o": case "O": addPoint("B"); break;
-        case "l": case "L": subPoint("B"); break;
-        case "t": case "T": startChrono(); break;
-        case "Escape": stopChrono(); break;
-        case "x": case "X": handleSwipe(); break;
+        case "w":
+        case "W":
+          addPoint("A");
+          break;
+        case "q":
+        case "Q":
+          subPoint("A");
+          break;
+        case "o":
+        case "O":
+          addPoint("B");
+          break;
+        case "l":
+        case "L":
+          subPoint("B");
+          break;
+        case "t":
+        case "T":
+          startChrono();
+          break;
+        case "Escape":
+          stopChrono();
+          break;
+        case "x":
+        case "X":
+          handleSwipe();
+          break;
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [addPoint, subPoint, startChrono, stopChrono, handleSwipe, pendingGoalTeam, pendingCardEvent]);
+  }, [
+    addPoint,
+    subPoint,
+    startChrono,
+    stopChrono,
+    handleSwipe,
+    pendingGoalTeam,
+    pendingCardEvent,
+  ]);
 
   return (
     <main className="football-root">
@@ -498,14 +608,22 @@ export default function FootballTableMarquagePage() {
           <div className="points-section">
             <div className="flex items-center gap-2">
               <p>Buts : {matchData.teamA.score}</p>
-              <button title="Q" onClick={() => subPoint("A")}>- <span className="shortcut-hint">Q</span></button>
-              <button title="W" onClick={() => addPoint("A")}>+ <span className="shortcut-hint">W</span></button>
+              <button title="Q" onClick={() => subPoint("A")}>
+                - <span className="shortcut-hint">Q</span>
+              </button>
+              <button title="W" onClick={() => addPoint("A")}>
+                + <span className="shortcut-hint">W</span>
+              </button>
             </div>
             <div className="timer">{formattedTime}</div>
             <div className="flex items-center gap-2">
               <p>Buts : {matchData.teamB.score}</p>
-              <button title="L" onClick={() => subPoint("B")}>- <span className="shortcut-hint">L</span></button>
-              <button title="O" onClick={() => addPoint("B")}>+ <span className="shortcut-hint">O</span></button>
+              <button title="L" onClick={() => subPoint("B")}>
+                - <span className="shortcut-hint">L</span>
+              </button>
+              <button title="O" onClick={() => addPoint("B")}>
+                + <span className="shortcut-hint">O</span>
+              </button>
             </div>
           </div>
 
@@ -595,9 +713,15 @@ export default function FootballTableMarquagePage() {
           </div>
 
           <div className="bottom-controls">
-            <button onClick={startChrono}>Start <span className="shortcut-hint">T</span></button>
-            <button onClick={stopChrono}>Stop <span className="shortcut-hint">Échap</span></button>
-            <button onClick={handleSwipe}>Swipe <span className="shortcut-hint">X</span></button>
+            <button onClick={startChrono}>
+              Start <span className="shortcut-hint">T</span>
+            </button>
+            <button onClick={stopChrono}>
+              Stop <span className="shortcut-hint">Échap</span>
+            </button>
+            <button onClick={handleSwipe}>
+              Swipe <span className="shortcut-hint">X</span>
+            </button>
             <button
               onClick={async () => {
                 if (!tournamentId) {
@@ -736,186 +860,66 @@ export default function FootballTableMarquagePage() {
 
       {/* Modal sélection du joueur cartonné */}
       {pendingCardEvent && (
-        <div className="goal-modal-overlay">
-          <div
-            className="goal-modal-card"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="card-modal-title"
-          >
-            <h2 id="card-modal-title" className="goal-modal-title">
-              {pendingCardEvent.event_type === "yellow_card"
-                ? "🟨 Carton jaune"
-                : "🟥 Carton rouge"}
-            </h2>
-            <p className="goal-modal-team">
-              {pendingCardEvent.team === "A"
-                ? matchData.teamA.name || "Équipe A"
-                : matchData.teamB.name || "Équipe B"}
-            </p>
-
-            <div className="goal-modal-players">
-              <button
-                onClick={() => setSelectedCardPlayerId("none")}
-                className={`goal-modal-player-button ${
-                  selectedCardPlayerId === "none"
-                    ? "goal-modal-player-button-active"
-                    : ""
-                }`}
-              >
-                Non attribué
-              </button>
-              {players
-                .filter((p) => p.team === pendingCardEvent.team)
-                .sort(
-                  (a, b) => (a.jersey_number ?? 99) - (b.jersey_number ?? 99),
-                )
-                .map((player) => (
-                  <button
-                    key={player.id}
-                    onClick={() => setSelectedCardPlayerId(player.id)}
-                    className={`goal-modal-player-button ${
-                      selectedCardPlayerId === player.id
-                        ? "goal-modal-player-button-active"
-                        : ""
-                    }`}
-                  >
-                    <span className="font-bold mr-2">
-                      #{player.jersey_number ?? "?"}
-                    </span>
-                    {[player.first_name, player.last_name]
-                      .filter(Boolean)
-                      .join(" ") || "Anonyme"}
-                    {player.is_captain && (
-                      <span className="ml-2 text-[10px] bg-yellow-200 text-yellow-800 px-1 rounded">
-                        C
-                      </span>
-                    )}
-                  </button>
-                ))}
-            </div>
-
-            <div className="goal-modal-actions">
-              <button
-                onClick={() => {
-                  cancelCardModal();
-                  setSelectedCardPlayerId(null);
-                }}
-                className="goal-modal-cancel"
-              >
-                Annuler
-              </button>
-              <button
-                onClick={() => {
-                  if (selectedCardPlayerId === null) return;
-                  confirmCard(
-                    selectedCardPlayerId === "none"
-                      ? undefined
-                      : selectedCardPlayerId,
-                  );
-                  setSelectedCardPlayerId(null);
-                }}
-                disabled={selectedCardPlayerId === null}
-                className="goal-modal-confirm"
-              >
-                Valider
-              </button>
-            </div>
-          </div>
-        </div>
+        <PlayerSelectModal
+          title={
+            pendingCardEvent.event_type === "yellow_card"
+              ? "🟨 Carton jaune"
+              : "🟥 Carton rouge"
+          }
+          teamName={
+            pendingCardEvent.team === "A"
+              ? matchData.teamA.name || "Équipe A"
+              : matchData.teamB.name || "Équipe B"
+          }
+          players={players.filter((p) => p.team === pendingCardEvent.team)}
+          selectedId={selectedCardPlayerId}
+          onSelect={setSelectedCardPlayerId}
+          onCancel={() => {
+            cancelCardModal();
+            setSelectedCardPlayerId(null);
+          }}
+          onConfirm={() => {
+            if (selectedCardPlayerId === null) return;
+            confirmCard(
+              selectedCardPlayerId === "none"
+                ? undefined
+                : selectedCardPlayerId,
+            );
+            setSelectedCardPlayerId(null);
+          }}
+          confirmLabel="Valider"
+        />
       )}
 
       {/* Modal sélection du buteur */}
       {pendingGoalTeam && (
-        <div className="goal-modal-overlay">
-          <div
-            ref={goalModalRef}
-            className="goal-modal-card"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="goal-modal-title"
-          >
-            <h2 id="goal-modal-title" className="goal-modal-title">
-              Qui a marqué ?
-            </h2>
-            <p className="goal-modal-team">
-              {pendingGoalTeam === "A"
-                ? matchData.teamA.name || "Équipe A"
-                : matchData.teamB.name || "Équipe B"}
-            </p>
-
-            <div className="goal-modal-players">
-              {/* Option non attribué */}
-              <button
-                ref={scorerFirstOptionRef}
-                onClick={() => setSelectedScorerPlayerId("none")}
-                className={`goal-modal-player-button ${
-                  selectedScorerPlayerId === "none"
-                    ? "goal-modal-player-button-active"
-                    : ""
-                }`}
-              >
-                Non attribué
-              </button>
-              {/* Liste des joueurs de l'équipe */}
-              {players
-                .filter((p) => p.team === pendingGoalTeam)
-                .sort(
-                  (a, b) => (a.jersey_number ?? 99) - (b.jersey_number ?? 99),
-                )
-                .map((player) => (
-                  <button
-                    key={player.id}
-                    onClick={() => setSelectedScorerPlayerId(player.id)}
-                    className={`goal-modal-player-button ${
-                      selectedScorerPlayerId === player.id
-                        ? "goal-modal-player-button-active"
-                        : ""
-                    }`}
-                  >
-                    <span className="font-bold mr-2">
-                      #{player.jersey_number ?? "?"}
-                    </span>
-                    {[player.first_name, player.last_name]
-                      .filter(Boolean)
-                      .join(" ") || "Anonyme"}
-                    {player.is_captain && (
-                      <span className="ml-2 text-[10px] bg-yellow-200 text-yellow-800 px-1 rounded">
-                        C
-                      </span>
-                    )}
-                  </button>
-                ))}
-            </div>
-
-            <div className="goal-modal-actions">
-              <button
-                onClick={() => {
-                  cancelGoalModal();
-                  setSelectedScorerPlayerId(null);
-                }}
-                className="goal-modal-cancel"
-              >
-                Annuler
-              </button>
-              <button
-                onClick={() => {
-                  if (selectedScorerPlayerId === null) return;
-                  confirmGoal(
-                    selectedScorerPlayerId === "none"
-                      ? undefined
-                      : selectedScorerPlayerId,
-                  );
-                  setSelectedScorerPlayerId(null);
-                }}
-                disabled={selectedScorerPlayerId === null}
-                className="goal-modal-confirm"
-              >
-                Valider le but
-              </button>
-            </div>
-          </div>
-        </div>
+        <PlayerSelectModal
+          title="⚽ Qui a marqué ?"
+          teamName={
+            pendingGoalTeam === "A"
+              ? matchData.teamA.name || "Équipe A"
+              : matchData.teamB.name || "Équipe B"
+          }
+          players={players.filter((p) => p.team === pendingGoalTeam)}
+          selectedId={selectedScorerPlayerId}
+          onSelect={setSelectedScorerPlayerId}
+          onCancel={() => {
+            cancelGoalModal();
+            setSelectedScorerPlayerId(null);
+          }}
+          onConfirm={() => {
+            if (selectedScorerPlayerId === null) return;
+            confirmGoal(
+              selectedScorerPlayerId === "none"
+                ? undefined
+                : selectedScorerPlayerId,
+            );
+            setSelectedScorerPlayerId(null);
+          }}
+          confirmLabel="Valider le but"
+          firstButtonRef={scorerFirstOptionRef}
+          dialogRef={goalModalRef}
+        />
       )}
     </main>
   );

@@ -615,7 +615,7 @@
   padding-right: 4px;
 }
 
-.goal-modal-player-button {
+.goal-modal-card .goal-modal-player-button {
   width: 100%;
   text-align: left;
   border-radius: 10px;
@@ -627,12 +627,13 @@
   transition: all 0.18s ease;
 }
 
-.goal-modal-player-button:hover {
+.goal-modal-card .goal-modal-player-button:hover {
+  color: black;
   border-color: #8db2f5;
   background: #eef4ff;
 }
 
-.goal-modal-player-button-active {
+.goal-modal-card .goal-modal-player-button-active {
   border-color: #1f4f95;
   background: #1f4f95;
   color: #ffffff;
@@ -652,27 +653,27 @@
   font-weight: 600;
 }
 
-.goal-modal-cancel {
-  border: 1px solid #c6d2e2;
-  background: #ffffff;
-  color: #203046;
-}
-
-.goal-modal-cancel:hover {
-  background: #f5f8fc;
-}
-
-.goal-modal-confirm {
-  border: 1px solid #0d3f82;
-  background: #1654a6;
+.goal-modal-card .goal-modal-cancel {
+  border: 1px solid #b91c1c;
+  background: #dc2626;
   color: #ffffff;
 }
 
-.goal-modal-confirm:hover {
-  background: #0f468f;
+.goal-modal-card .goal-modal-cancel:hover {
+  background: #b91c1c;
 }
 
-.goal-modal-confirm:disabled {
+.goal-modal-card .goal-modal-confirm {
+  border: 1px solid #15803d;
+  background: #16a34a;
+  color: #ffffff;
+}
+
+.goal-modal-card .goal-modal-confirm:hover {
+  background: #15803d;
+}
+
+.goal-modal-card .goal-modal-confirm:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
@@ -692,7 +693,7 @@
   position: relative;
   width: 52px;
   height: 52px;
-  border-radius: 9999px;
+  border-radius: 100%;
   border: 1px solid #b8c8df;
   background: radial-gradient(circle at 30% 20%, #ffffff 0%, #e4eefc 85%);
   display: flex;
