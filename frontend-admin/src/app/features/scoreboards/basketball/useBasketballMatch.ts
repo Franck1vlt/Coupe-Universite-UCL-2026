@@ -159,10 +159,14 @@ export function useBasketballMatch(initialMatchId: string | null) {
     // Période (MT1 / MT2)
     const [period, setPeriod] = useState<"MT1" | "MT2">("MT1");
 
+    // Timestamp buzzer pour synchronisation vers la vue spectateur
+    const [buzzerFiredAt, setBuzzerFiredAt] = useState<number>(0);
+
     // Buzzer simple via WebAudio API
     const audioCtxRef = useRef<AudioContext | null>(null);
     const buzzer: { play: () => void } = {
         play: () => {
+            setBuzzerFiredAt(Date.now());
             try {
                 const AudioContextCtor: any = (window as any).AudioContext || (window as any).webkitAudioContext;
                 if (!audioCtxRef.current && AudioContextCtor) {
@@ -553,6 +557,7 @@ export function useBasketballMatch(initialMatchId: string | null) {
                 shotClock: formattedShotClock,
                 chronoRunning: matchData.chrono.running,
                 period,
+                buzzerFiredAt,
                 lastUpdate: new Date().toISOString(),
             };
             // Sync to localStorage (for same-device spectator)
@@ -573,7 +578,7 @@ export function useBasketballMatch(initialMatchId: string | null) {
         } catch (e) {
             // Ignore storage errors
         }
-    }, [matchData, formattedTime, formattedShotClock, period, court, initialMatchId, sendLiveScore]);
+    }, [matchData, formattedTime, formattedShotClock, period, court, buzzerFiredAt, initialMatchId, sendLiveScore]);
 
     // Cleanup à l'unmount
     useEffect(() => {

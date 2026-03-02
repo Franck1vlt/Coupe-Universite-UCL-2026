@@ -9,6 +9,7 @@ interface MatchData {
     team1?: string;
     team2?: string;
     matchType?: string;
+    matchGround?: string;
     score1?: number;
     score2?: number;
     yellowCards1?: number;
@@ -20,6 +21,7 @@ interface MatchData {
     chrono?: string;
     shotClock?: string;
     period?: string;
+    buzzerFiredAt?: number;
     lastUpdate?: string;
     logo1?: string;
     logo2?: string;
@@ -34,12 +36,17 @@ export default function BasketballTableSpectatorPage() {
     const [logoB, setLogoB] = useState<string | null>(null);
     const [animateScoreA, setAnimateScoreA] = useState(false);
     const [animateScoreB, setAnimateScoreB] = useState(false);
+    const [buzzerFlash, setBuzzerFlash] = useState(false);
+    const [periodChanging, setPeriodChanging] = useState(false);
 
     // Refs pour éviter les stale closures dans le polling
     const oldScoreARef = useRef(0);
     const oldScoreBRef = useRef(0);
     const teamANameRef = useRef("");
     const teamBNameRef = useRef("");
+    const oldShotClockRef = useRef(24);
+    const oldPeriodRef = useRef("");
+    const oldBuzzerFiredAtRef = useRef<number>(0);
 
     // Clé localStorage spécifique au match si matchId présent
     const storageKey = matchId ? `liveBasketballMatch_${matchId}` : 'liveBasketballMatch';
@@ -86,6 +93,27 @@ export default function BasketballTableSpectatorPage() {
                 if (newData.team2 && teamBNameRef.current !== newData.team2) {
                     teamBNameRef.current = newData.team2;
                 }
+
+                // Animation buzzer : détection via buzzerFiredAt (buzzer manuel ou shot clock à 0)
+                if (newData.buzzerFiredAt && newData.buzzerFiredAt !== oldBuzzerFiredAtRef.current) {
+                    setBuzzerFlash(true);
+                    setTimeout(() => setBuzzerFlash(false), 500);
+                    oldBuzzerFiredAtRef.current = newData.buzzerFiredAt;
+                }
+                // Fallback : détection via shot clock (>= 0.1 pour capturer la transition 0.1→0.0)
+                const newShotClock = parseFloat(newData.shotClock || "24") || 0;
+                if (oldShotClockRef.current >= 0.1 && newShotClock <= 0) {
+                    setBuzzerFlash(true);
+                    setTimeout(() => setBuzzerFlash(false), 500);
+                }
+                oldShotClockRef.current = newShotClock;
+
+                // Animation changement de mi-temps
+                if (oldPeriodRef.current && newData.period && oldPeriodRef.current !== newData.period) {
+                    setPeriodChanging(true);
+                    setTimeout(() => setPeriodChanging(false), 2000);
+                }
+                oldPeriodRef.current = newData.period || "";
 
                 setMatchData(newData);
             } catch {}
@@ -216,13 +244,20 @@ export default function BasketballTableSpectatorPage() {
                     </div>
 
                     {/* Match info ensuite */}
-                    <div className="match-info">
-                        <span className="match-type" id="matchType">{matchData.matchType || 'Match'}</span>
-                        <span style={{ color: '#666', fontWeight: 400 }}>-</span>
-                        <span className="period" id="period">{matchData.period || 'MT1'}</span>
+                    <div className="match-info-section">
+                        <span className="info-pill">{matchData.matchType || 'Match'}</span>
+                        <span className="info-pill">{matchData.matchGround || 'Terrain'}</span>
+                        <span className="info-pill info-pill-blue">{matchData.period || 'MT1'}</span>
                     </div>
                 </div>
             </div>
+
+            {/* Overlay animation changement de mi-temps */}
+            {periodChanging && (
+                <div className="period-change-overlay">
+                    <div className="period-change-text">{matchData.period}</div>
+                </div>
+            )}
         </main>
     );
 }

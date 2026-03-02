@@ -575,7 +575,7 @@ export function useFlechettesMatch(initialMatchId: string | null) {
         team1: matchData.teamA.name || "ÉQUIPE A",
         team2: matchData.teamB.name || "ÉQUIPE B",
         matchType: matchData.matchType || "Match",
-        matchGround: court || "Terrain",
+        matchGround: matchData.court || court || "Terrain",
         logo1: matchData.teamA.logo_url || "",
         logo2: matchData.teamB.logo_url || "",
         scoreA: matchData.teamA.score,

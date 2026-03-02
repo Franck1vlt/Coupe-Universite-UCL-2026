@@ -377,8 +377,8 @@ export default function FootballTableMarquagePage() {
         case "L":
           subPoint("B");
           break;
-        case "t":
-        case "T":
+        case "s":
+        case "S":
           startChrono();
           break;
         case "Escape":
@@ -714,7 +714,7 @@ export default function FootballTableMarquagePage() {
 
           <div className="bottom-controls">
             <button onClick={startChrono}>
-              Start <span className="shortcut-hint">T</span>
+              Start <span className="shortcut-hint">S</span>
             </button>
             <button onClick={stopChrono}>
               Stop <span className="shortcut-hint">Échap</span>

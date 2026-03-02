@@ -184,11 +184,9 @@ export default function PetanqueTableSpectatorPage() {
 
                 {/* Mode de jeu, terrain et type de match */}
                 <div className="match-info-section">
-                    <span className="match-mode">Match en {matchData.targetScore || 13} points</span>
-                    <span className="match-separator"> - </span>
-                    <span className="match-type">{matchData.matchGround || 'Terrain'}</span>
-                    <span className="match-separator"> - </span>
-                    <span className="match-type">{matchData.matchType || 'Match'}</span>
+                    <span className="info-pill info-pill-green">Match en {matchData.targetScore || 13} pts</span>
+                    <span className="info-pill">{matchData.matchGround || 'Terrain'}</span>
+                    <span className="info-pill info-pill-blue">{matchData.matchType || 'Match'}</span>
                 </div>
 
             </section>

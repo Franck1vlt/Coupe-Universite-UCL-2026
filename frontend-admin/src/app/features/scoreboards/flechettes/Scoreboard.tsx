@@ -146,6 +146,38 @@ export default function FlechettesTableMarquagePage() {
     }
   }, [matchData, court]);
 
+  const handleSwipe = () => {
+    const a = teamA;
+    const b = teamB;
+    setTeamA(b);
+    setTeamB(a);
+    swapSides();
+  };
+
+  // Raccourcis clavier
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+      switch (e.key) {
+        case "b": addThrow(25); break;
+        case "B": addThrow(25, true); break;
+        case "m": case "M": addThrow(0); break;
+        case "a": case "A": multiplyLastThrow(1); break;
+        case "d": case "D": multiplyLastThrow(2); break;
+        case "e": case "E": multiplyLastThrow(3); break;
+        case "Backspace": cancelLastThrow(); break;
+        case "Enter": validateThrow(); break;
+        case "Escape": declareBust(); break;
+        case "t": case "T": handleStart(); break;
+        case "x": case "X": handleSwipe(); break;
+        case "r": case "R": resetSet(); break;
+        case "g": case "G": swipeGameMode(); break;
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [addThrow, multiplyLastThrow, cancelLastThrow, validateThrow, declareBust, handleStart, handleSwipe, resetSet, swipeGameMode]);
+
   const handleTeamAChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const value = e.target.value;
     setTeamA(value);
@@ -218,14 +250,6 @@ export default function FlechettesTableMarquagePage() {
     }
   };
 
-  const handleSwipe = () => {
-    const a = teamA;
-    const b = teamB;
-    setTeamA(b);
-    setTeamB(a);
-    swapSides();
-  };
-
   return (
     <main className="flechettes-root">
       <header className="mb-10 text-center">
@@ -235,7 +259,7 @@ export default function FlechettesTableMarquagePage() {
       </header>
 
     <div className="gauche">
-        <div className="parametres-match mb-6">
+        <div className="parametres-match">
           <label htmlFor="teamA">Équipe A :</label>
             {matchId ? (
             <input
@@ -420,11 +444,11 @@ export default function FlechettesTableMarquagePage() {
               <div className="Points text-2xl font-bold">{matchData.teamB.score}</div>
               <div>{matchData.teamB.name !== "Team B" ? matchData.teamB.name : (teamB != "" ? teams.find((c: Team) => c.id === teamB)?.name : "Team B")}</div>
             </div>
-            <div className="current-player mt-4">
+            <div className="current-player mt-1">
               <p className="text-lg font-semibold">🎯 À {getCurrentPlayer()} de jouer</p>
               <p className="text-xl">Volée en cours : {(matchData.currentThrows || []).join(" + ") || "Aucune fléchette"} {(matchData.currentThrows || []).length > 0 && `= ${(matchData.currentThrows || []).reduce((a, b) => a + b, 0)}`}</p>
             </div>
-            <div className="info-line text-2xl mt-2">
+            <div className="info-line text-2xl mt-1">
               <p>{matchData.matchType || (matchType !== "Type de match" ? matchType : "Type de match")} - {
                 // Affiche toujours le nom du terrain si possible
                 courts.find(c => c.id === matchData.court?.toString())?.name
@@ -439,9 +463,9 @@ export default function FlechettesTableMarquagePage() {
             </div>
           </div>
 
-          <div className="buttons-section flex flex-col items-center gap-6">
+          <div className="buttons-section flex flex-col items-center gap-3">
             {/* Boutons pour les points (1-20, 25, 50) */}
-            <div className="PointButtons flex flex-row flex-wrap gap-4 justify-center">
+            <div className="PointButtons flex flex-row flex-wrap gap-2 justify-center">
               <button className="btnAdd" onClick={() => addThrow(1)}>1</button>
               <button className="btnAdd" onClick={() => addThrow(2)}>2</button>
               <button className="btnAdd" onClick={() => addThrow(3)}>3</button>
@@ -462,36 +486,36 @@ export default function FlechettesTableMarquagePage() {
               <button className="btnAdd" onClick={() => addThrow(18)}>18</button>
               <button className="btnAdd" onClick={() => addThrow(19)}>19</button>
               <button className="btnAdd" onClick={() => addThrow(20)}>20</button>
-              <button className="btnBull" onClick={() => addThrow(25)}>Bull (25)</button>
-              <button className="btnDoubleBull" onClick={() => addThrow(25, true)}>Bull Double (50)</button>
+              <button className="btnBull" onClick={() => addThrow(25)}>Bull (25)<span className="shortcut-hint">B</span></button>
+              <button className="btnDoubleBull" onClick={() => addThrow(25, true)}>Bull Double (50)<span className="shortcut-hint">Maj+B</span></button>
             </div>
 
             {/* Boutons multiplicateurs et actions */}
-            <div className="multiplicatePointButtons flex flex-row gap-6">
-              <button className="btnMultiply" onClick={() => multiplyLastThrow(1)}>x1 (Simple)</button>
-              <button className="btnMultiply" onClick={() => multiplyLastThrow(2)}>x2 (Double)</button>
-              <button className="btnMultiply" onClick={() => multiplyLastThrow(3)}>x3 (Triple)</button>
-              <button className="btnMiss" onClick={() => addThrow(0)}>Manqué</button>
+            <div className="multiplicatePointButtons flex flex-row gap-3">
+              <button className="btnMultiply" onClick={() => multiplyLastThrow(1)}>x1 (Simple)<span className="shortcut-hint">A</span></button>
+              <button className="btnMultiply" onClick={() => multiplyLastThrow(2)}>x2 (Double)<span className="shortcut-hint">D</span></button>
+              <button className="btnMultiply" onClick={() => multiplyLastThrow(3)}>x3 (Triple)<span className="shortcut-hint">E</span></button>
+              <button className="btnMiss" onClick={() => addThrow(0)}>Manqué<span className="shortcut-hint">M</span></button>
             </div>
 
             {/* Boutons d'action de volée */}
-            <div className="action-buttons flex flex-row gap-6">
+            <div className="action-buttons flex flex-row gap-3">
               <button className="btnAction text-white px-4 py-2 rounded" onClick={cancelLastThrow}>
-                ↩️ Annuler dernière
+                ↩️ Annuler dernière<span className="shortcut-hint">⌫</span>
               </button>
               <button className="btnAction text-white px-4 py-2 rounded" onClick={declareBust}>
-                ❌ BUST
+                ❌ BUST<span className="shortcut-hint">Échap</span>
               </button>
               <button className="btnAction text-white px-4 py-2 rounded font-bold" onClick={validateThrow}>
-                ✓ Valider volée
+                ✓ Valider volée<span className="shortcut-hint">↵</span>
               </button>
             </div>
           </div>
           <div className="bottom-controls grid grid-cols-4 grid-rows-1 gap-4">
-            <button onClick={handleStart} className="btnAction text-white">Start</button>
-            <button onClick={swipeGameMode} className="btnAction">Mode de jeu</button>
-            <button onClick={handleSwipe} className="btnAction text-white">Swipe</button>
-            <button onClick={resetSet} className="btnAction text-white">🔄 Reset Set</button>
+            <button onClick={handleStart} className="btnAction text-white">Start<span className="shortcut-hint">T</span></button>
+            <button onClick={swipeGameMode} className="btnAction">Mode de jeu<span className="shortcut-hint">G</span></button>
+            <button onClick={handleSwipe} className="btnAction text-white">Swipe<span className="shortcut-hint">X</span></button>
+            <button onClick={resetSet} className="btnAction text-white">🔄 Reset Set<span className="shortcut-hint">R</span></button>
             <button
               onClick={async () => {
                 console.log('🔵 END button clicked');
