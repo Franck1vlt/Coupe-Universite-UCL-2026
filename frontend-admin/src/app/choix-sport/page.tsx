@@ -57,6 +57,21 @@ export default function ChoixSport() {
 
   return (
     <main className="min-h-screen bg-gray-100 flex flex-col items-center justify-center px-4 py-8 relative">
+      {/* Bouton split-screen Multi-Matchs */}
+      <button
+        onClick={() => router.push("/choix-sport/split-screen")}
+        className="absolute right-4 top-4 flex items-center gap-1.5 px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium rounded-lg transition-colors"
+        title="Écran Multi-Matchs"
+      >
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
+          <rect x="1" y="1" width="8" height="8" rx="1" />
+          <rect x="11" y="1" width="8" height="8" rx="1" />
+          <rect x="1" y="11" width="8" height="8" rx="1" />
+          <rect x="11" y="11" width="8" height="8" rx="1" />
+        </svg>
+        <span className="hidden sm:inline">Multi-Matchs</span>
+      </button>
+
       {/* Bouton retour */}
       <button
         onClick={() => router.push("/")}
