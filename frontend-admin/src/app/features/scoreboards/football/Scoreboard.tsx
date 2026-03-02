@@ -545,6 +545,7 @@ export default function FootballTableMarquagePage() {
               />
             </>
           )}
+
         </div>
 
         <div className="bouton_pied_page">

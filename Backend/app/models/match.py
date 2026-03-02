@@ -78,6 +78,10 @@ class Match(Base):
     time = Column(String(10), nullable=True)
     duration = Column(Integer, nullable=True)
 
+    # Officiels du match
+    officials = Column(Text, nullable=True)    # Arbitre(s), noms séparés par des virgules
+    table_staff = Column(Text, nullable=True)  # Personnel table de marquage
+
     __table_args__ = (
         CheckConstraint(
             "team_sport_a_id IS NULL OR team_sport_b_id IS NULL OR team_sport_a_id != team_sport_b_id",

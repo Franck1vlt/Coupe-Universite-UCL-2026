@@ -215,7 +215,7 @@ export default function TournamentViewPage() {
   // État pour les scores en direct des matchs à sets (volleyball, badminton, fléchettes...)
   const [liveScores, setLiveScores] = useState<Record<string, { sets1: number; sets2: number; score1: number; score2: number; }>>({});
 
-  // États pour la fiche de match (joueurs)
+  // États pour la fiche de match (joueurs + officiels)
   const [rosterMatchId, setRosterMatchId] = useState<string | null>(null);
   const [rosterPlayers, setRosterPlayers] = useState<MatchPlayer[]>([]);
   const [rosterLoading, setRosterLoading] = useState(false);
@@ -223,6 +223,8 @@ export default function TournamentViewPage() {
   const emptyPlayerRow = (): NewPlayerRow => ({ team: "A", jersey_number: "", first_name: "", last_name: "" });
   const [newPlayerRows, setNewPlayerRows] = useState<NewPlayerRow[]>([emptyPlayerRow()]);
   const [addingPlayers, setAddingPlayers] = useState(false);
+  const [rosterOfficials, setRosterOfficials] = useState("");
+  const [rosterTableStaff, setRosterTableStaff] = useState("");
 
   // Charger le mapping des équipes au chargement
   useEffect(() => {
@@ -809,10 +811,18 @@ export default function TournamentViewPage() {
     setRosterMatchId(matchId);
     setRosterLoading(true);
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/matches/${matchId}/players`);
-      if (res.ok) {
-        const data = await res.json();
+      const [playersRes, matchRes] = await Promise.all([
+        fetch(`${process.env.NEXT_PUBLIC_API_URL}/matches/${matchId}/players`),
+        fetch(`${process.env.NEXT_PUBLIC_API_URL}/matches/${matchId}`),
+      ]);
+      if (playersRes.ok) {
+        const data = await playersRes.json();
         setRosterPlayers(data.data || []);
+      }
+      if (matchRes.ok) {
+        const data = await matchRes.json();
+        setRosterOfficials(data.data.officials ?? "");
+        setRosterTableStaff(data.data.table_staff ?? "");
       }
     } catch { /* silencieux */ }
     setRosterLoading(false);
@@ -822,6 +832,23 @@ export default function TournamentViewPage() {
     setRosterMatchId(null);
     setRosterPlayers([]);
     setNewPlayerRows([emptyPlayerRow()]);
+    setRosterOfficials("");
+    setRosterTableStaff("");
+  };
+
+  const handleSaveOfficials = async (officials: string, tableStaff: string) => {
+    if (!rosterMatchId) return;
+    const token = (session as { accessToken?: string } | null)?.accessToken;
+    try {
+      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/matches/${rosterMatchId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ officials, table_staff: tableStaff }),
+      });
+    } catch { /* silencieux */ }
   };
 
   const handleAddPlayers = async () => {
@@ -1826,6 +1853,35 @@ export default function TournamentViewPage() {
               <p className="text-center text-gray-500 py-4">Chargement...</p>
             ) : (
               <>
+                {/* Officiels du match */}
+                <div className="mb-4 pb-4 border-b border-gray-100">
+                  <h3 className="text-sm font-semibold text-black mb-2">Officiels</h3>
+                  <div className="space-y-2">
+                    <div>
+                      <label className="text-xs text-gray-500 mb-1 block">Arbitre(s)</label>
+                      <input
+                        type="text"
+                        value={rosterOfficials}
+                        onChange={(e) => setRosterOfficials(e.target.value)}
+                        onBlur={(e) => handleSaveOfficials(e.target.value, rosterTableStaff)}
+                        placeholder="Nom(s) des arbitres"
+                        className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm text-black"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-500 mb-1 block">Table de marquage</label>
+                      <input
+                        type="text"
+                        value={rosterTableStaff}
+                        onChange={(e) => setRosterTableStaff(e.target.value)}
+                        onBlur={(e) => handleSaveOfficials(rosterOfficials, e.target.value)}
+                        placeholder="Nom(s) des marqueurs"
+                        className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm text-black"
+                      />
+                    </div>
+                  </div>
+                </div>
+
                 <p className="text-[11px] text-blue-600 bg-blue-50 border border-blue-100 rounded px-2 py-1 mb-3">
                   Les joueurs s&apos;appliquent à tous les matchs de cette équipe dans ce tournoi.
                 </p>

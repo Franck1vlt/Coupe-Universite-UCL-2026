@@ -477,6 +477,7 @@ export default function HandballTableMarquagePage() {
               placeholder="sec"
             />
           </div>
+
         </div>
 
         <div className="bouton_pied_page">
