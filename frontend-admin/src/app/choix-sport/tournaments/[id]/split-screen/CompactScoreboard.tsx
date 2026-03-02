@@ -617,7 +617,7 @@ function useDisplayData(match: Match, liveData: LiveData | null) {
         : match.team_a_logo && match.team_a_logo.length > 0
           ? match.team_a_logo
           : teamAName && !isGenericTeamName(teamAName)
-            ? `/img/${encodeURIComponent(teamAName.toLowerCase())}.png`
+            ? `/img/${teamAName.toLowerCase().replace(/\s+/g, '-')}.png`
             : "/img/no-logo.png";
 
     const teamBLogo =
@@ -626,7 +626,7 @@ function useDisplayData(match: Match, liveData: LiveData | null) {
         : match.team_b_logo && match.team_b_logo.length > 0
           ? match.team_b_logo
           : teamBName && !isGenericTeamName(teamBName)
-            ? `/img/${encodeURIComponent(teamBName.toLowerCase())}.png`
+            ? `/img/${teamBName.toLowerCase().replace(/\s+/g, '-')}.png`
             : "/img/no-logo.png";
 
     if (liveData) {
