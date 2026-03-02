@@ -225,6 +225,8 @@ export default function TournamentViewPage() {
   const [addingPlayers, setAddingPlayers] = useState(false);
   const [rosterOfficials, setRosterOfficials] = useState("");
   const [rosterTableStaff, setRosterTableStaff] = useState("");
+  const [savingOfficials, setSavingOfficials] = useState(false);
+  const [officialsSaved, setOfficialsSaved] = useState(false);
 
   // Charger le mapping des équipes au chargement
   useEffect(() => {
@@ -834,21 +836,27 @@ export default function TournamentViewPage() {
     setNewPlayerRows([emptyPlayerRow()]);
     setRosterOfficials("");
     setRosterTableStaff("");
+    setSavingOfficials(false);
+    setOfficialsSaved(false);
   };
 
-  const handleSaveOfficials = async (officials: string, tableStaff: string) => {
+  const handleSaveOfficials = async () => {
     if (!rosterMatchId) return;
     const token = (session as { accessToken?: string } | null)?.accessToken;
+    setSavingOfficials(true);
+    setOfficialsSaved(false);
     try {
-      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/matches/${rosterMatchId}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/matches/${rosterMatchId}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ officials, table_staff: tableStaff }),
+        body: JSON.stringify({ officials: rosterOfficials, table_staff: rosterTableStaff }),
       });
+      if (res.ok) setOfficialsSaved(true);
     } catch { /* silencieux */ }
+    setSavingOfficials(false);
   };
 
   const handleAddPlayers = async () => {
@@ -1862,8 +1870,7 @@ export default function TournamentViewPage() {
                       <input
                         type="text"
                         value={rosterOfficials}
-                        onChange={(e) => setRosterOfficials(e.target.value)}
-                        onBlur={(e) => handleSaveOfficials(e.target.value, rosterTableStaff)}
+                        onChange={(e) => { setRosterOfficials(e.target.value); setOfficialsSaved(false); }}
                         placeholder="Nom(s) des arbitres"
                         className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm text-black"
                       />
@@ -1873,12 +1880,18 @@ export default function TournamentViewPage() {
                       <input
                         type="text"
                         value={rosterTableStaff}
-                        onChange={(e) => setRosterTableStaff(e.target.value)}
-                        onBlur={(e) => handleSaveOfficials(rosterOfficials, e.target.value)}
+                        onChange={(e) => { setRosterTableStaff(e.target.value); setOfficialsSaved(false); }}
                         placeholder="Nom(s) des marqueurs"
                         className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm text-black"
                       />
                     </div>
+                    <button
+                      onClick={handleSaveOfficials}
+                      disabled={savingOfficials}
+                      className="w-full bg-blue-600 text-white rounded-lg py-1.5 text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {savingOfficials ? "Enregistrement..." : officialsSaved ? "Enregistre" : "Enregistrer"}
+                    </button>
                   </div>
                 </div>
 
