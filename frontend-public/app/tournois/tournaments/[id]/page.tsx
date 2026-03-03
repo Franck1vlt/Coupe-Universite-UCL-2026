@@ -16,7 +16,6 @@ type ApiScoreType = "points" | "goals" | "sets";
 type Sport = {
   id: number;
   name: string;
-  code: string;
   score_type: ApiScoreType;
   created_at?: string;
 };
@@ -1081,6 +1080,8 @@ export default function TournamentViewPage() {
                     const liveData = getLiveScore(match.id);
                     const isEnCours = match.status === "en-cours";
                     const isSetSport = sport?.score_type === "sets";
+                    const sportNameNorm = (sport?.name || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
+                    const showChrono = sportNameNorm.includes('foot') || sportNameNorm.includes('hand') || sportNameNorm.includes('basket');
 
                     // Use live scores if available
                     const displayScoreA =
@@ -1250,7 +1251,7 @@ export default function TournamentViewPage() {
                           </div>
 
                           {/* Chrono live sur la carte */}
-                          {isEnCours && liveData?.data?.chrono && (
+                          {isEnCours && showChrono && liveData?.data?.chrono && (
                             <div className="flex justify-center mt-1 mb-1">
                               <div className="flex items-center gap-1 bg-gray-900 text-white px-2 py-0.5 rounded-full text-[10px] font-mono">
                                 <span className="w-1 h-1 bg-green-400 rounded-full animate-pulse" />
@@ -1605,6 +1606,8 @@ export default function TournamentViewPage() {
           const liveData = getLiveScore(selectedMatch.id);
           const isEnCours = selectedMatch.status === "en-cours";
           const isSetSport = sport?.score_type === "sets";
+          const sportNameNormModal = (sport?.name || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
+          const showChronoModal = sportNameNormModal.includes('foot') || sportNameNormModal.includes('hand') || sportNameNormModal.includes('basket');
 
           const modalScoreA =
             isEnCours && liveData
@@ -1790,7 +1793,7 @@ export default function TournamentViewPage() {
                   </div>
 
                   {/* Chrono live */}
-                  {isEnCours && liveData?.data?.chrono && (
+                  {isEnCours && showChronoModal && liveData?.data?.chrono && (
                     <div className="flex justify-center mt-2">
                       <div className="flex items-center gap-1.5 bg-gray-900 text-white px-3 py-1 rounded-full text-sm font-mono">
                         <span className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" />
@@ -1940,13 +1943,17 @@ export default function TournamentViewPage() {
                         if (type === "goal")
                           return (
                             <span className="text-xl flex-shrink-0">
-                              {sport?.code === "football"
+                              {sportNameNormModal.includes('foot')
                                 ? "⚽"
-                                : sport?.code === "basketball"
+                                : sportNameNormModal.includes('basket')
                                   ? "🏀"
-                                  : sport?.code === "handball"
+                                  : sportNameNormModal.includes('hand')
                                     ? "🤾"
-                                    : "🏆"}
+                                    : sportNameNormModal.includes('volley')
+                                      ? "🏐"
+                                      : sportNameNormModal.includes('badminton')
+                                        ? "🏸"
+                                        : "🏆"}
                             </span>
                           );
                         if (type === "yellow_card")
@@ -1959,12 +1966,15 @@ export default function TournamentViewPage() {
                       };
                       const eventLabel = (
                         type: "goal" | "yellow_card" | "red_card",
-                      ) =>
-                        type === "goal"
-                          ? "But"
-                          : type === "yellow_card"
-                            ? "Carton jaune"
-                            : "Carton rouge";
+                      ) => {
+                        if (type === "yellow_card") return "Carton jaune";
+                        if (type === "red_card") return "Carton rouge";
+                        if (sport?.score_type === "goals") return "But";
+                        const sportNameNorm = (sport?.name || '')
+                          .normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
+                        if (sportNameNorm.includes('basket')) return "Panier";
+                        return "Point";
+                      };
 
                       if (displayLiveEvents) {
                         // Affichage des events SSE (match en cours)

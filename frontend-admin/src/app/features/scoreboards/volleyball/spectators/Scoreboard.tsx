@@ -5,6 +5,12 @@ import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import "./spectators.css";
 
+interface RecentEvent {
+    team: "A" | "B";
+    playerName?: string | null;
+    jerseyNumber?: number | null;
+}
+
 interface MatchData {
     team1?: string;
     team2?: string;
@@ -20,6 +26,7 @@ interface MatchData {
     serviceTeam?: "A" | "B";
     logo1?: string;
     logo2?: string;
+    recentEvents?: RecentEvent[];
 }
 
 export default function VolleyballTableSpectatorPage() {
@@ -183,6 +190,30 @@ export default function VolleyballTableSpectatorPage() {
                 <div className="match-type-label">
                     {matchData.matchGround || 'Terrain'} - {matchData.matchType || 'Match'}
                 </div>
+
+                {/* Derniers points marqués */}
+                {matchData.recentEvents && matchData.recentEvents.length > 0 && (
+                    <div className="flex flex-col items-center gap-1 mt-4 w-full max-w-sm mx-auto">
+                        {[...matchData.recentEvents].reverse().slice(0, 5).map((ev, i) => {
+                            const teamName = ev.team === "A" ? matchData.team1 : matchData.team2;
+                            return (
+                                <div
+                                    key={i}
+                                    className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-medium w-full justify-center ${i === 0 ? "bg-white text-gray-900 shadow-md" : "bg-white/30 text-white"}`}
+                                >
+                                    <span>🏐</span>
+                                    {ev.playerName && ev.jerseyNumber != null && (
+                                        <span className="font-bold">#{ev.jerseyNumber}</span>
+                                    )}
+                                    {ev.playerName && (
+                                        <span>{ev.playerName}</span>
+                                    )}
+                                    <span className={ev.playerName ? "text-gray-500 text-xs" : ""}>{teamName}</span>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
             </section>
 
             {/* Animation Chrono de pause */}

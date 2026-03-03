@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useSession } from "next-auth/react";
-import { MatchData } from "./types";
+import { MatchData, MatchPlayer, LocalMatchEvent } from "./types";
 import { submitMatchResultWithPropagation, updateMatchStatus as updateStatus } from "../common/useMatchPropagation";
 import { useLiveScoreSync } from "../common/useLiveScoreSync";
 
@@ -41,6 +41,21 @@ export function useVolleyballMatch(initialMatchId: string | null) {
 
     const intervalRef = useRef<number | null>(null);
     const [court, setCourt] = useState<string>("");
+
+    // États pour les événements de points
+    const [players, setPlayers] = useState<MatchPlayer[]>([]);
+    const [pendingGoalTeam, setPendingGoalTeam] = useState<"A" | "B" | null>(null);
+    const [pendingEvents, setPendingEvents] = useState<LocalMatchEvent[]>([]);
+    const pendingEventCounter = useRef(0);
+    // Dernier événement pour diffusion SSE vers le frontend public
+    const [lastGoalPayload, setLastGoalPayload] = useState<{
+        event_type: string;
+        minute: null;
+        playerNumber: number | null;
+        playerName: string | null;
+        team: "A" | "B";
+        timestamp: string;
+    } | null>(null);
 
     // Historique des états pour le système d'annulation
     const historyRef = useRef<MatchDataWithTournament[]>([]);
@@ -195,6 +210,15 @@ export function useVolleyballMatch(initialMatchId: string | null) {
         fetchMatchData();
     }, [initialMatchId]);
 
+    // Fetch des joueurs enregistrés pour ce match
+    useEffect(() => {
+        if (!initialMatchId) return;
+        fetch(`${process.env.NEXT_PUBLIC_API_URL}/matches/${initialMatchId}/players`)
+            .then(r => r.json())
+            .then(d => setPlayers(d.data || []))
+            .catch(() => {});
+    }, [initialMatchId]);
+
     // Helper to get the correct team key
     function teamKey(team: "A" | "B"): "teamA" | "teamB" {
         return team === "A" ? "teamA" : "teamB";
@@ -248,6 +272,24 @@ export function useVolleyballMatch(initialMatchId: string | null) {
 
     const handleEnd = async () => {
         stopChrono();
+        // Sauvegarder les événements de points en batch avant de terminer le match
+        const snapshot = pendingEvents;
+        if (snapshot.length > 0 && initialMatchId) {
+            try {
+                await fetch(`${process.env.NEXT_PUBLIC_API_URL}/matches/${initialMatchId}/events/batch`, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                    },
+                    body: JSON.stringify(snapshot.map(e => ({
+                        team: e.team,
+                        player_id: e.player_id ?? null,
+                        match_time_seconds: e.match_time_seconds ?? null,
+                    }))),
+                });
+            } catch { /* silencieux */ }
+        }
         await submitMatchResult();
     };
 
@@ -267,7 +309,7 @@ export function useVolleyballMatch(initialMatchId: string | null) {
     }
 
     /** ---------- POINTS ---------- */
-    function addPoint(team: "A" | "B") {
+    function doAddPoint(team: "A" | "B") {
         setMatchData(prev => {
             // Sauvegarder l'état avant modification (pour l'annulation)
             saveToHistory(prev);
@@ -312,6 +354,59 @@ export function useVolleyballMatch(initialMatchId: string | null) {
             }
             return next;
         });
+    }
+
+    /** Crée un événement de point local */
+    function createPointEvent(team: "A" | "B", player: MatchPlayer | null) {
+        const localId = ++pendingEventCounter.current;
+        const timestamp = new Date().toISOString();
+        setPendingEvents(prev => [...prev, {
+            localId,
+            event_type: "point" as const,
+            team,
+            player_id: player?.id ?? null,
+            match_time_seconds: null,
+            timestamp,
+            player: player
+                ? { id: player.id, first_name: player.first_name ?? null, last_name: player.last_name ?? null, jersey_number: player.jersey_number ?? null }
+                : null,
+        }]);
+        // Mettre à jour le payload lastGoal pour diffusion SSE vers le frontend public
+        // (teamName sera complété dans le useEffect de sync, depuis matchData à jour)
+        setLastGoalPayload({
+            event_type: "goal",
+            minute: null,
+            playerNumber: player?.jersey_number ?? null,
+            playerName: player
+                ? [player.first_name, player.last_name].filter(Boolean).join(" ") || null
+                : null,
+            team,
+            timestamp,
+        });
+    }
+
+    /** Nouveau addPoint : ouvre la modale si des joueurs sont enregistrés, sinon crée un événement sans joueur */
+    function addPoint(team: "A" | "B") {
+        const teamPlayers = players.filter(p => p.team === team);
+        if (teamPlayers.length > 0) {
+            setPendingGoalTeam(team);
+        } else {
+            // Pas de roster : créer un événement sans joueur et ajouter le point directement
+            createPointEvent(team, null);
+            doAddPoint(team);
+        }
+    }
+
+    /** Confirme le point depuis la modale (team passé explicitement pour éviter tout problème de closure) */
+    function confirmPoint(team: "A" | "B", playerId?: number) {
+        setPendingGoalTeam(null);
+        const player = playerId ? (players.find(p => p.id === playerId) ?? null) : null;
+        createPointEvent(team, player);
+        doAddPoint(team);
+    }
+
+    function cancelPointModal() {
+        setPendingGoalTeam(null);
     }
 
     const subPoint = (team: "A" | "B") =>
@@ -424,6 +519,23 @@ export function useVolleyballMatch(initialMatchId: string | null) {
                 logo1: matchData.teamA.logo_url || "",
                 logo2: matchData.teamB.logo_url || "",
                 lastUpdate: new Date().toISOString(),
+                // Derniers événements de points pour la vue spectateurs
+                recentEvents: pendingEvents.slice(-10).map(e => ({
+                    team: e.team,
+                    playerName: e.player
+                        ? [e.player.first_name, e.player.last_name].filter(Boolean).join(" ") || null
+                        : null,
+                    jerseyNumber: e.player?.jersey_number ?? null,
+                })),
+                // Dernier événement pour le frontend public (tab Événements)
+                lastGoal: lastGoalPayload
+                    ? {
+                        ...lastGoalPayload,
+                        teamName: lastGoalPayload.team === "A"
+                            ? (matchData.teamA.name || "ÉQUIPE A")
+                            : (matchData.teamB.name || "ÉQUIPE B"),
+                    }
+                    : null,
             };
             // Sync to localStorage (for same-device spectator)
             localStorage.setItem("liveVolleyballMatch", JSON.stringify(payload));
@@ -444,7 +556,7 @@ export function useVolleyballMatch(initialMatchId: string | null) {
         } catch (e) {
             // Ignore storage errors
         }
-    }, [matchData, formattedTime, court, initialMatchId, sendLiveScore]);
+    }, [matchData, formattedTime, court, initialMatchId, sendLiveScore, pendingEvents, lastGoalPayload]);
 
     // Cleanup à l'unmount
     useEffect(() => {
@@ -489,5 +601,11 @@ export function useVolleyballMatch(initialMatchId: string | null) {
         resetChrono,
         undoLastAction,
         canUndo,
+        // Événements de points
+        players,
+        pendingGoalTeam,
+        pendingEvents,
+        confirmPoint,
+        cancelPointModal,
     };
 }

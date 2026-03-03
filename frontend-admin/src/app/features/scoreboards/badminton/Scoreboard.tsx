@@ -3,11 +3,63 @@
 import { useState, useEffect, useCallback } from "react";
 import { getAvailableCourts } from "./courtUtils";
 import "./badminton.css";
+import "../football/football.css";
 import { useSearchParams } from "next/navigation";
 // Make sure the hook exists at the correct path, or create a stub if missing
 import { useBadmintonMatch } from "./useBadmintonMatch";
+import { MatchPlayer } from "./types";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
+
+type PlayerSelectModalProps = {
+  title: string;
+  teamName: string | undefined;
+  players: MatchPlayer[];
+  selectedId: number | "none" | null;
+  onSelect: (id: number | "none") => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+};
+
+function PlayerSelectModal({ title, teamName, players, selectedId, onSelect, onCancel, onConfirm }: PlayerSelectModalProps) {
+  return (
+    <div className="goal-modal-overlay">
+      <div className="goal-modal-card" role="dialog" aria-modal="true">
+        <h2 className="goal-modal-title">{title}</h2>
+        <p className="goal-modal-team">{teamName}</p>
+        <div className="goal-modal-players">
+          <button
+            onClick={() => onSelect("none")}
+            className={`goal-modal-player-button${selectedId === "none" ? " goal-modal-player-button-active" : ""}`}
+          >
+            Non attribué
+          </button>
+          {players
+            .sort((a, b) => (a.jersey_number ?? 99) - (b.jersey_number ?? 99))
+            .map((p) => (
+              <button
+                key={p.id}
+                onClick={() => onSelect(p.id)}
+                className={`goal-modal-player-button${selectedId === p.id ? " goal-modal-player-button-active" : ""}`}
+              >
+                <span className="font-bold mr-2">#{p.jersey_number ?? "?"}</span>
+                {[p.first_name, p.last_name].filter(Boolean).join(" ") || "Anonyme"}
+                {p.is_captain && (
+                  <span className="ml-2 text-[10px] bg-yellow-200 text-yellow-800 px-1 rounded">C</span>
+                )}
+              </button>
+            ))}
+        </div>
+        <div className="goal-modal-actions">
+          <button onClick={onCancel} className="goal-modal-cancel">Annuler</button>
+          <button onClick={onConfirm} disabled={selectedId === null} className="goal-modal-confirm">
+            Valider le point
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 type Team = {
   id: string;
@@ -23,6 +75,8 @@ type Court = {
 export default function BadmintonTableMarquagePage() {
   const [loadingTeams, setLoadingTeams] = useState(true);
   const [teams, setTeams] = useState<Team[]>([]);
+  const [selectedScorerPlayerId, setSelectedScorerPlayerId] = useState<number | "none" | null>(null);
+  const [showEventPanel, setShowEventPanel] = useState(false);
   const params = useSearchParams();
   const matchId = params.get("matchId");
   console.log('[Badminton Scoreboard] ========== COMPONENT LOADED ==========');
@@ -81,6 +135,11 @@ export default function BadmintonTableMarquagePage() {
     resetChrono,
     undoLastAction,
     canUndo,
+    players,
+    pendingGoalTeam,
+    pendingEvents,
+    confirmPoint,
+    cancelPointModal,
   } = useBadmintonMatch(matchId);
 
   // Redéfinir les handlers pour intégrer la gestion du statut
@@ -476,6 +535,69 @@ export default function BadmintonTableMarquagePage() {
           </div>
         </div>
       </div>
+
+      {/* Modale sélection joueur */}
+      {pendingGoalTeam && (
+        <PlayerSelectModal
+          title="🏸 Qui a marqué ?"
+          teamName={pendingGoalTeam === "A" ? matchData.teamA.name : matchData.teamB.name}
+          players={players.filter(p => p.team === pendingGoalTeam)}
+          selectedId={selectedScorerPlayerId}
+          onSelect={setSelectedScorerPlayerId}
+          onCancel={() => { cancelPointModal(); setSelectedScorerPlayerId(null); }}
+          onConfirm={() => {
+            if (selectedScorerPlayerId === null || !pendingGoalTeam) return;
+            confirmPoint(pendingGoalTeam, selectedScorerPlayerId === "none" ? undefined : (selectedScorerPlayerId as number));
+            setSelectedScorerPlayerId(null);
+          }}
+        />
+      )}
+
+      {/* FAB panneau d'événements */}
+      {pendingEvents.length > 0 && (
+        <div className="goal-events-fab">
+          <div className="goal-events-shell">
+            <button
+              onClick={() => setShowEventPanel(v => !v)}
+              className="goal-events-button"
+              aria-label="Afficher les points"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+              </svg>
+              <span className="goal-events-badge">{pendingEvents.length}</span>
+            </button>
+            {showEventPanel && (
+              <div className="goal-events-panel">
+                <p className="goal-events-panel-title">Points enregistrés</p>
+                <div className="goal-events-list">
+                  {pendingEvents.map(e => {
+                    const teamLabel = e.team === "A" ? matchData.teamA.name : matchData.teamB.name;
+                    return (
+                      <article key={e.localId} className="goal-event-item">
+                        <div className="goal-event-main">
+                          <div className="goal-event-playerline">
+                            <span className="goal-event-icon">🏸</span>
+                            {e.player && (
+                              <>
+                                <span className="goal-event-number">#{e.player.jersey_number ?? "?"}</span>
+                                <span className="goal-event-player">
+                                  {[e.player.first_name, e.player.last_name].filter(Boolean).join(" ") || "Anonyme"}
+                                </span>
+                              </>
+                            )}
+                          </div>
+                          <span className="goal-event-team">{teamLabel}</span>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </main>
   );
 }

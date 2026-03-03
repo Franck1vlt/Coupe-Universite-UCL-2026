@@ -1594,7 +1594,7 @@ export default function TournamentViewPage() {
               )}
             </div>
             </button>
-            {sport?.score_type === "goals" && (
+            {sportCode && (
               <button
                 onClick={(e) => { e.stopPropagation(); openRosterModal(match.id); }}
                 className="mt-1 w-full flex items-center justify-center gap-1 text-[11px] text-blue-600 hover:text-blue-800 py-1 border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors"
