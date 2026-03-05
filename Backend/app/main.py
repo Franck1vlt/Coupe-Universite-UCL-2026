@@ -149,6 +149,19 @@ async def startup_event():
         finally:
             db.close()
 
+        # Migration: ajouter les colonnes standing_points si elles n'existent pas
+        from app.db import engine
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            cols = [row[1] for row in conn.execute(text("PRAGMA table_info(Pool)")).fetchall()]
+            if "use_standing_points" not in cols:
+                conn.execute(text("ALTER TABLE Pool ADD COLUMN use_standing_points BOOLEAN NOT NULL DEFAULT 0"))
+                logger.info("Migration: added Pool.use_standing_points column")
+            if "standing_points" not in cols:
+                conn.execute(text("ALTER TABLE Pool ADD COLUMN standing_points TEXT DEFAULT NULL"))
+                logger.info("Migration: added Pool.standing_points column")
+            conn.commit()
+
     except Exception as e:
         logger.error(f"Error initializing database: {e}")
         raise

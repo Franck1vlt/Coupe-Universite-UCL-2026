@@ -1,7 +1,7 @@
 """
 Modèle Pool
 """
-from sqlalchemy import Column, Integer, String, ForeignKey
+from sqlalchemy import Column, Integer, String, ForeignKey, Boolean, Text
 from sqlalchemy.orm import relationship
 from app.db import Base
 
@@ -21,6 +21,8 @@ class Pool(Base):
     # Configuration de la poule
     qualified_to_finals = Column(Integer, nullable=False, default=2, server_default="2")  # Nombre d'équipes qualifiées pour les finales
     qualified_to_loser_bracket = Column(Integer, nullable=False, default=0, server_default="0")  # Nombre d'équipes pour le loser bracket
+    use_standing_points = Column(Boolean, nullable=False, default=False, server_default="0")  # Activer les points par position finale
+    standing_points = Column(Text, nullable=True)  # JSON: {"1": 15, "2": 10, "3": 4}
 
     # Relations
     # Note: Le backref "phase" est défini dans Pool.phase via TournamentPhase.pools, donc il ne faut pas redéfinir la relation ici pour éviter les conflits de backref.
