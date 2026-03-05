@@ -1,6 +1,14 @@
 "use client";
+
+interface Contact {
+  role: string;
+  name: string;
+  phone: string;
+  email: string;
+}
+
 export default function ContactPage() {
-  const contacts = [{}];
+  const contacts: Contact[] = [];
 
   return (
     <main className="min-h-screen bg-gray-100 flex flex-col items-center justify-center px-4 py-8">

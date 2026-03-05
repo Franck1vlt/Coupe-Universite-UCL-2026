@@ -31,8 +31,6 @@ export function useBasketballMatch(initialMatchId: string | null) {
 
     // États pour les événements de paniers
     const [players, setPlayers] = useState<MatchPlayer[]>([]);
-    const [pendingGoalTeam, setPendingGoalTeam] = useState<"A" | "B" | null>(null);
-    const [pendingScorePoints, setPendingScorePoints] = useState<number | null>(null);
     const [pendingEvents, setPendingEvents] = useState<LocalMatchEvent[]>([]);
     const pendingEventCounter = useRef(0);
     // Dernier événement pour diffusion SSE vers le frontend public
@@ -367,33 +365,11 @@ export function useBasketballMatch(initialMatchId: string | null) {
         });
     }
 
-    /** Nouveau addScore : ouvre la modale si des joueurs sont enregistrés, sinon direct */
+    /** addScore : incrémente directement sans modal de sélection joueur */
     const addScore = (team: "A" | "B", points: number) => {
-        const teamPlayers = players.filter(p => p.team === team);
-        if (teamPlayers.length > 0) {
-            setPendingGoalTeam(team);
-            setPendingScorePoints(points);
-        } else {
-            createScoreEvent(team, null, points);
-            doAddScore(team, points);
-        }
-    };
-
-    /** Confirme le panier depuis la modale */
-    function confirmScore(team: "A" | "B", playerId?: number) {
-        if (pendingScorePoints === null) return;
-        const points = pendingScorePoints;
-        setPendingGoalTeam(null);
-        setPendingScorePoints(null);
-        const player = playerId ? (players.find(p => p.id === playerId) ?? null) : null;
-        createScoreEvent(team, player, points);
+        createScoreEvent(team, null, points);
         doAddScore(team, points);
-    }
-
-    function cancelScoreModal() {
-        setPendingGoalTeam(null);
-        setPendingScorePoints(null);
-    }
+    };
 
     const subScore = (team: "A" | "B", points: number) =>
         setMatchData((p) => {
@@ -753,10 +729,6 @@ export function useBasketballMatch(initialMatchId: string | null) {
         handleEnd,
         // Événements de paniers
         players,
-        pendingGoalTeam,
-        pendingScorePoints,
         pendingEvents,
-        confirmScore,
-        cancelScoreModal,
     };
 }

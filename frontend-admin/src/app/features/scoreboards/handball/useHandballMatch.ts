@@ -66,7 +66,6 @@ export function useHandballMatch(initialMatchId: string | null) {
     const [players, setPlayers] = useState<MatchPlayer[]>([]);
     const [pendingEvents, setPendingEvents] = useState<LocalMatchEvent[]>([]);
     const pendingEventCounter = useRef(0);
-    const [pendingGoalTeam, setPendingGoalTeam] = useState<"A" | "B" | null>(null);
     const [pendingCardEvent, setPendingCardEvent] = useState<{
         team: "A" | "B";
         event_type: "yellow_card" | "red_card";
@@ -361,57 +360,16 @@ export function useHandballMatch(initialMatchId: string | null) {
 
     /** ---------- POINTS / BUTS ---------- */
 
+    /** addPoint : incrémente directement sans modal de sélection joueur */
     const addPoint = (team: "A" | "B") => {
-        const teamPlayers = players.filter((p) => p.team === team);
-        if (teamPlayers.length > 0) {
-            // Ouvrir le modal de sélection du buteur
-            setPendingGoalTeam(team);
-        } else {
-            // Comportement direct si aucun roster configuré
-            let newScoreA = matchData.teamA.score;
-            let newScoreB = matchData.teamB.score;
-            if (team === "A") newScoreA += 1; else newScoreB += 1;
-            setMatchData(prev => ({
-                ...prev,
-                teamA: { ...prev.teamA, score: team === "A" ? prev.teamA.score + 1 : prev.teamA.score },
-                teamB: { ...prev.teamB, score: team === "B" ? prev.teamB.score + 1 : prev.teamB.score },
-            }));
-            syncMatchStatus(newScoreA, newScoreB, formattedTime);
-        }
-    };
-
-    const cancelGoalModal = () => setPendingGoalTeam(null);
-
-    const confirmGoal = (playerId?: number) => {
-        if (!pendingGoalTeam) return;
-        const team = pendingGoalTeam;
-        setPendingGoalTeam(null);
-
-        const player = playerId ? (players.find((p) => p.id === playerId) ?? null) : null;
-        const elapsedSeconds = getElapsedSeconds();
-        const localId = ++pendingEventCounter.current;
-
-        setPendingEvents((prev) => [
+        let newScoreA = matchData.teamA.score;
+        let newScoreB = matchData.teamB.score;
+        if (team === "A") newScoreA += 1; else newScoreB += 1;
+        setMatchData(prev => ({
             ...prev,
-            {
-                localId,
-                event_type: "goal" as const,
-                team,
-                player_id: player?.id ?? null,
-                match_time_seconds: elapsedSeconds,
-                timestamp: new Date().toISOString(),
-                player: player
-                    ? { id: player.id, first_name: player.first_name, last_name: player.last_name, jersey_number: player.jersey_number }
-                    : null,
-            },
-        ]);
-
-        const newScoreA = team === "A" ? matchData.teamA.score + 1 : matchData.teamA.score;
-        const newScoreB = team === "B" ? matchData.teamB.score + 1 : matchData.teamB.score;
-        setMatchData((p: MatchDataWithTournament) => {
-            const k = teamKey(team);
-            return { ...p, [k]: { ...p[k], score: p[k].score + 1 } };
-        });
+            teamA: { ...prev.teamA, score: team === "A" ? prev.teamA.score + 1 : prev.teamA.score },
+            teamB: { ...prev.teamB, score: team === "B" ? prev.teamB.score + 1 : prev.teamB.score },
+        }));
         syncMatchStatus(newScoreA, newScoreB, formattedTime);
     };
 
@@ -732,7 +690,6 @@ export function useHandballMatch(initialMatchId: string | null) {
         court, togglePeriod, period, periodSwitchChecked, setPeriodSwitchChecked,
         // Fiche de match & événements
         players, pendingEvents,
-        pendingGoalTeam, confirmGoal, cancelGoalModal,
         pendingCardEvent, confirmCard, cancelCardModal,
     };
 }

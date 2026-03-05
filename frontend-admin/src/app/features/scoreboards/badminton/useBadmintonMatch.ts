@@ -44,7 +44,6 @@ export function useBadmintonMatch(initialMatchId: string | null) {
 
     // États pour les événements de points
     const [players, setPlayers] = useState<MatchPlayer[]>([]);
-    const [pendingGoalTeam, setPendingGoalTeam] = useState<"A" | "B" | null>(null);
     const [pendingEvents, setPendingEvents] = useState<LocalMatchEvent[]>([]);
     const pendingEventCounter = useRef(0);
     // Dernier événement pour diffusion SSE vers le frontend public
@@ -382,27 +381,10 @@ export function useBadmintonMatch(initialMatchId: string | null) {
         });
     }
 
-    /** Nouveau addPoint : ouvre la modale si des joueurs sont enregistrés, sinon direct */
+    /** addPoint : incrémente directement sans modal de sélection joueur */
     function addPoint(team: "A" | "B") {
-        const teamPlayers = players.filter(p => p.team === team);
-        if (teamPlayers.length > 0) {
-            setPendingGoalTeam(team);
-        } else {
-            createPointEvent(team, null);
-            doAddPoint(team);
-        }
-    }
-
-    /** Confirme le point depuis la modale */
-    function confirmPoint(team: "A" | "B", playerId?: number) {
-        setPendingGoalTeam(null);
-        const player = playerId ? (players.find(p => p.id === playerId) ?? null) : null;
-        createPointEvent(team, player);
+        createPointEvent(team, null);
         doAddPoint(team);
-    }
-
-    function cancelPointModal() {
-        setPendingGoalTeam(null);
     }
 
     const subPoint = (team: "A" | "B") =>
@@ -596,9 +578,6 @@ export function useBadmintonMatch(initialMatchId: string | null) {
         canUndo,
         // Événements de points
         players,
-        pendingGoalTeam,
         pendingEvents,
-        confirmPoint,
-        cancelPointModal,
     };
 }

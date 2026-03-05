@@ -1450,7 +1450,7 @@ export default function TournamentsPage() {
     // Calculer le classement de chaque poule
     const poolStandings: Map<
       string,
-      { team: string; points: number; scoreDiff: number }[]
+      { team: string; points: number; scoreDiff: number; goalsFor: number }[]
     > = new Map();
     updatedPools.forEach((pool) => {
       const standings = calculatePoolStandings(pool);
@@ -1459,7 +1459,7 @@ export default function TournamentsPage() {
 
     // Trouver le meilleur 3ème parmi les poules qui ont cette option
     let bestThird: string | null = null;
-    let bestThirdStats = { points: -1, scoreDiff: -Infinity };
+    let bestThirdStats = { points: -1, scoreDiff: -Infinity, goalsFor: -Infinity };
     updatedPools.forEach((pool) => {
       if (pool.qualifiedAsBestThird) {
         const standings = poolStandings.get(pool.name);
@@ -1468,12 +1468,16 @@ export default function TournamentsPage() {
           if (
             third.points > bestThirdStats.points ||
             (third.points === bestThirdStats.points &&
-              third.scoreDiff > bestThirdStats.scoreDiff)
+              third.scoreDiff > bestThirdStats.scoreDiff) ||
+            (third.points === bestThirdStats.points &&
+              third.scoreDiff === bestThirdStats.scoreDiff &&
+              third.goalsFor > bestThirdStats.goalsFor)
           ) {
             bestThird = third.team;
             bestThirdStats = {
               points: third.points,
               scoreDiff: third.scoreDiff,
+              goalsFor: third.goalsFor,
             };
           }
         }
@@ -1977,22 +1981,23 @@ export default function TournamentsPage() {
             type: "loser-bracket",
             loserBracketMatchType: "loser-round-2",
             winnerCode: `WLR2-${i}`,
-            winnerDestination: hasRound3 ? "LR3" : hasFinale ? "LF" : undefined,
+            loserCode: `LLR2-${i}`,
+            winnerDestination: hasFinale ? "LF" : undefined,
+            loserDestination: hasRound3 ? "LPETITE" : undefined,
           }),
         );
       }
     }
 
-    // Round 3 et Finale idem...
+    // Round 3 (7e place) : perdants des demi-finales LB
     if (hasRound3) {
       newMatches.push(
         getPersistentMatch("loser-petite-finale", "WLPF", {
-          teamA: hasRound2 ? "WLR2-1" : loserBracket.teams[0] || "",
-          teamB: hasRound2 ? "WLR2-2" : loserBracket.teams[1] || "",
+          teamA: hasRound2 ? "LLR2-1" : loserBracket.teams[0] || "",
+          teamB: hasRound2 ? "LLR2-2" : loserBracket.teams[1] || "",
           type: "loser-bracket",
           loserBracketMatchType: "loser-petite-finale",
-          winnerCode: "WLR3",
-          winnerDestination: hasFinale ? "LF" : undefined,
+          winnerCode: "WLPF",
         }),
       );
     }
@@ -2000,10 +2005,8 @@ export default function TournamentsPage() {
     if (hasFinale) {
       let teamA = "",
         teamB = "";
-      if (hasRound3) {
-        teamA = "WLR3";
-        teamB = loserBracket.teams[loserBracket.teams.length - 1] || "";
-      } else if (hasRound2) {
+      if (hasRound2) {
+        // 5e place : vainqueurs des deux demi-finales LB
         teamA = "WLR2-1";
         teamB = "WLR2-2";
       } else if (hasRound1) {
@@ -2231,7 +2234,7 @@ export default function TournamentsPage() {
           ? (
               {
                 "loser-round-1": "Repêchage",
-                "loser-round-2": "Demi LB",
+                "loser-round-2": "Demi-Finale LB",
                 "loser-petite-finale": "7e place",
                 "loser-finale": "5e place",
               } as Record<string, string>
@@ -2830,7 +2833,7 @@ export default function TournamentsPage() {
                         {match.loserBracketMatchType === "loser-round-1"
                           ? "Repêchage"
                           : match.loserBracketMatchType === "loser-round-2"
-                            ? "Demi LB"
+                            ? "Demi-Finale LB"
                             : match.loserBracketMatchType ===
                                 "loser-petite-finale"
                               ? "7e place"
@@ -3343,7 +3346,7 @@ export default function TournamentsPage() {
                       const roundLabels: Record<LoserBracketMatchType, string> =
                         {
                           "loser-round-1": "Repêchage",
-                          "loser-round-2": "Demi LB",
+                          "loser-round-2": "Demi-Finale LB",
                           "loser-petite-finale": "7e place",
                           "loser-finale": "5e place",
                         };
@@ -3415,7 +3418,7 @@ export default function TournamentsPage() {
                         string
                       > = {
                         "loser-round-1": "Repêchage",
-                        "loser-round-2": "Demi LB",
+                        "loser-round-2": "Demi-Finale LB",
                         "loser-petite-finale": "7e place",
                         "loser-finale": "5e place",
                       };
@@ -3790,7 +3793,7 @@ export default function TournamentsPage() {
               )}
 
               {/* Sélection de la destination du vainqueur/perdant avec slot A/B */}
-              <div className="grid grid-cols-2 gap-2 mb-2">
+              <div className="flex flex-col gap-2 mb-2">
                 <div>
                   <label
                     className="block text-xs font-bold mb-1"
@@ -5036,7 +5039,7 @@ export default function TournamentsPage() {
                     },
                     {
                       value: "loser-round-2" as LoserBracketMatchType,
-                      label: "Demi-finales LB",
+                      label: "Demi-Finale LB",
                     },
                     {
                       value: "loser-petite-finale" as LoserBracketMatchType,
@@ -5498,7 +5501,7 @@ export default function TournamentsPage() {
                         string
                       > = {
                         "loser-round-1": "Repêchage",
-                        "loser-round-2": "Demi LB",
+                        "loser-round-2": "Demi-Finale LB",
                         "loser-petite-finale": "7e place",
                         "loser-finale": "5e place",
                       };
@@ -6224,10 +6227,10 @@ export default function TournamentsPage() {
                   <p className="text-sm text-amber-600">
                     {selectedLoserBracketMatch.loserBracketMatchType
                       ? {
-                          "loser-round-1": "Round 1",
-                          "loser-round-2": "Round 2",
-                          "loser-petite-finale": "Round 3",
-                          "loser-finale": "Finale Loser Bracket",
+                          "loser-round-1": "Repêchage",
+                          "loser-round-2": "Demi-Finale LB",
+                          "loser-petite-finale": "7e place",
+                          "loser-finale": "5e place",
                         }[selectedLoserBracketMatch.loserBracketMatchType]
                       : ""}
                   </p>

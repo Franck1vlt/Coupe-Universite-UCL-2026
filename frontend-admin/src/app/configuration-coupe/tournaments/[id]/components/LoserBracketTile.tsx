@@ -33,7 +33,7 @@ export function LoserBracketTile({ loserBracket, selected, onSelect, onDragStart
             {loserBracket.enabledRounds.map((round: string, index: number) => {
               const roundLabels: Record<string, string> = {
                 "loser-round-1": "Repêchage",
-                "loser-round-2": "Demi LB",
+                "loser-round-2": "Demi-Finale LB",
                 "loser-petite-finale": "7e place",
                 "loser-finale": "5e place"
               };
@@ -90,7 +90,7 @@ export function LoserBracketTile({ loserBracket, selected, onSelect, onDragStart
             {loserBracket.matches.slice(0, 3).map((match: any, index: number) => {
               const matchTypeLabels: Record<string, string> = {
                 "loser-round-1": "Repêchage",
-                "loser-round-2": "Demi LB",
+                "loser-round-2": "Demi-Finale LB",
                 "loser-petite-finale": "7e place",
                 "loser-finale": "5e place"
               };

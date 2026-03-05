@@ -77,6 +77,7 @@ type RankingEntry = {
   lost: number;
   points: number;
   scoreDiff?: number; // Ajouté pour la différence de buts
+  goalsFor?: number; // Buts marqués (tiebreaker 3ème critère)
 };
 
 type MatchPlayer = {
@@ -854,6 +855,8 @@ export default function TournamentViewPage() {
           (stats[teamA].scoreDiff || 0) + (scoreA - scoreB);
         stats[teamB].scoreDiff =
           (stats[teamB].scoreDiff || 0) + (scoreB - scoreA);
+        stats[teamA].goalsFor = (stats[teamA].goalsFor || 0) + scoreA;
+        stats[teamB].goalsFor = (stats[teamB].goalsFor || 0) + scoreB;
 
         if (scoreA > scoreB) {
           stats[teamA].points += 3;
@@ -883,7 +886,8 @@ export default function TournamentViewPage() {
       // 4. Tri par points puis différence de buts/scores
       const sorted = Object.values(stats).sort((a, b) => {
         if (b.points !== a.points) return b.points - a.points;
-        return (b.scoreDiff || 0) - (a.scoreDiff || 0);
+        if ((b.scoreDiff || 0) !== (a.scoreDiff || 0)) return (b.scoreDiff || 0) - (a.scoreDiff || 0);
+        return (b.goalsFor || 0) - (a.goalsFor || 0);
       });
 
       sorted.forEach((e, i) => (e.position = i + 1));
@@ -924,6 +928,8 @@ export default function TournamentViewPage() {
           rankMap[entry.team].lost += entry.lost;
           rankMap[entry.team].scoreDiff =
             (rankMap[entry.team].scoreDiff || 0) + (entry.scoreDiff || 0);
+          rankMap[entry.team].goalsFor =
+            (rankMap[entry.team].goalsFor || 0) + (entry.goalsFor || 0);
         }
       });
     });
@@ -967,7 +973,9 @@ export default function TournamentViewPage() {
 
     const sorted = Object.values(rankMap).sort(
       (a, b) =>
-        b.points - a.points || (b.scoreDiff || 0) - (a.scoreDiff || 0),
+        b.points - a.points ||
+        (b.scoreDiff || 0) - (a.scoreDiff || 0) ||
+        (b.goalsFor || 0) - (a.goalsFor || 0),
     );
     sorted.forEach((e, i) => (e.position = i + 1));
     setFinalRanking(sorted);

@@ -1107,9 +1107,9 @@ def propagate_tournament_results(
 
             # Initialiser les stats si nécessaire
             if team_a not in team_stats:
-                team_stats[team_a] = {"points": 0, "wins": 0, "draws": 0, "losses": 0, "goal_diff": 0}
+                team_stats[team_a] = {"points": 0, "wins": 0, "draws": 0, "losses": 0, "goal_diff": 0, "goals_for": 0}
             if team_b not in team_stats:
-                team_stats[team_b] = {"points": 0, "wins": 0, "draws": 0, "losses": 0, "goal_diff": 0}
+                team_stats[team_b] = {"points": 0, "wins": 0, "draws": 0, "losses": 0, "goal_diff": 0, "goals_for": 0}
 
             # Calculer les points (3 victoire, 1 nul, 0 défaite)
             if match.score_a > match.score_b:
@@ -1126,14 +1126,16 @@ def propagate_tournament_results(
                 team_stats[team_a]["draws"] += 1
                 team_stats[team_b]["draws"] += 1
 
-            # Différence de buts
+            # Différence de buts et buts marqués
             team_stats[team_a]["goal_diff"] += match.score_a - match.score_b
             team_stats[team_b]["goal_diff"] += match.score_b - match.score_a
+            team_stats[team_a]["goals_for"] += match.score_a
+            team_stats[team_b]["goals_for"] += match.score_b
 
-        # Trier par points puis par différence de buts
+        # Trier par points, puis différence de buts, puis buts marqués
         sorted_teams = sorted(
             team_stats.items(),
-            key=lambda x: (x[1]["points"], x[1]["goal_diff"]),
+            key=lambda x: (x[1]["points"], x[1]["goal_diff"], x[1]["goals_for"]),
             reverse=True
         )
 

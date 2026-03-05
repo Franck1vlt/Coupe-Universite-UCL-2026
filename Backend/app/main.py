@@ -1679,9 +1679,9 @@ async def get_tournament_final_ranking(
             team_points[team_sport_b.team_id]["goals_against"] += match.score_a or 0
 
             # Déterminer le vainqueur et attribuer les points
-            winner_points = match.winner_points if match.winner_points is not None else 3
+            winner_points = match.winner_points if match.winner_points is not None else 0
             loser_points = match.loser_points if match.loser_points is not None else 0
-            draw_points = 1
+            draw_points = loser_points
 
             if match.score_a > match.score_b:
                 # Équipe A gagne
