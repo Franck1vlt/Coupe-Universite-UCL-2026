@@ -54,6 +54,8 @@ type TournamentMatch = {
   winnerDestinationSlot?: "A" | "B" | null;
   loserDestinationSlot?: "A" | "B" | null;
   poolId?: string; // ID de la poule pour les matchs de poule
+  winnerPoints?: number;
+  loserPoints?: number;
 };
 
 type Pool = {
@@ -492,6 +494,8 @@ export default function TournamentViewPage() {
             loserDestinationMatchId: m.loser_destination_match_id,
             loserDestinationSlot: m.loser_destination_slot,
             poolId: poolId,
+            winnerPoints: m.winner_points ?? 0,
+            loserPoints: m.loser_points ?? 0,
           };
         };
 
@@ -924,13 +928,50 @@ export default function TournamentViewPage() {
       });
     });
 
+    // Ajouter les points des matchs de bracket (phase finale, loser bracket, etc.)
+    const bracketMatches = matches.filter(
+      (m) =>
+        m.status === "terminé" &&
+        m.type !== "poule" &&
+        m.scoreA !== undefined &&
+        m.scoreB !== undefined,
+    );
+
+    bracketMatches.forEach((m) => {
+      const {
+        teamA,
+        teamB,
+        scoreA,
+        scoreB,
+        winnerPoints = 0,
+        loserPoints = 0,
+      } = m;
+      if (scoreA! > scoreB!) {
+        if (rankMap[teamA]) rankMap[teamA].points += winnerPoints;
+        if (rankMap[teamB]) rankMap[teamB].points += loserPoints;
+      } else if (scoreB! > scoreA!) {
+        if (rankMap[teamB]) rankMap[teamB].points += winnerPoints;
+        if (rankMap[teamA]) rankMap[teamA].points += loserPoints;
+      }
+      if (rankMap[teamA]) {
+        rankMap[teamA].played++;
+        if (scoreA! > scoreB!) rankMap[teamA].won++;
+        else rankMap[teamA].lost++;
+      }
+      if (rankMap[teamB]) {
+        rankMap[teamB].played++;
+        if (scoreB! > scoreA!) rankMap[teamB].won++;
+        else rankMap[teamB].lost++;
+      }
+    });
+
     const sorted = Object.values(rankMap).sort(
       (a, b) =>
         b.points - a.points || (b.scoreDiff || 0) - (a.scoreDiff || 0),
     );
     sorted.forEach((e, i) => (e.position = i + 1));
     setFinalRanking(sorted);
-  }, [pools, poolRankings]);
+  }, [pools, poolRankings, matches]);
 
   // Charger le classement final depuis l'API (ignoré si les poules utilisent les points par position)
   useEffect(() => {
