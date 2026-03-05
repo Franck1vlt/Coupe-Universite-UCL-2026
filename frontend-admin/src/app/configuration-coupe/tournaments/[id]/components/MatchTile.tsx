@@ -54,7 +54,7 @@ export function MatchTile({ match, selected, onSelect, onDragStart }: {
           {match.type === "loser-bracket" && match.loserBracketMatchType && (
             <span className="px-2 py-0.5 text-[10px] font-medium rounded-full bg-amber-50 text-black">
               {match.loserBracketMatchType === "loser-round-1" ? "Repêchage" :
-                match.loserBracketMatchType === "loser-round-2" ? "Demi LB" :
+                match.loserBracketMatchType === "loser-round-2" ? "Demi-Finale LB" :
                 match.loserBracketMatchType === "loser-petite-finale" ? "7e place" :
                 match.loserBracketMatchType === "loser-finale" ? "5e place" : ""}
             </span>

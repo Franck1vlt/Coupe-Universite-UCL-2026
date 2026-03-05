@@ -13,6 +13,8 @@ interface MatchData {
     score2?: number;
     sets1?: number;
     sets2?: number;
+    chrono?: string;
+    timerRunning?: boolean;
     lastUpdate?: string;
     matchGround?: string;
     serviceTeam?: "A" | "B";
@@ -182,6 +184,20 @@ export default function BadmintonTableSpectatorPage() {
                     {matchData.matchGround || 'Terrain'} - {matchData.matchType || 'Match'}
                 </div>
             </section>
+
+            {/* Animation Chrono de pause */}
+            {matchData.timerRunning && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
+                    <div className="pause-timer-overlay animate-pause-in">
+                        <div className="text-6xl font-black text-white drop-shadow-2xl mb-4 tracking-widest">
+                            Chrono de pause
+                        </div>
+                        <div className="text-5xl font-mono font-bold text-white">
+                            {matchData.chrono || "00:00"}
+                        </div>
+                    </div>
+                </div>
+            )}
         </main>
     );
 }

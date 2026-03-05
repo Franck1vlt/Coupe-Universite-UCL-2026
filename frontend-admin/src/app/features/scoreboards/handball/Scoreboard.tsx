@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { getAvailableCourts } from "./courtUtils";
 import "./handball.css";
 import { useSearchParams } from "next/navigation";
@@ -23,8 +23,8 @@ export default function HandballTableMarquagePage() {
   const [teams, setTeams] = useState<Team[]>([]);
   const params = useSearchParams();
   const matchId = params.get("matchId");
-  console.log('[Handball Scoreboard] ========== COMPONENT LOADED ==========');
-  console.log('[Handball Scoreboard] MatchId from URL:', matchId);
+  console.log("[Handball Scoreboard] ========== COMPONENT LOADED ==========");
+  console.log("[Handball Scoreboard] MatchId from URL:", matchId);
   const router = useRouter();
 
   const [teamA, setTeamA] = useState("");
@@ -46,16 +46,21 @@ export default function HandballTableMarquagePage() {
     fetchCourts();
     fetchCourtSchedules();
   }, []);
-  // Récupérer les plannings de tous les terrains (pour filtrer les dispos)
+
   const fetchCourtSchedules = async () => {
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/match-schedules?skip=0&limit=200`, {
-        method: "GET",
-        headers: { "Accept": "application/json" }
-      });
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/match-schedules?skip=0&limit=200`,
+        {
+          method: "GET",
+          headers: { Accept: "application/json" },
+        },
+      );
       if (!res.ok) throw new Error("Impossible de charger les plannings");
       const data = await res.json();
-      setCourtSchedules(Array.isArray(data?.data?.items) ? data.data.items : []);
+      setCourtSchedules(
+        Array.isArray(data?.data?.items) ? data.data.items : [],
+      );
     } catch (error) {
       setCourtSchedules([]);
     }
@@ -83,35 +88,99 @@ export default function HandballTableMarquagePage() {
     togglePeriod,
     periodSwitchChecked,
     period,
-    updateMatchStatus
+    updateMatchStatus,
+    // Fiche de match & événements
+    players,
+    pendingCardEvent,
+    confirmCard,
+    cancelCardModal,
   } = useHandballMatch(matchId);
 
+  // États pour les modals
+  const [selectedCardPlayerId, setSelectedCardPlayerId] = useState<
+    number | "none" | null
+  >(null);
+
   const handleStart = () => {
-    updateMatchStatus('in_progress');
+    updateMatchStatus("in_progress");
     startChrono();
   };
 
+  const handleSwipe = useCallback(() => {
+    const a = teamA;
+    const b = teamB;
+    setTeamA(b);
+    setTeamB(a);
+    swapSides();
+  }, [teamA, teamB, swapSides]);
+
+  // Raccourcis clavier
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (pendingCardEvent) return;
+      switch (e.key) {
+        case "w":
+        case "W":
+          addPoint("A");
+          break;
+        case "q":
+        case "Q":
+          subPoint("A");
+          break;
+        case "o":
+        case "O":
+          addPoint("B");
+          break;
+        case "l":
+        case "L":
+          subPoint("B");
+          break;
+        case "+":
+          addSecond();
+          break;
+        case "t":
+        case "T":
+          updateMatchStatus("in_progress");
+          startChrono();
+          break;
+        case "Escape":
+          stopChrono();
+          break;
+        case "x":
+        case "X":
+          handleSwipe();
+          break;
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [
+    pendingCardEvent,
+    addPoint,
+    subPoint,
+    updateMatchStatus,
+    startChrono,
+    stopChrono,
+    handleSwipe,
+    addSecond,
+  ]);
 
   // Synchroniser les données du match avec les states locaux
   useEffect(() => {
-    console.log('[Handball Scoreboard] Match data changed:', matchData);
-    console.log('[Handball Scoreboard] Court:', court);
-    
+    console.log("[Handball Scoreboard] Match data changed:", matchData);
+    console.log("[Handball Scoreboard] Court:", court);
+
     if (matchData.teamA.name && matchData.teamA.name !== "Team A") {
       setTeamA(matchData.teamA.name);
-      console.log('[Handball Scoreboard] Set Team A to:', matchData.teamA.name);
     }
     if (matchData.teamB.name && matchData.teamB.name !== "Team B") {
       setTeamB(matchData.teamB.name);
-      console.log('[Handball Scoreboard] Set Team B to:', matchData.teamB.name);
     }
     if (matchData.matchType) {
       setMatchType(matchData.matchType);
-      console.log('[Handball Scoreboard] Set Match Type to:', matchData.matchType);
     }
     if (court) {
       setMatchGround(court);
-      console.log('[Handball Scoreboard] Set Court to:', court);
     }
   }, [matchData, court]);
 
@@ -141,22 +210,26 @@ export default function HandballTableMarquagePage() {
     setMatchTypeMeta(value);
   };
 
-  // Récupérer les équipes depuis l'API
   const fetchTeams = async () => {
     setLoadingTeams(true);
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/teams?skip=0&limit=100`, {
-        method: "GET",
-        headers: { "Accept": "application/json" }
-      });
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/teams?skip=0&limit=100`,
+        {
+          method: "GET",
+          headers: { Accept: "application/json" },
+        },
+      );
       if (!res.ok) throw new Error("Impossible de charger les équipes");
       const data = await res.json();
       const teamsData = Array.isArray(data?.data?.items) ? data.data.items : [];
-      setTeams(teamsData.map((team: any) => ({
-        id: team.id.toString(),
-        name: team.name,
-        logo_url: team.logo_url
-      })));
+      setTeams(
+        teamsData.map((team: any) => ({
+          id: team.id.toString(),
+          name: team.name,
+          logo_url: team.logo_url,
+        })),
+      );
     } catch (error) {
       console.error("Erreur lors du chargement des équipes:", error);
       setTeams([]);
@@ -168,31 +241,30 @@ export default function HandballTableMarquagePage() {
   const fetchCourts = async () => {
     setLoadingCourts(true);
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/courts?skip=0&limit=100`, {
-        method: "GET",
-        headers: { "Accept": "application/json" }
-      });
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/courts?skip=0&limit=100`,
+        {
+          method: "GET",
+          headers: { Accept: "application/json" },
+        },
+      );
       if (!res.ok) throw new Error("Impossible de charger les terrains");
       const data = await res.json();
-      const courtsData = Array.isArray(data?.data?.items) ? data.data.items : [];
-      setCourts(courtsData.map((court: any) => ({
-        id: court.id.toString(),
-        name: court.name
-      })));
+      const courtsData = Array.isArray(data?.data?.items)
+        ? data.data.items
+        : [];
+      setCourts(
+        courtsData.map((court: any) => ({
+          id: court.id.toString(),
+          name: court.name,
+        })),
+      );
     } catch (error) {
       console.error("Erreur lors du chargement des terrains:", error);
       setCourts([]);
     } finally {
       setLoadingCourts(false);
     }
-  };
-
-  const handleSwipe = () => {
-    const a = teamA;
-    const b = teamB;
-    setTeamA(b);
-    setTeamB(a);
-    swapSides();
   };
 
   return (
@@ -204,25 +276,32 @@ export default function HandballTableMarquagePage() {
       </header>
 
       <div className="gauche">
-        <div className="parametres-match mb-6">
+        <div className="parametres-match">
           <label htmlFor="teamA">Équipe A :</label>
-            {matchId ? (
+          {matchId ? (
             <input
               type="text"
               value={matchData.teamA.name}
               disabled
               className="w-full text-center rounded-md border-none mb-2.5 bg-white text-black cursor-not-allowed p-2"
             />
-            ) : (
-            <select name="teamA" value={teamA} onChange={handleTeamAChange} disabled={loadingTeams}>
-              <option value="">{loadingTeams ? "Chargement..." : "Sélectionner"}</option>
-              {teams.map((team) => (
-              <option key={team.id} value={team.id}>
-                {team.name}
+          ) : (
+            <select
+              name="teamA"
+              value={teamA}
+              onChange={handleTeamAChange}
+              disabled={loadingTeams}
+            >
+              <option value="">
+                {loadingTeams ? "Chargement..." : "Sélectionner"}
               </option>
+              {teams.map((team) => (
+                <option key={team.id} value={team.id}>
+                  {team.name}
+                </option>
               ))}
             </select>
-            )}
+          )}
 
           <label htmlFor="teamB">Équipe B :</label>
           {matchId ? (
@@ -233,8 +312,16 @@ export default function HandballTableMarquagePage() {
               className="w-full text-center rounded-md border-none mb-2.5 bg-white text-black cursor-not-allowed p-2"
             />
           ) : (
-            <select id="teamB" name="teamB" value={teamB} onChange={handleTeamBChange} disabled={loadingTeams}>
-              <option value="">{loadingTeams ? "Chargement..." : "Sélectionner"}</option>
+            <select
+              id="teamB"
+              name="teamB"
+              value={teamB}
+              onChange={handleTeamBChange}
+              disabled={loadingTeams}
+            >
+              <option value="">
+                {loadingTeams ? "Chargement..." : "Sélectionner"}
+              </option>
               {teams.map((team) => (
                 <option key={team.id} value={team.id}>
                   {team.name}
@@ -252,7 +339,11 @@ export default function HandballTableMarquagePage() {
               className="w-full text-center rounded-md border-none mb-2.5 bg-white text-black cursor-not-allowed p-2"
             />
           ) : (
-            <select id="matchTypeSelector" value={matchType} onChange={handleMatchTypeChange}>
+            <select
+              id="matchTypeSelector"
+              value={matchType}
+              onChange={handleMatchTypeChange}
+            >
               <option value="">Sélectionner</option>
               <option value="Qualification">Qualification</option>
               <option value="Poule">Poule</option>
@@ -268,40 +359,50 @@ export default function HandballTableMarquagePage() {
             <input
               type="text"
               value={
-                // Affiche toujours le nom du terrain si possible
-                courts.find(c => c.id === matchData.court?.toString())?.name
-                || courts.find(c => c.name === matchData.court)?.name
-                || courts.find(c => c.id === court?.toString())?.name
-                || courts.find(c => c.name === court)?.name
-                || courts.find(c => c.id === matchGround)?.name
-                || matchData.court
-                || court
-                || (matchGround !== "Terrain" ? courts.find(c => c.id === matchGround)?.name : "Terrain")
+                courts.find((c) => c.id === matchData.court?.toString())
+                  ?.name ||
+                courts.find((c) => c.name === matchData.court)?.name ||
+                courts.find((c) => c.id === court?.toString())?.name ||
+                courts.find((c) => c.name === court)?.name ||
+                courts.find((c) => c.id === matchGround)?.name ||
+                matchData.court ||
+                court ||
+                (matchGround !== "Terrain"
+                  ? courts.find((c) => c.id === matchGround)?.name
+                  : "Terrain")
               }
               disabled
               className="w-full text-center rounded-md border-none mb-2.5 bg-white text-black cursor-not-allowed p-2"
             />
           ) : (
             <>
-              {/* Sélection du terrain avec désactivation des terrains occupés */}
               <select
                 id="matchGroundSelector"
                 value={matchGround}
                 onChange={(e) => setMatchGround(e.target.value)}
                 disabled={loadingCourts}
               >
-                <option value="">{loadingCourts ? "Chargement..." : "Sélectionner"}</option>
-                {getAvailableCourts(courts, courtSchedules, selectedDateTime).map((court: any) => (
-                  <option key={court.id} value={court.id} disabled={court.isOccupied}>
+                <option value="">
+                  {loadingCourts ? "Chargement..." : "Sélectionner"}
+                </option>
+                {getAvailableCourts(
+                  courts,
+                  courtSchedules,
+                  selectedDateTime,
+                ).map((court: any) => (
+                  <option
+                    key={court.id}
+                    value={court.id}
+                    disabled={court.isOccupied}
+                  >
                     {court.name} {court.isOccupied ? "(occupé)" : ""}
                   </option>
                 ))}
               </select>
-              {/* Sélecteur de date/heure pour la planification (exemple simple) */}
               <input
                 type="datetime-local"
                 value={selectedDateTime}
-                onChange={e => setSelectedDateTime(e.target.value)}
+                onChange={(e) => setSelectedDateTime(e.target.value)}
                 className="border border-gray-300 rounded px-2 py-1 mt-2"
               />
             </>
@@ -314,7 +415,7 @@ export default function HandballTableMarquagePage() {
               min={0}
               max={59}
               value={chronoMinutes}
-              onChange={e => {
+              onChange={(e) => {
                 const mins = Number(e.target.value);
                 setChronoMinutes(mins);
                 setChrono(mins, chronoSeconds);
@@ -328,7 +429,7 @@ export default function HandballTableMarquagePage() {
               min={0}
               max={59}
               value={chronoSeconds}
-              onChange={e => {
+              onChange={(e) => {
                 const secs = Number(e.target.value);
                 setChronoSeconds(secs);
                 setChrono(chronoMinutes, secs);
@@ -336,16 +437,21 @@ export default function HandballTableMarquagePage() {
               className="bg-white text-black border border-gray-300 rounded px-1 py-1 mt-2 text-center w-12"
               placeholder="sec"
             />
-            </div>
+          </div>
+
         </div>
 
         <div className="bouton_pied_page">
           <div className="button-row1">
             <button onClick={() => router.back()}>Retour</button>
           </div>
-            <div className="button-row2">
-            <button onClick={() => window.open("./handball/spectators", "_blank")}>Spectateurs</button>
-            </div>
+          <div className="button-row2">
+            <button
+              onClick={() => window.open("./handball/spectators", "_blank")}
+            >
+              Spectateurs
+            </button>
+          </div>
         </div>
       </div>
 
@@ -354,34 +460,61 @@ export default function HandballTableMarquagePage() {
         <div className="scoreboard">
           <div className="score-display">
             <div className="score-line">
-              <span>{matchData.teamA.name !== "Team A" ? matchData.teamA.name : (teamA != "" ? teams.find((c: Team) => c.id === teamA)?.name : "Team A")} {matchData.teamA.score} - {matchData.teamB.score} {matchData.teamB.name !== "Team B" ? matchData.teamB.name : (teamB != "" ? teams.find((c: Team) => c.id === teamB)?.name : "Team B")}</span>
+              <span>
+                {matchData.teamA.name !== "Team A"
+                  ? matchData.teamA.name
+                  : teamA != ""
+                    ? teams.find((c: Team) => c.id === teamA)?.name
+                    : "Team A"}{" "}
+                {matchData.teamA.score} - {matchData.teamB.score}{" "}
+                {matchData.teamB.name !== "Team B"
+                  ? matchData.teamB.name
+                  : teamB != ""
+                    ? teams.find((c: Team) => c.id === teamB)?.name
+                    : "Team B"}
+              </span>
             </div>
             <div className="info-line">
-              <p>{matchData.matchType || (matchType !== "Type de match" ? matchType : "Type de match")} - {period !== "MT1" ? period : "MT1"} - {
-                // Affiche toujours le nom du terrain si possible
-                courts.find(c => c.id === matchData.court?.toString())?.name
-                || courts.find(c => c.name === matchData.court)?.name
-                || courts.find(c => c.id === court?.toString())?.name
-                || courts.find(c => c.name === court)?.name
-                || courts.find(c => c.id === matchGround)?.name
-                || matchData.court
-                || court
-                || (matchGround !== "Terrain" ? courts.find(c => c.id === matchGround)?.name : "Terrain")
-              }</p>
+              <p>
+                {matchData.matchType ||
+                  (matchType !== "Type de match"
+                    ? matchType
+                    : "Type de match")}{" "}
+                - {period !== "MT1" ? period : "MT1"} -{" "}
+                {courts.find((c) => c.id === matchData.court?.toString())
+                  ?.name ||
+                  courts.find((c) => c.name === matchData.court)?.name ||
+                  courts.find((c) => c.id === court?.toString())?.name ||
+                  courts.find((c) => c.name === court)?.name ||
+                  courts.find((c) => c.id === matchGround)?.name ||
+                  matchData.court ||
+                  court ||
+                  (matchGround !== "Terrain"
+                    ? courts.find((c) => c.id === matchGround)?.name
+                    : "Terrain")}
+              </p>
             </div>
           </div>
 
           <div className="points-section">
             <div className="flex items-center gap-2">
               <p>Buts : {matchData.teamA.score}</p>
-              <button onClick={() => subPoint("A")}>-</button>
-              <button onClick={() => addPoint("A")}>+</button>
+              <button onClick={() => subPoint("A")}>
+                -<span className="shortcut-hint">Q</span>
+              </button>
+              <button onClick={() => addPoint("A")}>
+                +<span className="shortcut-hint">W</span>
+              </button>
             </div>
             <div className="timer">{formattedTime}</div>
             <div className="flex items-center gap-2">
               <p>Buts : {matchData.teamB.score}</p>
-              <button onClick={() => subPoint("B")}>-</button>
-              <button onClick={() => addPoint("B")}>+</button>
+              <button onClick={() => subPoint("B")}>
+                -<span className="shortcut-hint">L</span>
+              </button>
+              <button onClick={() => addPoint("B")}>
+                +<span className="shortcut-hint">O</span>
+              </button>
             </div>
           </div>
 
@@ -389,65 +522,128 @@ export default function HandballTableMarquagePage() {
             {/* Cartons Équipe A */}
             <div className="flex flex-col items-center gap-4 space-x-4">
               <div className="flex items-center gap-2">
-                <p>Cartons Jaunes : {matchData.teamA.yellowCards != 0 ? matchData.teamA.yellowCards : 0}</p>
-                <button style={{ backgroundColor: 'var(--bg-yellow-900)' }} onClick={() => subYellowCard("A")}>-</button>
-                <button style={{ backgroundColor: 'var(--bg-yellow-900)' }} onClick={() => addYellowCard("A")}>+</button>
+                <p>
+                  Cartons Jaunes :{" "}
+                  {matchData.teamA.yellowCards != 0
+                    ? matchData.teamA.yellowCards
+                    : 0}
+                </p>
+                <button
+                  style={{ backgroundColor: "var(--bg-yellow-900)" }}
+                  onClick={() => subYellowCard("A")}
+                >
+                  -
+                </button>
+                <button
+                  style={{ backgroundColor: "var(--bg-yellow-900)" }}
+                  onClick={() => addYellowCard("A")}
+                >
+                  +
+                </button>
               </div>
               <div className="flex items-center gap-2">
-                <p>Cartons Rouges : {matchData.teamA.redCards != 0 ? matchData.teamA.redCards : 0}</p>
-                <button style={{ backgroundColor: 'var(--bg-red-900)' }} onClick={() => subRedCard("A")}>-</button>
-                <button style={{ backgroundColor: 'var(--bg-red-900)' }} onClick={() => addRedCard("A")}>+</button>
+                <p>
+                  Cartons Rouges :{" "}
+                  {matchData.teamA.redCards != 0 ? matchData.teamA.redCards : 0}
+                </p>
+                <button
+                  style={{ backgroundColor: "var(--bg-red-900)" }}
+                  onClick={() => subRedCard("A")}
+                >
+                  -
+                </button>
+                <button
+                  style={{ backgroundColor: "var(--bg-red-900)" }}
+                  onClick={() => addRedCard("A")}
+                >
+                  +
+                </button>
               </div>
             </div>
             <div className="period-switch text-lg">
               <span>MT1</span>
               <label className="switch">
-                  <input 
-                    type="checkbox" 
-                    id="periodToggle" 
-                    checked={periodSwitchChecked}  // 👈 Ajoutez cette ligne
-                    onChange={togglePeriod} 
-                  />
-                  <span className="slider round"></span>
+                <input
+                  type="checkbox"
+                  id="periodToggle"
+                  checked={periodSwitchChecked}
+                  onChange={togglePeriod}
+                />
+                <span className="slider round"></span>
               </label>
               <span>MT2</span>
             </div>
             {/* Cartons Équipe B */}
             <div className="flex flex-col items-center gap-4">
               <div className="flex items-center gap-2">
-                <p>Cartons Jaunes : {matchData.teamB.yellowCards != 0 ? matchData.teamB.yellowCards : 0}</p>
-                <button style={{ backgroundColor: 'var(--bg-yellow-900)' }} onClick={() => subYellowCard("B")}>-</button>
-                <button style={{ backgroundColor: 'var(--bg-yellow-900)' }} onClick={() => addYellowCard("B")}>+</button>
+                <p>
+                  Cartons Jaunes :{" "}
+                  {matchData.teamB.yellowCards != 0
+                    ? matchData.teamB.yellowCards
+                    : 0}
+                </p>
+                <button
+                  style={{ backgroundColor: "var(--bg-yellow-900)" }}
+                  onClick={() => subYellowCard("B")}
+                >
+                  -
+                </button>
+                <button
+                  style={{ backgroundColor: "var(--bg-yellow-900)" }}
+                  onClick={() => addYellowCard("B")}
+                >
+                  +
+                </button>
               </div>
               <div className="flex items-center gap-2">
-                <p>Cartons Rouges : {matchData.teamB.redCards != 0 ? matchData.teamB.redCards : 0}</p>
-                <button style={{ backgroundColor: 'var(--bg-red-900)' }} onClick={() => subRedCard("B")}>-</button>
-                <button style={{ backgroundColor: 'var(--bg-red-900)' }} onClick={() => addRedCard("B")}>+</button>
+                <p>
+                  Cartons Rouges :{" "}
+                  {matchData.teamB.redCards != 0 ? matchData.teamB.redCards : 0}
+                </p>
+                <button
+                  style={{ backgroundColor: "var(--bg-red-900)" }}
+                  onClick={() => subRedCard("B")}
+                >
+                  -
+                </button>
+                <button
+                  style={{ backgroundColor: "var(--bg-red-900)" }}
+                  onClick={() => addRedCard("B")}
+                >
+                  +
+                </button>
               </div>
             </div>
           </div>
 
           <div className="bottom-controls">
-            <button onClick={handleStart}>Start</button>
-            <button onClick={stopChrono}>Stop</button>
-            <button onClick={addSecond}>+1s</button>
-            <button onClick={handleSwipe}>Swipe</button>
+            <button onClick={handleStart}>
+              Start<span className="shortcut-hint">T</span>
+            </button>
+            <button onClick={stopChrono}>
+              Stop<span className="shortcut-hint">Échap</span>
+            </button>
+            <button onClick={addSecond}>
+              +1s<span className="shortcut-hint">+</span>
+            </button>
+            <button onClick={handleSwipe}>
+              Swipe<span className="shortcut-hint">X</span>
+            </button>
             <button
               onClick={async () => {
                 try {
                   await handleEnd();
                   const tournamentId = matchData.tournamentId;
-                  console.log('[Handball] MatchData complet:', matchData);
-                  console.log('[Handball] TournamentId from matchData:', tournamentId);
-                  console.log('[Handball] MatchId:', matchId);
+                  console.log("[Handball] TournamentId:", tournamentId);
                   if (!tournamentId) {
-                    alert("Impossible de retrouver l'ID du tournoi pour la redirection.");
+                    alert(
+                      "Impossible de retrouver l'ID du tournoi pour la redirection.",
+                    );
                     return;
                   }
-                  console.log('[Handball] Redirecting to tournament:', tournamentId);
                   window.location.href = `/choix-sport/tournaments/${tournamentId}`;
                 } catch (error) {
-                  console.error('[Handball] Error ending match:', error);
+                  console.error("[Handball] Error ending match:", error);
                 }
               }}
             >
@@ -456,6 +652,91 @@ export default function HandballTableMarquagePage() {
           </div>
         </div>
       </div>
+
+
+      {/* Modal sélection du joueur cartonné */}
+      {pendingCardEvent && (
+        <div className="goal-modal-overlay">
+          <div
+            className="goal-modal-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="card-modal-title"
+          >
+            <h2 id="card-modal-title" className="goal-modal-title">
+              {pendingCardEvent.event_type === "yellow_card"
+                ? "🟨 Carton jaune"
+                : "🟥 Carton rouge"}
+            </h2>
+            <p className="goal-modal-team">
+              {pendingCardEvent.team === "A"
+                ? matchData.teamA.name || "Équipe A"
+                : matchData.teamB.name || "Équipe B"}
+            </p>
+
+            <div className="goal-modal-players">
+              <button
+                onClick={() => setSelectedCardPlayerId("none")}
+                className={`goal-modal-player-button ${selectedCardPlayerId === "none" ? "goal-modal-player-button-active" : ""}`}
+              >
+                Non attribué
+              </button>
+              {players
+                .filter((p) => p.team === pendingCardEvent.team)
+                .sort(
+                  (a, b) => (a.jersey_number ?? 99) - (b.jersey_number ?? 99),
+                )
+                .map((player) => (
+                  <button
+                    key={player.id}
+                    onClick={() => setSelectedCardPlayerId(player.id)}
+                    className={`goal-modal-player-button ${selectedCardPlayerId === player.id ? "goal-modal-player-button-active" : ""}`}
+                  >
+                    <span className="font-bold mr-2">
+                      #{player.jersey_number ?? "?"}
+                    </span>
+                    {[player.first_name, player.last_name]
+                      .filter(Boolean)
+                      .join(" ") || "Anonyme"}
+                    {player.is_captain && (
+                      <span className="ml-2 text-[10px] bg-yellow-200 text-yellow-800 px-1 rounded">
+                        C
+                      </span>
+                    )}
+                  </button>
+                ))}
+            </div>
+
+            <div className="goal-modal-actions">
+              <button
+                onClick={() => {
+                  cancelCardModal();
+                  setSelectedCardPlayerId(null);
+                }}
+                className="goal-modal-cancel"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={() => {
+                  if (selectedCardPlayerId === null) return;
+                  confirmCard(
+                    selectedCardPlayerId === "none"
+                      ? undefined
+                      : selectedCardPlayerId,
+                  );
+                  setSelectedCardPlayerId(null);
+                }}
+                disabled={selectedCardPlayerId === null}
+                className="goal-modal-confirm"
+              >
+                Valider
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </main>
   );
 }

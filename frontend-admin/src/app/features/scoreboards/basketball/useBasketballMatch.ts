@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useSession } from "next-auth/react";
-import { MatchData } from "./types";
+import { MatchData, MatchPlayer, LocalMatchEvent } from "./types";
 import { submitMatchResultWithPropagation, updateMatchStatus as updateStatus } from "../common/useMatchPropagation";
 import { useLiveScoreSync } from "../common/useLiveScoreSync";
 
@@ -28,6 +28,20 @@ export function useBasketballMatch(initialMatchId: string | null) {
 
     const intervalRef = useRef<number | null>(null);
     const [court, setCourt] = useState<string>("");
+
+    // États pour les événements de paniers
+    const [players, setPlayers] = useState<MatchPlayer[]>([]);
+    const [pendingEvents, setPendingEvents] = useState<LocalMatchEvent[]>([]);
+    const pendingEventCounter = useRef(0);
+    // Dernier événement pour diffusion SSE vers le frontend public
+    const [lastGoalPayload, setLastGoalPayload] = useState<{
+        event_type: string;
+        minute: null;
+        playerNumber: number | null;
+        playerName: string | null;
+        team: "A" | "B";
+        timestamp: string;
+    } | null>(null);
 
     // Récupérer les données du match depuis l'API
     useEffect(() => {
@@ -151,6 +165,15 @@ export function useBasketballMatch(initialMatchId: string | null) {
         fetchMatchData();
     }, [initialMatchId]);
 
+    // Fetch des joueurs enregistrés pour ce match
+    useEffect(() => {
+        if (!initialMatchId) return;
+        fetch(`${process.env.NEXT_PUBLIC_API_URL}/matches/${initialMatchId}/players`)
+            .then(r => r.json())
+            .then(d => setPlayers(d.data || []))
+            .catch(() => {});
+    }, [initialMatchId]);
+
     // Shot clock (14s / 24s) géré séparément du chrono principal - en dixièmes de seconde
     const [shotClock, setShotClockState] = useState<number>(240); // 24.0 secondes
     const shotClockRunningRef = useRef<boolean>(false);
@@ -159,10 +182,14 @@ export function useBasketballMatch(initialMatchId: string | null) {
     // Période (MT1 / MT2)
     const [period, setPeriod] = useState<"MT1" | "MT2">("MT1");
 
+    // Timestamp buzzer pour synchronisation vers la vue spectateur
+    const [buzzerFiredAt, setBuzzerFiredAt] = useState<number>(0);
+
     // Buzzer simple via WebAudio API
     const audioCtxRef = useRef<AudioContext | null>(null);
     const buzzer: { play: () => void } = {
         play: () => {
+            setBuzzerFiredAt(Date.now());
             try {
                 const AudioContextCtor: any = (window as any).AudioContext || (window as any).webkitAudioContext;
                 if (!audioCtxRef.current && AudioContextCtor) {
@@ -295,7 +322,7 @@ export function useBasketballMatch(initialMatchId: string | null) {
             };
         });
 
-    const addScore = (team: "A" | "B", points: number) => {
+    function doAddScore(team: "A" | "B", points: number) {
         setMatchData((p) => {
             const k = teamKey(team);
             return {
@@ -306,6 +333,42 @@ export function useBasketballMatch(initialMatchId: string | null) {
         // Après chaque panier, la possession est remise à 24 secondes
         setShotClockState(240); // 24.0s
         shotClockRunningRef.current = matchData.chrono.running;
+    }
+
+    /** Crée un événement de panier local */
+    function createScoreEvent(team: "A" | "B", player: MatchPlayer | null, points: number) {
+        const localId = ++pendingEventCounter.current;
+        const timestamp = new Date().toISOString();
+        // Temps écoulé = durée totale - temps restant
+        const elapsedSeconds = HALF_TIME_DURATION - matchData.chrono.time;
+        setPendingEvents(prev => [...prev, {
+            localId,
+            event_type: "basket" as const,
+            team,
+            player_id: player?.id ?? null,
+            points,
+            match_time_seconds: elapsedSeconds,
+            timestamp,
+            player: player
+                ? { id: player.id, first_name: player.first_name ?? null, last_name: player.last_name ?? null, jersey_number: player.jersey_number ?? null }
+                : null,
+        }]);
+        setLastGoalPayload({
+            event_type: "goal",
+            minute: null,
+            playerNumber: player?.jersey_number ?? null,
+            playerName: player
+                ? [player.first_name, player.last_name].filter(Boolean).join(" ") || null
+                : null,
+            team,
+            timestamp,
+        });
+    }
+
+    /** addScore : incrémente directement sans modal de sélection joueur */
+    const addScore = (team: "A" | "B", points: number) => {
+        createScoreEvent(team, null, points);
+        doAddScore(team, points);
     };
 
     const subScore = (team: "A" | "B", points: number) =>
@@ -477,6 +540,25 @@ export function useBasketballMatch(initialMatchId: string | null) {
     /** ---------- END MATCH ---------- */
     const handleEnd = async () => {
         stopChrono();
+        // Sauvegarder les événements de paniers en batch avant de terminer
+        const snapshot = pendingEvents;
+        if (snapshot.length > 0 && initialMatchId) {
+            const matchNumId = matchData.numericId?.toString() || initialMatchId;
+            try {
+                await fetch(`${process.env.NEXT_PUBLIC_API_URL}/matches/${matchNumId}/events/batch`, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                    },
+                    body: JSON.stringify(snapshot.map(e => ({
+                        team: e.team,
+                        player_id: e.player_id ?? null,
+                        match_time_seconds: e.match_time_seconds ?? null,
+                    }))),
+                });
+            } catch { /* silencieux */ }
+        }
         await submitMatchResult();
     };
 
@@ -553,7 +635,23 @@ export function useBasketballMatch(initialMatchId: string | null) {
                 shotClock: formattedShotClock,
                 chronoRunning: matchData.chrono.running,
                 period,
+                buzzerFiredAt,
                 lastUpdate: new Date().toISOString(),
+                recentEvents: pendingEvents.slice(-10).map(e => ({
+                    team: e.team,
+                    playerName: e.player
+                        ? [e.player.first_name, e.player.last_name].filter(Boolean).join(" ") || null
+                        : null,
+                    jerseyNumber: e.player?.jersey_number ?? null,
+                })),
+                lastGoal: lastGoalPayload
+                    ? {
+                        ...lastGoalPayload,
+                        teamName: lastGoalPayload.team === "A"
+                            ? (matchData.teamA.name || "ÉQUIPE A")
+                            : (matchData.teamB.name || "ÉQUIPE B"),
+                    }
+                    : null,
             };
             // Sync to localStorage (for same-device spectator)
             localStorage.setItem("liveBasketballMatch", JSON.stringify(payload));
@@ -573,7 +671,7 @@ export function useBasketballMatch(initialMatchId: string | null) {
         } catch (e) {
             // Ignore storage errors
         }
-    }, [matchData, formattedTime, formattedShotClock, period, court, initialMatchId, sendLiveScore]);
+    }, [matchData, formattedTime, formattedShotClock, period, court, buzzerFiredAt, initialMatchId, sendLiveScore, pendingEvents, lastGoalPayload]);
 
     // Cleanup à l'unmount
     useEffect(() => {
@@ -628,6 +726,9 @@ export function useBasketballMatch(initialMatchId: string | null) {
         court,
         updateMatchStatus,
         submitMatchResult,
-        handleEnd
+        handleEnd,
+        // Événements de paniers
+        players,
+        pendingEvents,
     };
 }

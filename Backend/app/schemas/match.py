@@ -37,6 +37,8 @@ class MatchBase(BaseModel):
     court: Optional[str] = None
     date: Optional[str] = None
     time: Optional[str] = None
+    officials: Optional[str] = Field(None, description="Arbitre(s)")
+    table_staff: Optional[str] = Field(None, description="Personnel table de marquage")
 
 
 
@@ -70,6 +72,8 @@ class MatchUpdate(BaseModel):
     court: Optional[str] = None
     date: Optional[str] = None
     time: Optional[str] = None
+    officials: Optional[str] = None
+    table_staff: Optional[str] = None
 
 
 class MatchResponse(MatchBase):

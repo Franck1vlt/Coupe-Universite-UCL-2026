@@ -23,7 +23,7 @@
     --text-green-400: #16a34a;
 }
 
-* {
+.handball-root * {
     margin: 0;
     padding: 0;
     box-sizing: border-box;
@@ -33,11 +33,12 @@
 .handball-root {
     display: flex;
     flex-direction: row;
+    flex-wrap: wrap;
     justify-content: center;
-    align-items: flex-start;
+    align-items: stretch;
     min-height: 100vh;
     width: 100vw;
-    overflow: hidden;
+    overflow-y: auto;
     background-color: white;
     padding-top: 15vh; /* espace pour le header fixe */
 }
@@ -54,7 +55,7 @@
     background: white;
 }
 
-button {
+.handball-root button {
     background-color: #002F4A;
     color: #fff;
     border: none;
@@ -65,7 +66,7 @@ button {
     transition: background-color 0.3s;
 }
 
-button:hover {
+.handball-root button:hover {
     filter: brightness(90%);
 }
 
@@ -78,7 +79,6 @@ button:hover {
 .handball-root .gauche {
     background-color: #5c5c5c;
     width: 220px;
-    height: 72vh;
     color: #fff;
     padding: 20px;
     margin: 20px;
@@ -87,14 +87,16 @@ button:hover {
 }
 .handball-root .droite {
     background-color: #222;
-    width: 62vw;
-    height: 72vh;
+    flex: 1;
+    min-width: 380px;
+    height: auto;
+    min-height: 400px;
     color: #fff;
     margin: 20px;
     border-radius: 10px;
     text-align: center;
     box-shadow: 0 0 15px rgba(0, 0, 0, 0.2);
-    overflow: hidden;
+    overflow: visible;
 }
 
 .parametres-match {
@@ -181,10 +183,9 @@ button:hover {
     padding: 20px;
     height: auto;
     color: #fff;
-    margin: 5vh auto;
-    transform: scale(0.88);
-    transform-origin: top center;
-    gap: 3vh;
+    width: 100%;
+    max-width: 600px;
+    margin: 30px auto 0;
 }
 
 .scoreboard span {
@@ -192,7 +193,7 @@ button:hover {
 }
 
 .handball-root .score-line {
-    font-size: 2rem;
+    font-size: 3rem;
     font-weight: bold;
     margin-bottom: 10px;
 }
@@ -294,9 +295,11 @@ button:hover {
 
 .bottom-controls {
     display: flex;
-    justify-content: space-around;
+    flex-wrap: wrap;
+    justify-content: center;
     gap: 10px;
-    margin-top: 60px;
+    margin-top: 30px;
+    padding: 0 10px 20px;
 }
 
 .action-button {
@@ -307,10 +310,6 @@ button:hover {
     padding: 8px 16px;
     cursor: pointer;
     flex: 1;
-}
-
-button:hover {
-    opacity: 0.9;
 }
 
 /* Page Affichage */
@@ -618,4 +617,283 @@ input:checked + .slider:before {
 
 .slider.round:before {
     border-radius: 50%;
+}
+
+/* ===== Modals événements (buts / cartons) ===== */
+
+.goal-modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 2001;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(6, 10, 18, 0.72);
+    backdrop-filter: blur(3px);
+    padding: 16px;
+}
+
+.goal-modal-card {
+    width: min(460px, 100%);
+    border-radius: 16px;
+    padding: 20px;
+    background: linear-gradient(165deg, #ffffff 0%, #f2f6fb 100%);
+    border: 1px solid #d7e0ee;
+    box-shadow: 0 24px 45px rgba(0, 18, 52, 0.28);
+    color: #111827;
+}
+
+.goal-modal-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    line-height: 1.2;
+    margin-bottom: 4px;
+}
+
+.goal-modal-team {
+    font-size: 0.92rem;
+    color: #546275;
+    margin-bottom: 14px;
+}
+
+.goal-modal-players {
+    max-height: 250px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 14px;
+    padding-right: 4px;
+}
+
+.goal-modal-card .goal-modal-player-button {
+    width: 100%;
+    text-align: left;
+    border-radius: 10px;
+    border: 1px solid #ccd5e1;
+    background: #ffffff;
+    color: #0f172a;
+    padding: 10px 12px;
+    font-size: 0.9rem;
+    transition: all 0.18s ease;
+}
+
+.goal-modal-card .goal-modal-player-button:hover {
+    border-color: #8db2f5;
+    background: #eef4ff;
+}
+
+.goal-modal-card .goal-modal-player-button-active {
+    border-color: #1f4f95;
+    background: #1f4f95;
+    color: #ffffff;
+}
+
+.goal-modal-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.goal-modal-cancel,
+.goal-modal-confirm {
+    flex: 1;
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+.goal-modal-card .goal-modal-cancel {
+    border: 1px solid #b91c1c;
+    background: #dc2626;
+    color: #ffffff;
+}
+
+.goal-modal-card .goal-modal-cancel:hover {
+    background: #b91c1c;
+}
+
+.goal-modal-card .goal-modal-confirm {
+    border: 1px solid #15803d;
+    background: #16a34a;
+    color: #ffffff;
+}
+
+.goal-modal-card .goal-modal-confirm:hover {
+    background: #15803d;
+}
+
+.goal-modal-card .goal-modal-confirm:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* ===== FAB notification événements ===== */
+
+.goal-events-fab {
+    position: fixed;
+    top: 18px;
+    right: 18px;
+    z-index: 3002;
+}
+
+.goal-events-shell {
+    position: relative;
+}
+
+.goal-events-fab .goal-events-button {
+    position: relative;
+    width: 56px;
+    height: 56px;
+    border-radius: 9999px;
+    border: none;
+    background: linear-gradient(135deg, #1a3f6f 0%, #002f4a 100%);
+    box-shadow: 0 4px 14px rgba(0, 47, 74, 0.45), 0 1px 3px rgba(0, 0, 0, 0.2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.goal-events-fab .goal-events-button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 18px rgba(0, 47, 74, 0.5), 0 2px 4px rgba(0, 0, 0, 0.25);
+    filter: none;
+}
+
+.goal-events-icon {
+    width: 22px;
+    height: 22px;
+    color: #ffffff;
+}
+
+@keyframes badge-pop {
+    0%   { transform: scale(1); }
+    40%  { transform: scale(1.35); }
+    70%  { transform: scale(0.88); }
+    100% { transform: scale(1); }
+}
+
+.goal-events-badge {
+    position: absolute;
+    top: -6px;
+    right: -4px;
+    min-width: 22px;
+    height: 22px;
+    border-radius: 9999px;
+    border: 2px solid #ffffff;
+    background: linear-gradient(180deg, #16a34a 0%, #15803d 100%);
+    color: #ffffff;
+    font-size: 11px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 5px;
+    animation: badge-pop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+.goal-events-panel {
+    position: absolute;
+    top: 62px;
+    right: 0;
+    width: 320px;
+    max-height: 360px;
+    overflow-y: auto;
+    border-radius: 14px;
+    border: 1px solid #cbd8ea;
+    background: #f8fbff;
+    box-shadow: 0 18px 36px rgba(0, 25, 67, 0.35);
+    padding: 12px;
+}
+
+.goal-events-panel-title {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #577098;
+    margin-bottom: 10px;
+}
+
+.goal-events-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.goal-event-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 9px 10px;
+    border-radius: 11px;
+    border: 1px solid #d8e3f3;
+    background: #ffffff;
+}
+
+.goal-event-minute {
+    min-width: 34px;
+    text-align: center;
+    font-weight: 700;
+    font-size: 0.8rem;
+    color: #0f5a1f;
+    background: #dcfce7;
+    border-radius: 9999px;
+    padding: 3px 0;
+}
+
+.goal-event-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+}
+
+.goal-event-playerline {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+.goal-event-number {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #1f3f73;
+    background: #e7eefb;
+    border-radius: 8px;
+    padding: 2px 6px;
+}
+
+.goal-event-player {
+    font-size: 0.86rem;
+    font-weight: 600;
+    color: #1f2937;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.goal-event-team {
+    font-size: 0.72rem;
+    color: #6b7280;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Hints raccourcis clavier */
+.shortcut-hint {
+    display: inline-block;
+    font-size: 0.65em;
+    font-weight: 600;
+    opacity: 0.6;
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 3px;
+    padding: 0 3px;
+    margin-left: 4px;
+    vertical-align: middle;
+    letter-spacing: 0;
 }

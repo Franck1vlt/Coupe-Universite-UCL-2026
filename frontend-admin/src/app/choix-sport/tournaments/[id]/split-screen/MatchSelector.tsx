@@ -126,7 +126,7 @@ export default function MatchSelector({
                                                     match.team_a_logo
                                                         ? match.team_a_logo
                                                         : match.team_a_name
-                                                            ? `/img/${encodeURIComponent(match.team_a_name)}.png`
+                                                            ? `/img/${match.team_a_name.toLowerCase().replace(/\s+/g, '-')}.png`
                                                             : "/img/no-logo.png"
                                                 }
                                                 onError={e => { e.currentTarget.onerror = null; e.currentTarget.src = "/img/no-logo.png"; }}
@@ -142,7 +142,7 @@ export default function MatchSelector({
                                                     match.team_b_logo
                                                         ? match.team_b_logo
                                                         : match.team_b_name
-                                                            ? `/img/${encodeURIComponent(match.team_b_name)}.png`
+                                                            ? `/img/${match.team_b_name.toLowerCase().replace(/\s+/g, '-')}.png`
                                                             : "/img/no-logo.png"
                                                 }
                                                 onError={e => { e.currentTarget.onerror = null; e.currentTarget.src = "/img/no-logo.png"; }}

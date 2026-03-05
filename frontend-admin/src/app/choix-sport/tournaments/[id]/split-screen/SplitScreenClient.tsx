@@ -24,8 +24,8 @@ interface Match {
     court?: string;
     tournament_name?: string;
     tournament_id?: number;
-    sport_code?: string;  // Sport code for this match
-    sport_name?: string;  // Sport name for display
+    sport_code?: string;
+    sport_name?: string;
 }
 
 interface Tournament {
@@ -37,7 +37,7 @@ interface Tournament {
 }
 
 interface SplitScreenClientProps {
-    tournamentId: string;
+    tournamentId?: string;
 }
 
 export default function SplitScreenClient({ tournamentId }: SplitScreenClientProps) {
@@ -59,7 +59,7 @@ export default function SplitScreenClient({ tournamentId }: SplitScreenClientPro
     // Show match selector modal
     const [showSelector, setShowSelector] = useState(false);
 
-    // Fullscreen mode
+    // Fullscreen mode — synced with browser fullscreenchange event
     const [isFullscreen, setIsFullscreen] = useState(false);
 
     // SSE connection for live scores
@@ -95,40 +95,40 @@ export default function SplitScreenClient({ tournamentId }: SplitScreenClientPro
                 setLoading(true);
                 setError(null);
 
-                // 1. Fetch current tournament info for context
-                const tournamentRes = await fetch(`${API_URL}/tournaments/${tournamentId}`);
-                if (!tournamentRes.ok) throw new Error("Tournament not found");
-                const tournamentData = await tournamentRes.json();
-                const currentSportId = tournamentData.data.sport_id;
+                // 1. Fetch context tournament if a tournamentId is provided
+                if (tournamentId) {
+                    const tournamentRes = await fetch(`${API_URL}/tournaments/${tournamentId}`);
+                    if (!tournamentRes.ok) throw new Error("Tournament not found");
+                    const tournamentData = await tournamentRes.json();
+                    const currentSportId = tournamentData.data.sport_id;
 
-                // 2. Fetch current sport info
-                const sportRes = await fetch(`${API_URL}/sports/${currentSportId}`);
-                const sportData = await sportRes.json();
-                const currentSportCode = sportData.data?.code
-                    || sportData.data?.slug
-                    || sportData.data?.name?.toLowerCase().replace(/\s+/g, '')
-                    || "unknown";
-                const currentSportName = sportData.data?.name || "Sport";
+                    const sportRes = await fetch(`${API_URL}/sports/${currentSportId}`);
+                    const sportData = await sportRes.json();
+                    const currentSportCode = sportData.data?.code
+                        || sportData.data?.slug
+                        || sportData.data?.name?.toLowerCase().replace(/\s+/g, '')
+                        || "unknown";
+                    const currentSportName = sportData.data?.name || "Sport";
 
-                setCurrentTournament({
-                    id: tournamentData.data.id,
-                    name: tournamentData.data.name,
-                    sport_id: currentSportId,
-                    sport_code: currentSportCode,
-                    sport_name: currentSportName,
-                });
+                    setCurrentTournament({
+                        id: tournamentData.data.id,
+                        name: tournamentData.data.name,
+                        sport_id: currentSportId,
+                        sport_code: currentSportCode,
+                        sport_name: currentSportName,
+                    });
+                }
 
-                // 3. Fetch ALL tournaments (not filtered by sport) for multi-sport support
+                // 2. Fetch ALL tournaments for multi-sport support
                 const allTournamentsRes = await fetch(`${API_URL}/tournaments`);
                 if (!allTournamentsRes.ok) throw new Error("Failed to fetch tournaments");
                 const allTournamentsData = await allTournamentsRes.json();
 
-                // Handle both array format and {items: [...]} format
                 const tournamentsArray = Array.isArray(allTournamentsData.data)
                     ? allTournamentsData.data
                     : (allTournamentsData.data?.items || []);
 
-                // 4. Fetch sport info for each unique sport_id
+                // 3. Fetch sport info for each unique sport_id
                 const sportIds = [...new Set(tournamentsArray.map((t: any) => t.sport_id))];
                 const sportsMap = new Map<number, { code: string; name: string }>();
 
@@ -147,7 +147,7 @@ export default function SplitScreenClient({ tournamentId }: SplitScreenClientPro
                     }
                 }
 
-                // 5. Build tournaments list with sport info
+                // 4. Build tournaments list with sport info
                 const tournaments: Tournament[] = tournamentsArray.map((t: any) => {
                     const sportInfo = sportsMap.get(t.sport_id) || { code: "unknown", name: "Sport" };
                     return {
@@ -160,9 +160,7 @@ export default function SplitScreenClient({ tournamentId }: SplitScreenClientPro
                 });
                 setAllTournaments(tournaments);
 
-                console.log(`[SplitScreen] Loaded ${tournaments.length} tournaments from ${sportIds.length} sports`);
-
-                // 6. Fetch matches from ALL tournaments
+                // 5. Fetch matches from ALL tournaments
                 const allMatches: Match[] = [];
                 for (const t of tournaments) {
                     const matchesRes = await fetch(`${API_URL}/tournaments/${t.id}/matches`);
@@ -175,7 +173,6 @@ export default function SplitScreenClient({ tournamentId }: SplitScreenClientPro
                     }
                 }
 
-                console.log(`[SplitScreen] Found ${allMatches.length} in-progress matches`);
                 setAvailableMatches(allMatches);
 
                 // Auto-select first matches if available
@@ -219,15 +216,24 @@ export default function SplitScreenClient({ tournamentId }: SplitScreenClientPro
         return () => clearInterval(interval);
     }, [allTournaments]);
 
+    // Sync isFullscreen with the browser fullscreenchange event
+    // This ensures the header reappears when the user presses Escape
+    useEffect(() => {
+        const handleFullscreenChange = () => {
+            setIsFullscreen(!!document.fullscreenElement);
+        };
+        document.addEventListener("fullscreenchange", handleFullscreenChange);
+        return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
+    }, []);
+
     // Toggle fullscreen
     const toggleFullscreen = () => {
         if (!document.fullscreenElement) {
             document.documentElement.requestFullscreen();
-            setIsFullscreen(true);
         } else {
             document.exitFullscreen();
-            setIsFullscreen(false);
         }
+        // State is updated by the fullscreenchange event listener above
     };
 
     // Handle match selection
@@ -240,7 +246,6 @@ export default function SplitScreenClient({ tournamentId }: SplitScreenClientPro
     const normalizeSport = (sport: string | undefined): string => {
         if (!sport) return "unknown";
         const normalized = sport.toLowerCase().trim();
-        // Map common variations
         const sportMap: Record<string, string> = {
             "volley": "volleyball",
             "volley-ball": "volleyball",
@@ -256,32 +261,11 @@ export default function SplitScreenClient({ tournamentId }: SplitScreenClientPro
         return sportMap[normalized] || normalized;
     };
 
-    // Debug: Log SSE state changes
-    useEffect(() => {
-        console.log(`[SplitScreen] 🔌 SSE Connection State:`, connectionState);
-        console.log(`[SplitScreen] 📡 Subscribed to match IDs:`, selectedMatchIds);
-        console.log(`[SplitScreen] 📊 Current scores map size:`, scores.size);
-        if (scores.size > 0) {
-            scores.forEach((score, matchId) => {
-                console.log(`[SplitScreen] 📊 Score for match ${matchId}:`, score.data);
-            });
-        }
-    }, [connectionState, selectedMatchIds, scores]);
-
     // Merge SSE scores with match data
     const matchesWithScores = useMemo(() => {
         return selectedMatchIds.map(matchId => {
             const match = availableMatches.find(m => m.id === matchId);
             const liveScore = scores.get(matchId);
-
-            // Debug log
-            console.log(`[SplitScreen] 🎯 Match ${matchId}:`, {
-                hasLiveScore: !!liveScore,
-                liveScoreSport: liveScore?.sport,
-                cochonnetTeam: liveScore?.data?.cochonnetTeam,
-                scoreA: liveScore?.data?.scoreA,
-                scoreB: liveScore?.data?.scoreB,
-            });
 
             if (liveScore) {
                 return {
@@ -329,7 +313,12 @@ export default function SplitScreenClient({ tournamentId }: SplitScreenClientPro
         return (
             <div className="split-screen-empty">
                 <h2>Aucun match en cours</h2>
-                <p>Il n&apos;y a actuellement aucun match en cours pour {currentTournament?.sport_name}.</p>
+                <p>
+                    {currentTournament
+                        ? `Il n'y a actuellement aucun match en cours pour ${currentTournament.sport_name}.`
+                        : "Il n'y a actuellement aucun match en cours."
+                    }
+                </p>
                 <p className="hint">
                     {allTournaments.length > 1
                         ? `Tournois surveillés : ${allTournaments.map(t => t.name).join(", ")}`
@@ -337,11 +326,16 @@ export default function SplitScreenClient({ tournamentId }: SplitScreenClientPro
                     }
                 </p>
                 <button onClick={() => router.back()} className="back-button">
-                    Retour au tournoi
+                    Retour
                 </button>
             </div>
         );
     }
+
+    const headerTitle = currentTournament?.sport_name || "Tous les sports";
+    const headerSubtitle = allTournaments.length > 1
+        ? `${allTournaments.length} tournois`
+        : currentTournament?.name || "";
 
     return (
         <div className={`split-screen-container ${isFullscreen ? 'fullscreen' : ''}`}>
@@ -354,13 +348,8 @@ export default function SplitScreenClient({ tournamentId }: SplitScreenClientPro
                         </svg>
                     </button>
                     <div className="header-title">
-                        <h1>{currentTournament?.sport_name}</h1>
-                        <span className="tournament-name">
-                            {allTournaments.length > 1
-                                ? `${allTournaments.length} tournois`
-                                : currentTournament?.name
-                            }
-                        </span>
+                        <h1>{headerTitle}</h1>
+                        <span className="tournament-name">{headerSubtitle}</span>
                     </div>
                 </div>
 

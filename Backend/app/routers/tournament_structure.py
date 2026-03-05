@@ -62,6 +62,8 @@ class TournamentPoolCreate(BaseModel):
     qualified_to_loser_bracket: int = 0
     teams: List[int] = []  # IDs des team_sports
     matches: List[TournamentMatchCreate] = []
+    use_standing_points: bool = False
+    standing_points: Optional[Dict[int, int]] = None
 
 class TournamentBracketCreate(BaseModel):
     """Bracket à créer (quarts, demis, finale, etc.)"""
@@ -106,7 +108,9 @@ class TournamentPoolResponse(BaseModel):
     qualified_to_loser_bracket: int
     teams: List[int] = []
     matches: List[TournamentMatchResponse] = []
-    
+    use_standing_points: bool = False
+    standing_points: Optional[Dict[int, int]] = None
+
     class Config:
         from_attributes = True
 
@@ -585,6 +589,17 @@ def create_tournament_structure(
         elif winner_dest_uuid or loser_dest_uuid:
             print(f"[COLLECT] ⚠️ Match sans identifiant mais avec destinations: winnerDest={winner_dest_uuid}, loserDest={loser_dest_uuid}")
 
+    # Récupérer tous les IDs de matchs existants pour ce tournoi (avant upsert)
+    existing_match_ids = {
+        m.id for m in (
+            db.query(Match)
+            .join(TournamentPhase)
+            .filter(TournamentPhase.tournament_id == tournament_id)
+            .all()
+        )
+    }
+    processed_match_ids = set()
+
     # --- TRAITEMENT DES SECTIONS (PASSE 1 : Création des matchs) ---
     if structure.qualification_matches:
         p = get_or_create_phase("qualifications", 1)
@@ -593,19 +608,25 @@ def create_tournament_structure(
             match_obj = upsert_match(m, p.id, "qualification")
             if match_obj and match_obj.uuid:
                 created_matches_by_uuid[match_obj.uuid] = match_obj
+            if match_obj and match_obj.id:
+                processed_match_ids.add(match_obj.id)
 
     if structure.pools:
         p = get_or_create_phase("pools", 2)
         for p_data in structure.pools:
             pool = db.query(Pool).filter(Pool.phase_id == p.id, Pool.name == p_data.name).first()
+            import json
+            sp_json = json.dumps({str(k): v for k, v in p_data.standing_points.items()}) if p_data.standing_points else None
             if not pool:
                 # ✅ FIX: Inclure qualified_to_finals et qualified_to_loser_bracket lors de la création
                 pool = Pool(
-                    phase_id=p.id, 
-                    name=p_data.name, 
+                    phase_id=p.id,
+                    name=p_data.name,
                     order=p_data.display_order,
                     qualified_to_finals=p_data.qualified_to_finals,
-                    qualified_to_loser_bracket=p_data.qualified_to_loser_bracket
+                    qualified_to_loser_bracket=p_data.qualified_to_loser_bracket,
+                    use_standing_points=p_data.use_standing_points,
+                    standing_points=sp_json
                 )
                 db.add(pool)
                 db.flush()
@@ -613,12 +634,16 @@ def create_tournament_structure(
                 # ✅ FIX: Mettre à jour les valeurs si la poule existe déjà
                 pool.qualified_to_finals = p_data.qualified_to_finals
                 pool.qualified_to_loser_bracket = p_data.qualified_to_loser_bracket
+                pool.use_standing_points = p_data.use_standing_points
+                pool.standing_points = sp_json
             if hasattr(p_data, 'matches') and p_data.matches:
                 for m in p_data.matches:
                     collect_destinations(m)
                     match_obj = upsert_match(m, p.id, "pool", pool.id)
                     if match_obj and match_obj.uuid:
                         created_matches_by_uuid[match_obj.uuid] = match_obj
+                    if match_obj and match_obj.id:
+                        processed_match_ids.add(match_obj.id)
 
     if structure.brackets:
         phase_final = get_or_create_phase("final", 3)
@@ -628,6 +653,8 @@ def create_tournament_structure(
                 match_obj = upsert_match(m_data, phase_final.id, "bracket")
                 if match_obj and match_obj.uuid:
                     created_matches_by_uuid[match_obj.uuid] = match_obj
+                if match_obj and match_obj.id:
+                    processed_match_ids.add(match_obj.id)
 
     if structure.loser_brackets:
         # Utiliser "elimination" comme phase_type car c'est une valeur autorisée par la contrainte CHECK
@@ -643,9 +670,21 @@ def create_tournament_structure(
                 match_obj = upsert_match(m_dict, phase_loser.id, "bracket")
                 if match_obj and match_obj.uuid:
                     created_matches_by_uuid[match_obj.uuid] = match_obj
+                if match_obj and match_obj.id:
+                    processed_match_ids.add(match_obj.id)
 
     # Flush pour s'assurer que tous les matchs ont des IDs
     db.flush()
+
+    # Supprimer les matchs présents en BDD mais absents du payload (supprimés côté frontend)
+    orphaned_ids = existing_match_ids - processed_match_ids
+    if orphaned_ids:
+        print(f"[DELETE] Suppression de {len(orphaned_ids)} match(s) orphelin(s): {orphaned_ids}")
+        for match_id in orphaned_ids:
+            db.query(MatchSchedule).filter(MatchSchedule.match_id == match_id).delete()
+            db.query(MatchSet).filter(MatchSet.match_id == match_id).delete()
+            db.query(Match).filter(Match.id == match_id).delete()
+        db.flush()
 
     # --- PASSE 2 : Résolution des UUIDs de destination en IDs ---
     if pending_destinations:
@@ -854,11 +893,14 @@ def get_tournament_structure(
             pools = db.query(Pool).filter(Pool.phase_id == phase.id).all()
             for pool in pools:
                 pool_matches = [m for m in matches if m.pool_id == pool.id]
+                import json as _json
                 pools_data.append({
                     "id": pool.id,
                     "name": pool.name,
                     "qualified_to_finals": pool.qualified_to_finals if hasattr(pool, 'qualified_to_finals') else 2,
                     "qualified_to_loser_bracket": pool.qualified_to_loser_bracket if hasattr(pool, 'qualified_to_loser_bracket') else 0,
+                    "use_standing_points": bool(pool.use_standing_points) if hasattr(pool, 'use_standing_points') else False,
+                    "standing_points": _json.loads(pool.standing_points) if hasattr(pool, 'standing_points') and pool.standing_points else None,
                     "matches": [match_to_dict_internal(m) for m in pool_matches]
                 })
                 
@@ -978,29 +1020,43 @@ def propagate_tournament_results(
             dest_match = matches_by_id.get(match.loser_destination_match_id)
             if dest_match:
                 slot = match.loser_destination_slot or "A"
-                
+
                 if slot == "A":
-                    if dest_match.team_sport_a_id is None:
-                        dest_match.team_sport_a_id = loser_team_id
-                        dest_match.updated_at = datetime.utcnow()
-                        propagated_count += 1
-                        print(f"[PROPAGATION] ✅ Loser {loser_team_id} -> Match {dest_match.id} slot A")
-                    elif dest_match.team_sport_b_id is None:
-                        dest_match.team_sport_b_id = loser_team_id
-                        dest_match.updated_at = datetime.utcnow()
-                        propagated_count += 1
-                        print(f"[PROPAGATION] ✅ Loser {loser_team_id} -> Match {dest_match.id} slot B (fallback)")
+                    if dest_match.team_sport_a_id is None or dest_match.team_sport_a_id == loser_team_id:
+                        if dest_match.team_sport_a_id is None:
+                            dest_match.team_sport_a_id = loser_team_id
+                            dest_match.updated_at = datetime.utcnow()
+                            propagated_count += 1
+                            print(f"[PROPAGATION] ✅ Loser {loser_team_id} -> Match {dest_match.id} slot A")
+                        # else: déjà propagé, idempotent, skip
+                    elif dest_match.team_sport_b_id is None or dest_match.team_sport_b_id == loser_team_id:
+                        if dest_match.team_sport_b_id is None:
+                            dest_match.team_sport_b_id = loser_team_id
+                            dest_match.updated_at = datetime.utcnow()
+                            propagated_count += 1
+                            print(f"[PROPAGATION] ✅ Loser {loser_team_id} -> Match {dest_match.id} slot B (fallback)")
+                        # else: déjà propagé en slot B, idempotent, skip
+                    else:
+                        print(f"[PROPAGATION] ⚠️ Slots pleins pour match {dest_match.id}")
+                        continue
                 elif slot == "B":
-                    if dest_match.team_sport_b_id is None:
-                        dest_match.team_sport_b_id = loser_team_id
-                        dest_match.updated_at = datetime.utcnow()
-                        propagated_count += 1
-                        print(f"[PROPAGATION] ✅ Loser {loser_team_id} -> Match {dest_match.id} slot B")
-                    elif dest_match.team_sport_a_id is None:
-                        dest_match.team_sport_a_id = loser_team_id
-                        dest_match.updated_at = datetime.utcnow()
-                        propagated_count += 1
-                        print(f"[PROPAGATION] ✅ Loser {loser_team_id} -> Match {dest_match.id} slot A (fallback)")
+                    if dest_match.team_sport_b_id is None or dest_match.team_sport_b_id == loser_team_id:
+                        if dest_match.team_sport_b_id is None:
+                            dest_match.team_sport_b_id = loser_team_id
+                            dest_match.updated_at = datetime.utcnow()
+                            propagated_count += 1
+                            print(f"[PROPAGATION] ✅ Loser {loser_team_id} -> Match {dest_match.id} slot B")
+                        # else: déjà propagé, idempotent, skip
+                    elif dest_match.team_sport_a_id is None or dest_match.team_sport_a_id == loser_team_id:
+                        if dest_match.team_sport_a_id is None:
+                            dest_match.team_sport_a_id = loser_team_id
+                            dest_match.updated_at = datetime.utcnow()
+                            propagated_count += 1
+                            print(f"[PROPAGATION] ✅ Loser {loser_team_id} -> Match {dest_match.id} slot A (fallback)")
+                        # else: déjà propagé en slot A, idempotent, skip
+                    else:
+                        print(f"[PROPAGATION] ⚠️ Slots pleins pour match {dest_match.id}")
+                        continue
     
     # =========================================================================
     # MÉCANISME 2: Propagation des résultats des POULES vers les brackets
@@ -1051,9 +1107,9 @@ def propagate_tournament_results(
 
             # Initialiser les stats si nécessaire
             if team_a not in team_stats:
-                team_stats[team_a] = {"points": 0, "wins": 0, "draws": 0, "losses": 0, "goal_diff": 0}
+                team_stats[team_a] = {"points": 0, "wins": 0, "draws": 0, "losses": 0, "goal_diff": 0, "goals_for": 0}
             if team_b not in team_stats:
-                team_stats[team_b] = {"points": 0, "wins": 0, "draws": 0, "losses": 0, "goal_diff": 0}
+                team_stats[team_b] = {"points": 0, "wins": 0, "draws": 0, "losses": 0, "goal_diff": 0, "goals_for": 0}
 
             # Calculer les points (3 victoire, 1 nul, 0 défaite)
             if match.score_a > match.score_b:
@@ -1070,14 +1126,16 @@ def propagate_tournament_results(
                 team_stats[team_a]["draws"] += 1
                 team_stats[team_b]["draws"] += 1
 
-            # Différence de buts
+            # Différence de buts et buts marqués
             team_stats[team_a]["goal_diff"] += match.score_a - match.score_b
             team_stats[team_b]["goal_diff"] += match.score_b - match.score_a
+            team_stats[team_a]["goals_for"] += match.score_a
+            team_stats[team_b]["goals_for"] += match.score_b
 
-        # Trier par points puis par différence de buts
+        # Trier par points, puis différence de buts, puis buts marqués
         sorted_teams = sorted(
             team_stats.items(),
-            key=lambda x: (x[1]["points"], x[1]["goal_diff"]),
+            key=lambda x: (x[1]["points"], x[1]["goal_diff"], x[1]["goals_for"]),
             reverse=True
         )
 
@@ -1211,53 +1269,97 @@ def propagate_tournament_results(
 
         return None
     
-    # Propager via codes source
+    # =========================================================================
+    # MÉCANISME 2 : Propagation via codes source (team_a_source / team_b_source)
+    # Gère la résolution "Poule 1-1" → team_sport_id uniquement quand la poule est terminée.
+    # Permet aussi la re-propagation si les classements ont évolué après assignation partielle.
+    # =========================================================================
+
+    import re as _re
+
+    def _is_pool_source(code: str) -> bool:
+        """Vérifie si le code source référence une position dans une poule."""
+        if not code:
+            return False
+        return bool(
+            _re.match(r'^(Poule\s*\d+|Poule\s*[A-Z]|Pool\s*\d+|Pool\s*[A-Z])-\d+$', code, _re.IGNORECASE)
+            or _re.match(r'^P\d+-\d+$', code)
+        )
+
+    def _pool_complete_for_source(code: str) -> bool:
+        """Retourne True si la poule référencée est entièrement terminée."""
+        m = _re.match(r'^(Poule\s*\d+|Poule\s*[A-Z]|Pool\s*\d+|Pool\s*[A-Z])-\d+$', code, _re.IGNORECASE)
+        if m:
+            pool_name_raw = m.group(1).strip()
+        else:
+            m2 = _re.match(r'^P(\d+)-\d+$', code)
+            if m2:
+                pool_name_raw = f"Poule {m2.group(1)}"
+            else:
+                return True  # code non-poule → pas de blocage
+        variants = [
+            pool_name_raw,
+            pool_name_raw.replace("Pool", "Poule"),
+            pool_name_raw.replace("Poule", "Pool"),
+            f"Poule {pool_name_raw.replace('Poule', '').replace('Pool', '').strip()}",
+            f"Pool {pool_name_raw.replace('Poule', '').replace('Pool', '').strip()}",
+        ]
+        for variant in variants:
+            if variant in pools_status:
+                return pools_status[variant]["is_complete"]
+        return False  # Poule inconnue → bloquer par précaution
+
     for match in all_matches:
-        if match.team_a_source and not match.team_sport_a_id:
-            resolved = resolve_source_code(match.team_a_source)
-            if resolved:
-                match.team_sport_a_id = resolved
-                match.updated_at = datetime.utcnow()
-                propagated_count += 1
-        
-        if match.team_b_source and not match.team_sport_b_id:
-            resolved = resolve_source_code(match.team_b_source)
-            if resolved:
-                match.team_sport_b_id = resolved
-                match.updated_at = datetime.utcnow()
-                propagated_count += 1
-    
+        for attr_source, attr_id, other_attr_id in [
+            ("team_a_source", "team_sport_a_id", "team_sport_b_id"),
+            ("team_b_source", "team_sport_b_id", "team_sport_a_id"),
+        ]:
+            source = getattr(match, attr_source)
+            if not source:
+                continue
+
+            is_pool = _is_pool_source(source)
+
+            current_id = getattr(match, attr_id)
+
+            # Pour les codes de poule : ne propager que si la poule est entièrement terminée
+            if is_pool and not _pool_complete_for_source(source):
+                # Nettoyer les données périmées d'une propagation partielle antérieure
+                if current_id is not None and match.status not in ("completed", "in_progress"):
+                    setattr(match, attr_id, None)
+                    match.updated_at = datetime.utcnow()
+                    print(f"[PROPAGATION] 🧹 Reset {attr_id} pour {source} (poule incomplète)")
+                else:
+                    print(f"[PROPAGATION] ⏳ Poule incomplète, skip: {source}")
+                continue
+
+            resolved = resolve_source_code(source)
+            if not resolved:
+                continue
+
+            if current_id is None:
+                # Assignation initiale — vérifier contrainte A ≠ B
+                other_id = getattr(match, other_attr_id)
+                if other_id != resolved:
+                    setattr(match, attr_id, resolved)
+                    match.updated_at = datetime.utcnow()
+                    propagated_count += 1
+                    print(f"[PROPAGATION] ✅ {source} -> {attr_id}={resolved}")
+                else:
+                    print(f"[PROPAGATION] ⚠️ Contrainte A≠B bloquée: {source} -> {attr_id}={resolved} == {other_attr_id}")
+            elif is_pool and current_id != resolved:
+                # Re-propagation : les classements finaux diffèrent de l'assignation précédente
+                other_id = getattr(match, other_attr_id)
+                if other_id != resolved:
+                    setattr(match, attr_id, resolved)
+                    match.updated_at = datetime.utcnow()
+                    propagated_count += 1
+                    print(f"[PROPAGATION] 🔄 Re-propagation {source} -> {attr_id}={resolved} (était {current_id})")
+                else:
+                    print(f"[PROPAGATION] ⚠️ Re-propagation bloquée (contrainte A≠B): {source} -> {resolved} == {other_attr_id}")
+
     db.commit()
-    
-    return create_success_response({
-        "tournament_id": tournament_id,
-        "propagated_matches": propagated_count
-    }, message=f"Successfully propagated {propagated_count} match results")
-    
-    # Parcourir tous les matchs et propager les résultats
-    for match in all_matches:
-        updated = False
-        
-        # Résoudre team_a_source
-        if match.team_a_source and not match.team_sport_a_id:
-            resolved_team_a = resolve_source_code(match.team_a_source)
-            if resolved_team_a:
-                match.team_sport_a_id = resolved_team_a
-                updated = True
-        
-        # Résoudre team_b_source
-        if match.team_b_source and not match.team_sport_b_id:
-            resolved_team_b = resolve_source_code(match.team_b_source)
-            if resolved_team_b:
-                match.team_sport_b_id = resolved_team_b
-                updated = True
-        
-        if updated:
-            match.updated_at = datetime.utcnow()
-            propagated_count += 1
-    
-    db.commit()
-    
+
     return create_success_response({
         "tournament_id": tournament_id,
         "propagated_matches": propagated_count

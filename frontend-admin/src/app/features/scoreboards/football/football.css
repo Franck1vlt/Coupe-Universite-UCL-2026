@@ -1,545 +1,843 @@
 :root {
-    --color-background: var(--background);
-    --color-foreground: var(--foreground);
-    --font-sans: var(--font-geist-sans);
-    --font-mono: var(--font-geist-mono);
-    
-    /* Background colors */
-    --bg-yellow-900: #ffcc00;
-    --bg-yellow-300: #fcd34d;
-    --bg-red-900: #ff0000;
-    --bg-red-300: #fca5a5;
-    --bg-blue-400: #60a5fa;
-    --bg-blue-300: #93c5fd;
-    --bg-green-400: #4ade80;
-    --bg-green-300: #86efac;
-    --bg-gray-400: #9ca3af;
-    --bg-gray-300: #d1d5db;
-    
-    /* Text/Foreground colors */
-    --text-yellow-400: #ca8a04;
-    --text-red-400: #dc2626;
-    --text-blue-400: #2563eb;
-    --text-green-400: #16a34a;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+
+  /* Background colors */
+  --bg-yellow-900: #ffcc00;
+  --bg-yellow-300: #fcd34d;
+  --bg-red-900: #ff0000;
+  --bg-red-300: #fca5a5;
+  --bg-blue-400: #60a5fa;
+  --bg-blue-300: #93c5fd;
+  --bg-green-400: #4ade80;
+  --bg-green-300: #86efac;
+  --bg-gray-400: #9ca3af;
+  --bg-gray-300: #d1d5db;
+
+  /* Text/Foreground colors */
+  --text-yellow-400: #ca8a04;
+  --text-red-400: #dc2626;
+  --text-blue-400: #2563eb;
+  --text-green-400: #16a34a;
 }
 
-* {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
+.football-root * {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
 }
 
 /* Scoped root container to avoid global overrides */
 .football-root {
-    display: flex;
-    flex-direction: row;
-    justify-content: center;
-    align-items: flex-start;
-    min-height: 100vh;
-    width: 100vw;
-    overflow: hidden;
-    background-color: white;
-    padding-top: 15vh; /* espace pour le header fixe */
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: stretch;
+  min-height: 100vh;
+  width: 100vw;
+  overflow-y: auto;
+  background-color: white;
+  padding-top: 15vh; /* espace pour le header fixe */
 }
 
 .football-root header {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    width: 100%;
-    padding: 15px;
-    z-index: 1000;
-    margin-top: 5vh;
-    background: white;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  width: 100%;
+  padding: 15px;
+  z-index: 1000;
+  margin-top: 5vh;
+  background: white;
 }
 
-button {
-    background-color: #002F4A;
-    color: #fff;
-    border: none;
-    border-radius: 5px;
-    padding: 8px 15px;
-    cursor: pointer;
-    font-size: 0.9rem;
-    transition: background-color 0.3s;
+.football-root button {
+  background-color: #002f4a;
+  color: #fff;
+  border: none;
+  border-radius: 5px;
+  padding: 8px 15px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: background-color 0.3s;
 }
 
-button:hover {
-    filter: brightness(90%);
+.football-root button:hover {
+  filter: brightness(90%);
 }
 
 .bouton_pied_page {
-    margin-top: 20px;
-    text-align: center;
+  margin-top: 20px;
+  text-align: center;
 }
 
 /* Page Table de Marquage */
 .football-root .gauche {
-    background-color: #5c5c5c;
-    width: 220px;
-    height: 72vh;
-    color: #fff;
-    padding: 20px;
-    margin: 20px;
-    border-radius: 10px;
-    box-shadow: 0 0 15px rgba(0, 0, 0, 0.2);
+  background-color: #5c5c5c;
+  width: 220px;
+  color: #fff;
+  padding: 20px;
+  margin: 20px;
+  border-radius: 10px;
+  box-shadow: 0 0 15px rgba(0, 0, 0, 0.2);
 }
 .football-root .droite {
-    background-color: #222;
-    width: 62vw;
-    height: 72vh;
-    color: #fff;
-    margin: 20px;
-    border-radius: 10px;
-    text-align: center;
-    box-shadow: 0 0 15px rgba(0, 0, 0, 0.2);
-    overflow: hidden;
+  background-color: #222;
+  flex: 1;
+  min-width: 380px;
+  height: auto;
+  min-height: 400px;
+  color: #fff;
+  margin: 20px;
+  border-radius: 10px;
+  text-align: center;
+  box-shadow: 0 0 15px rgba(0, 0, 0, 0.2);
+  overflow: visible;
 }
 
 .parametres-match {
-    background: rgba(255, 255, 255, 0.25);
-    backdrop-filter: blur(10px);
-    border-radius: 10px;
-    padding: 20px;
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-    z-index: 1000;
-    width: auto;
+  background: rgba(255, 255, 255, 0.25);
+  backdrop-filter: blur(10px);
+  border-radius: 10px;
+  padding: 20px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  z-index: 1000;
+  width: auto;
 }
 
 .parametres-match label {
-    font-size: 1em;
-    display: block;
-    text-align: center;
-    margin-bottom: 5px;
+  font-size: 1em;
+  display: block;
+  text-align: center;
+  margin-bottom: 5px;
 }
 
 .parametres-match select {
-    width: 100%;
-    text-align: center;
-    border-radius: 5px;
-    border: none;
-    margin-bottom: 10px;
-    background-color: white;
-    color: black;
+  width: 100%;
+  text-align: center;
+  border-radius: 5px;
+  border: none;
+  margin-bottom: 10px;
+  background-color: white;
+  color: black;
 }
 
 .timer {
-    font-family: 'Digital', monospace;
-    font-size: 2rem;
-    font-weight: bold;
-    background: #000;
-    padding: 8px 16px;
-    margin: 8px;
-    border-radius: 5px;
-    color: #ff0000;
+  font-family: "Digital", monospace;
+  font-size: 2rem;
+  font-weight: bold;
+  background: #000;
+  padding: 8px 16px;
+  margin: 8px;
+  border-radius: 5px;
+  color: #ff0000;
 }
 
 .button-row1 {
-    display: flex;
-    flex-direction: row;
-    justify-content: center;
-    margin-bottom: 20px;
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  margin-bottom: 20px;
 }
 
 .button-row1 button {
-    width: 200px;
+  width: 200px;
 }
 
 .button-row2 {
-    display: flex;
-    flex-direction: row;
-    justify-content: center;
-    margin-bottom: 20px;
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  margin-bottom: 20px;
 }
 
 .button-row2 button {
-    width: 200px;
+  width: 200px;
 }
 
 .details-line {
-    font-size: 1.5rem;
+  font-size: 1.5rem;
 }
 
 .info-display {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    gap: 10px;
-    margin: 15px 0;
-    font-size: 1.2em;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  margin: 15px 0;
+  font-size: 1.2em;
 }
 
 #matchTypeDisplay,
 #periodDisplay {
-    display: inline-block;
-    margin-right: 10px;
+  display: inline-block;
+  margin-right: 10px;
 }
 
 .football-root .scoreboard {
-    text-align: center;
-    padding: 20px;
-    height: auto;
-    color: #fff;
-    padding: 20px;
-    text-align: center;
-    margin: 30px auto;
-    transform: scale(0.88);
-    transform-origin: top center;
+  text-align: center;
+  padding: 20px;
+  height: auto;
+  color: #fff;
+  width: 100%;
+  max-width: 600px;
+  margin: 30px auto 0;
 }
 
 .scoreboard span {
-    font-size: 1em;
+  font-size: 1em;
 }
 
 .football-root .score-line {
-    font-size: 2rem;
-    font-weight: bold;
-    margin-bottom: 10px;
+  font-size: 2rem;
+  font-weight: bold;
+  margin-bottom: 10px;
 }
 
 .score-row {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 16px;
-    margin-bottom: 8px;
-    font-size: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-bottom: 8px;
+  font-size: 24px;
 }
 
 .football-root .points-section {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 30px;
 }
 
 .points-control {
-    display: flex;
-    align-items: center;
-    gap: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .points-label {
-    font-size: 16px;
+  font-size: 16px;
 }
 
 .control-button {
-    background-color: #0284c7;
-    color: white;
-    border: none;
-    border-radius: 4px;
-    width: 24px;
-    height: 24px;
-    cursor: pointer;
-    font-size: 16px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+  background-color: #0284c7;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  width: 24px;
+  height: 24px;
+  cursor: pointer;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .cards-section {
-    margin: 20px 0;
+  margin: 20px 0;
 }
 
 .team-cards {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .card-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
 }
 
 .cards-count {
-    display: flex;
-    align-items: center;
-    gap: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .card-icon {
-    width: 20px;
-    height: 28px;
-    border-radius: 2px;
+  width: 20px;
+  height: 28px;
+  border-radius: 2px;
 }
 
 .yellow-card {
-    display: flex;
-    flex-direction: row;
-    justify-content: space-around;
-    margin-top: 20px;
-    margin-bottom: 20px;
+  display: flex;
+  flex-direction: row;
+  justify-content: space-around;
+  margin-top: 20px;
+  margin-bottom: 20px;
 }
 
 .red-card {
-    display: flex;
-    flex-direction: row;
-    justify-content: space-around;
-    margin-top: 20px;
-    margin-bottom: 20px;
+  display: flex;
+  flex-direction: row;
+  justify-content: space-around;
+  margin-top: 20px;
+  margin-bottom: 20px;
 }
 
 .yellow-card button {
-    background-color: #fcd34d;
+  background-color: #fcd34d;
 }
 
 .red-card button {
-    background-color: #ef4444;
+  background-color: #ef4444;
 }
 
 .bottom-controls {
-    display: flex;
-    justify-content: space-around;
-    gap: 10px;
-    margin-top: 60px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 30px;
+  padding: 0 10px 20px;
 }
 
 .action-button {
-    background-color: #0c4a6e;
-    color: white;
-    border: none;
-    border-radius: 4px;
-    padding: 8px 16px;
-    cursor: pointer;
-    flex: 1;
+  background-color: #0c4a6e;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 8px 16px;
+  cursor: pointer;
+  flex: 1;
 }
 
-button:hover {
-    opacity: 0.9;
+.football-root button:hover {
+  opacity: 0.9;
+}
+
+.shortcut-hint {
+  display: inline-block;
+  font-size: 0.65em;
+  font-weight: 600;
+  opacity: 0.6;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+  padding: 0 3px;
+  margin-left: 4px;
+  vertical-align: middle;
+  letter-spacing: 0;
 }
 
 /* Page Affichage */
 .score-board {
-    background-color: #E0E0E0;
-    margin: 0 auto;
-    padding: 40px 20px;
-    text-align: center;
-    color: #000;
+  background-color: #e0e0e0;
+  margin: 0 auto;
+  padding: 40px 20px;
+  text-align: center;
+  color: #000;
 }
 
 .teams {
-    display: flex;
-    justify-content: center;
-    gap: 200px; /* Espacement entre les équipes */
-    margin-bottom: 60px;
+  display: flex;
+  justify-content: center;
+  gap: 200px; /* Espacement entre les équipes */
+  margin-bottom: 60px;
 }
 
 .team {
-    font-size: 10vh;
-    font-weight: bold;
+  font-size: 10vh;
+  font-weight: bold;
 }
 
 .score-container {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin-bottom: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 40px;
 }
 
 .score {
-    font-size: 20vh;
-    font-weight: bold;
-    display: flex;
-    align-items: center;
-    gap: 16px;
+  font-size: 20vh;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  gap: 16px;
 }
 
 .winner .score {
-    color: green;
+  color: green;
 }
 
 .loser .score {
-    color: red;
+  color: red;
 }
 
 .score-divider {
-    margin: 0 8px;
+  margin: 0 8px;
 }
 
 .match-info {
-    font-size: 3rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 50px; /* Espace entre le timer et le texte */
+  font-size: 3rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 50px; /* Espace entre le timer et le texte */
 }
 
 .ball-icon {
-    width: 50px;
-    height: 50px;
-    margin-right: 80px;
-    margin-left: 80px;
+  width: 50px;
+  height: 50px;
+  margin-right: 80px;
+  margin-left: 80px;
 }
 
 .ball-icon-table {
-    width: 20px;
-    height: 20px;
-    margin-right: 20px;
-    margin-left: 20px;
+  width: 20px;
+  height: 20px;
+  margin-right: 20px;
+  margin-left: 20px;
 }
 
 .cards {
-    display: flex;
-    justify-content: space-between;
-    margin-top: 60px;
+  display: flex;
+  justify-content: space-between;
+  margin-top: 60px;
 }
 
 .team-cards {
-    display: flex;
-    flex-direction: row;
-    gap: 15px;
-    align-items: center;
+  display: flex;
+  flex-direction: row;
+  gap: 15px;
+  align-items: center;
 }
 
 .card-container {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
 }
 
 .card-icon {
-    width: 50px;
-    height: auto;
+  width: 50px;
+  height: auto;
 }
 
 .cards span {
-    font-size: 24px;
-    font-weight: 500;
-    min-width: 20px;
-    text-align: center;
+  font-size: 24px;
+  font-weight: 500;
+  min-width: 20px;
+  text-align: center;
 }
 
 /* Styles pour le conteneur d'informations de match */
 .match-info-container {
-    background-color: rgba(0, 0, 0, 0.8);
-    color: white;
-    padding: 15px;
-    border-radius: 10px;
-    margin: 20px auto;
-    max-width: 600px;
-    text-align: center;
+  background-color: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 15px;
+  border-radius: 10px;
+  margin: 20px auto;
+  max-width: 600px;
+  text-align: center;
 }
 
 .match-info-status {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin-bottom: 10px;
-    gap: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 10px;
+  gap: 10px;
 }
 
 .match-info-teams {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
 }
 
 .live-team {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    font-size: 1.2em;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 1.2em;
 }
 
 .live-team .score {
-    font-weight: bold;
-    font-size: 1.4em;
+  font-weight: bold;
+  font-size: 1.4em;
 }
 
 .score-divider {
-    font-size: 1.4em;
-    font-weight: bold;
+  font-size: 1.4em;
+  font-weight: bold;
 }
 
 /* Styles pour les statuts de match */
 .match.a-venir {
-    background-color: #f5f5f5;
-    cursor: pointer;
+  background-color: #f5f5f5;
+  cursor: pointer;
 }
 
 .match.en-cours {
-    background-color: #fff3e0;
-    animation: pulse 2s infinite;
-    border: 2px solid #ff9800;
+  background-color: #fff3e0;
+  animation: pulse 2s infinite;
+  border: 2px solid #ff9800;
 }
 
 .match.termine {
-    background-color: #e8f5e9;
-    border: 2px solid #4caf50;
+  background-color: #e8f5e9;
+  border: 2px solid #4caf50;
 }
 
 @keyframes pulse {
-    0% { box-shadow: 0 0 0 0 rgba(255, 152, 0, 0.4); }
-    70% { box-shadow: 0 0 0 10px rgba(255, 152, 0, 0); }
-    100% { box-shadow: 0 0 0 0 rgba(255, 152, 0, 0); }
+  0% {
+    box-shadow: 0 0 0 0 rgba(255, 152, 0, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(255, 152, 0, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 152, 0, 0);
+  }
 }
 
 /* Style pour le statut dans match-info-container */
 .match-status {
-    padding: 4px 8px;
-    border-radius: 4px;
-    font-weight: bold;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-weight: bold;
 }
 
-.match.a-venir .match-status { color: #666; }
-.match.en-cours .match-status { color: #ff9800; }
-.match.termine .match-status { color: #4caf50; }
+.match.a-venir .match-status {
+  color: #666;
+}
+.match.en-cours .match-status {
+  color: #ff9800;
+}
+.match.termine .match-status {
+  color: #4caf50;
+}
 
 /* Ajouter les styles pour les matchs désactivés */
 .match.disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-    pointer-events: none;
-    background-color: #f5f5f5;
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+  background-color: #f5f5f5;
 }
 
 .match.disabled::after {
-    content: "Match non disponible";
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    font-size: 0.8em;
-    color: #666;
+  content: "Match non disponible";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 0.8em;
+  color: #666;
 }
 
 /* Styles pour les tirs au but */
 .penalties-section {
-    margin-top: 20px;
-    padding: 15px;
-    background: rgba(0, 0, 0, 0.1);
-    border-radius: 8px;
+  margin-top: 20px;
+  padding: 15px;
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
 }
 
 .penalties-title {
-    font-size: 1.2em;
-    margin-bottom: 10px;
-    color: #ff9800;
+  font-size: 1.2em;
+  margin-bottom: 10px;
+  color: #ff9800;
 }
 
 .penalties-score-line {
-    font-size: 1.5em;
-    font-weight: bold;
-    margin: 10px 0;
+  font-size: 1.5em;
+  font-weight: bold;
+  margin: 10px 0;
 }
 
 .penalties-controls {
-    display: flex;
-    justify-content: space-around;
-    margin-top: 10px;
+  display: flex;
+  justify-content: space-around;
+  margin-top: 10px;
 }
 
 /* Style pour l'étoile du vainqueur des tirs au but */
 .penalty-winner::after {
-    content: ' ⭐';
-    color: gold;
-    font-size: 0.8em;
-    vertical-align: super;
+  content: " ⭐";
+  color: gold;
+  font-size: 0.8em;
+  vertical-align: super;
 }
 
+.goal-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(6, 10, 18, 0.72);
+  backdrop-filter: blur(3px);
+  padding: 16px;
+}
+
+.goal-modal-card {
+  width: min(460px, 100%);
+  border-radius: 16px;
+  padding: 20px;
+  background: linear-gradient(165deg, #ffffff 0%, #f2f6fb 100%);
+  border: 1px solid #d7e0ee;
+  box-shadow: 0 24px 45px rgba(0, 18, 52, 0.28);
+  color: #111827;
+}
+
+.goal-modal-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1.2;
+  margin-bottom: 4px;
+}
+
+.goal-modal-team {
+  font-size: 0.92rem;
+  color: #546275;
+  margin-bottom: 14px;
+}
+
+.goal-modal-players {
+  max-height: 250px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+  padding-right: 4px;
+}
+
+.goal-modal-card .goal-modal-player-button {
+  width: 100%;
+  text-align: left;
+  border-radius: 10px;
+  border: 1px solid #ccd5e1;
+  background: #ffffff;
+  color: #0f172a;
+  padding: 10px 12px;
+  font-size: 0.9rem;
+  transition: all 0.18s ease;
+}
+
+.goal-modal-card .goal-modal-player-button:hover {
+  color: black;
+  border-color: #8db2f5;
+  background: #eef4ff;
+}
+
+.goal-modal-card .goal-modal-player-button-active {
+  border-color: #1f4f95;
+  background: #1f4f95;
+  color: #ffffff;
+}
+
+.goal-modal-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.goal-modal-cancel,
+.goal-modal-confirm {
+  flex: 1;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.goal-modal-card .goal-modal-cancel {
+  border: 1px solid #b91c1c;
+  background: #dc2626;
+  color: #ffffff;
+}
+
+.goal-modal-card .goal-modal-cancel:hover {
+  background: #b91c1c;
+}
+
+.goal-modal-card .goal-modal-confirm {
+  border: 1px solid #15803d;
+  background: #16a34a;
+  color: #ffffff;
+}
+
+.goal-modal-card .goal-modal-confirm:hover {
+  background: #15803d;
+}
+
+.goal-modal-card .goal-modal-confirm:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.goal-events-fab {
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  z-index: 3002;
+}
+
+.goal-events-shell {
+  position: relative;
+}
+
+.goal-events-fab .goal-events-button {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  border-radius: 9999px;
+  border: none;
+  background: linear-gradient(135deg, #1a3f6f 0%, #002f4a 100%);
+  box-shadow:
+    0 4px 14px rgba(0, 47, 74, 0.45),
+    0 1px 3px rgba(0, 0, 0, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.goal-events-fab .goal-events-button:hover {
+  transform: translateY(-2px) scale(1.05);
+  box-shadow:
+    0 8px 20px rgba(0, 47, 74, 0.55),
+    0 2px 6px rgba(0, 0, 0, 0.25);
+}
+
+.goal-events-icon {
+  width: 24px;
+  height: 24px;
+  color: #ffffff;
+}
+
+.goal-events-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 22px;
+  height: 22px;
+  border-radius: 9999px;
+  border: 2.5px solid #ffffff;
+  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+  box-shadow: 0 2px 6px rgba(22, 163, 74, 0.5);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  animation: badge-pop 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@keyframes badge-pop {
+  0% {
+    transform: scale(0.5);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.goal-events-panel {
+  position: absolute;
+  top: 62px;
+  right: 0;
+  width: 320px;
+  max-height: 360px;
+  overflow-y: auto;
+  border-radius: 14px;
+  border: 1px solid #cbd8ea;
+  background: #f8fbff;
+  box-shadow: 0 18px 36px rgba(0, 25, 67, 0.35);
+  padding: 12px;
+}
+
+.goal-events-panel-title {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #577098;
+  margin-bottom: 10px;
+}
+
+.goal-events-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.goal-event-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: 11px;
+  border: 1px solid #d8e3f3;
+  background: #ffffff;
+}
+
+.goal-event-minute {
+  min-width: 34px;
+  text-align: center;
+  font-weight: 700;
+  font-size: 0.8rem;
+  color: #0f5a1f;
+  background: #dcfce7;
+  border-radius: 9999px;
+  padding: 3px 0;
+}
+
+.goal-event-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.goal-event-playerline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.goal-event-number {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #1f3f73;
+  background: #e7eefb;
+  border-radius: 8px;
+  padding: 2px 6px;
+}
+
+.goal-event-player {
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: #1f2937;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.goal-event-team {
+  font-size: 0.72rem;
+  color: #6b7280;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

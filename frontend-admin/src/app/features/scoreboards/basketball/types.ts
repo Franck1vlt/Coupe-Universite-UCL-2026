@@ -22,3 +22,31 @@ export interface MatchData {
   hasPenalties: boolean;
   matchType?: string;
 }
+
+export type MatchPlayer = {
+  id: number;
+  team_sport_id: number;
+  team: "A" | "B";
+  first_name?: string | null;
+  last_name?: string | null;
+  jersey_number?: number | null;
+  position?: string | null;
+  is_captain: boolean;
+  is_active: boolean;
+};
+
+export type LocalMatchEvent = {
+  localId: number;
+  event_type: "basket";
+  team: "A" | "B";
+  player_id?: number | null;
+  points: number;
+  match_time_seconds?: number | null;
+  timestamp: string;
+  player?: {
+    id: number;
+    first_name?: string | null;
+    last_name?: string | null;
+    jersey_number?: number | null;
+  } | null;
+};

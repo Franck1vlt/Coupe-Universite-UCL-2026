@@ -66,6 +66,7 @@ export type PoolStanding = {
   lost: number;
   points: number;
   scoreDiff: number;
+  goalsFor: number;
 };
 
 /**
@@ -200,7 +201,8 @@ export function calculatePoolStandings(pool: Pool): PoolStanding[] {
       won: 0,
       lost: 0,
       points: 0,
-      scoreDiff: 0
+      scoreDiff: 0,
+      goalsFor: 0
     });
   });
 
@@ -230,17 +232,20 @@ export function calculatePoolStandings(pool: Pool): PoolStanding[] {
           standingB.points += 1;
         }
 
-        // Calculer la différence de score
+        // Calculer la différence de score et les buts marqués
         standingA.scoreDiff += match.scoreA - match.scoreB;
         standingB.scoreDiff += match.scoreB - match.scoreA;
+        standingA.goalsFor += match.scoreA;
+        standingB.goalsFor += match.scoreB;
       }
     }
   });
 
-  // Trier par points décroissants, puis par différence de buts
+  // Trier par points décroissants, puis par différence de buts, puis par buts marqués
   return Array.from(standings.values()).sort((a, b) => {
     if (b.points !== a.points) return b.points - a.points;
-    return b.scoreDiff - a.scoreDiff;
+    if (b.scoreDiff !== a.scoreDiff) return b.scoreDiff - a.scoreDiff;
+    return b.goalsFor - a.goalsFor;
   });
 }
 

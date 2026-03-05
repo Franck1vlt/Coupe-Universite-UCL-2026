@@ -3,6 +3,7 @@ import { getAvailableCourts } from "./courtUtils";
 
 import { useState, useEffect } from "react";
 import "./basketball.css";
+import "../football/football.css";
 import { useSearchParams } from "next/navigation";
 import { useBasketballMatch } from "./useBasketballMatch";
 import { useRouter } from "next/navigation";
@@ -228,6 +229,33 @@ export default function BasketballTableMarquagePage() {
     swapSides();
   };
 
+  // Raccourcis clavier
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+      switch (e.key) {
+        case "q": case "Q": subScore("A", 1); break;
+        case "w": case "W": addScore("A", 1); break;
+        case "e": case "E": addScore("A", 2); break;
+        case "r": case "R": addScore("A", 3); break;
+        case "l": case "L": subScore("B", 1); break;
+        case "i": case "I": addScore("B", 1); break;
+        case "o": case "O": addScore("B", 2); break;
+        case "p": case "P": addScore("B", 3); break;
+        case "t": case "T": handleStart(); break;
+        case "s": case "S": stopChrono(); break;
+        case "x": case "X": handleSwipe(); break;
+        case "b": case "B": buzzer.play(); break;
+        case "j": case "J": setShotClock(Math.floor(shotClock/10)+1); break;
+        case "m": case "M": setHideShotClock(v => !v); break;
+        case "k": case "K": setPauseShotClock(v => !v); break;
+        case "z": case "Z": stopChrono(); setPauseShotClock(true); buzzer.play(); break;
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [subScore, addScore, handleStart, stopChrono, handleSwipe, buzzer, setShotClock, shotClock]);
+
   // Ajout récupération tournamentId comme dans le foot
   useEffect(() => {
     async function fetchTournamentId() {
@@ -258,7 +286,7 @@ export default function BasketballTableMarquagePage() {
       </header>
 
       <div className="gauche">
-        <div className="parametres-match mb-6">
+        <div className="parametres-match">
           <label htmlFor="teamA">Équipe A :</label>
             {matchId ? (
             <input
@@ -405,7 +433,7 @@ export default function BasketballTableMarquagePage() {
 
       {/* Tableau de marquage */}
       <div className="droite text-lg">
-        <div className="scoreboard scale-110">
+        <div className="scoreboard">
           <div className="score-display mb-6 text-xl">
             <div className="score-line">
               <span>
@@ -439,17 +467,13 @@ export default function BasketballTableMarquagePage() {
             </div>
 
             <div className="controls text-base" style={{display: 'flex', flexWrap: 'wrap', gap: 8}}>
-              <button onClick={resetShotClock}>24s</button>
-              <button onClick={() => setShotClock(14)}>14s</button>
-              <button onClick={addSecond}>+1s</button>
-              {/* Ajout +1s au shotClock */}
-              <button onClick={() => setShotClock(Math.floor(shotClock/10)+1)} title="+1s shot clock">+1s SC</button>
-              {/* Masquer/afficher le shotClock */}
-              <button onClick={() => setHideShotClock(v => !v)}>{hideShotClock ? "Afficher SC" : "Masquer SC"}</button>
-              {/* Pause/reprise shotClock */}
-              <button onClick={() => setPauseShotClock(v => !v)}>{pauseShotClock ? "Reprendre SC" : "Pause SC"}</button>
-              {/* Buzzer STOP (arrêt total) */}
-              <button style={{background: '#e53935', color: 'white'}} onClick={() => { stopChrono(); setPauseShotClock(true); buzzer.play(); }}>BUZZER STOP</button>
+              <button onClick={resetShotClock}>24s<span className="shortcut-hint">4</span></button>
+              <button onClick={() => setShotClock(14)}>14s<span className="shortcut-hint">6</span></button>
+              <button onClick={addSecond}>+1s<span className="shortcut-hint">1</span></button>
+              <button onClick={() => setShotClock(Math.floor(shotClock/10)+1)} title="+1s shot clock">+1s SC<span className="shortcut-hint">J</span></button>
+              <button onClick={() => setHideShotClock(v => !v)}>{hideShotClock ? "Afficher SC" : "Masquer SC"}<span className="shortcut-hint">M</span></button>
+              <button onClick={() => setPauseShotClock(v => !v)}>{pauseShotClock ? "Reprendre SC" : "Pause SC"}<span className="shortcut-hint">K</span></button>
+              <button style={{background: '#e53935', color: 'white'}} onClick={() => { stopChrono(); setPauseShotClock(true); buzzer.play(); }}>BUZZER STOP<span className="shortcut-hint">Z</span></button>
             </div>
             
             <div className="period-switch text-lg">
@@ -466,10 +490,10 @@ export default function BasketballTableMarquagePage() {
                   <div className="scores">
                       <p>Points : </p>
                           <div className="team-controls a">
-                          <button onClick={() => subScore("A", 1)}>-1</button>
-                          <button onClick={() => addScore("A", 1)}>+1</button>
-                          <button onClick={() => addScore("A", 2)}>+2</button>
-                          <button onClick={() => addScore("A", 3)}>+3</button>
+                          <button onClick={() => subScore("A", 1)}>-1<span className="shortcut-hint">Q</span></button>
+                          <button onClick={() => addScore("A", 1)}>+1<span className="shortcut-hint">W</span></button>
+                          <button onClick={() => addScore("A", 2)}>+2<span className="shortcut-hint">E</span></button>
+                          <button onClick={() => addScore("A", 3)}>+3<span className="shortcut-hint">R</span></button>
                       </div>
                   </div>
               </section>
@@ -477,20 +501,20 @@ export default function BasketballTableMarquagePage() {
                   <div className="scores">
                       <p> Points :</p>
                       <div className="team-controls b">
-                          <button onClick={() => subScore("B", 1)}>-1</button>
-                          <button onClick={() => addScore("B", 1)}>+1</button>
-                          <button onClick={() => addScore("B", 2)}>+2</button>
-                          <button onClick={() => addScore("B", 3)}>+3</button>
+                          <button onClick={() => subScore("B", 1)}>-1<span className="shortcut-hint">L</span></button>
+                          <button onClick={() => addScore("B", 1)}>+1<span className="shortcut-hint">I</span></button>
+                          <button onClick={() => addScore("B", 2)}>+2<span className="shortcut-hint">O</span></button>
+                          <button onClick={() => addScore("B", 3)}>+3<span className="shortcut-hint">P</span></button>
                       </div>
                   </div>
               </section>
             </div>
 
             <div className="controls text-base" style={{display: 'flex', flexWrap: 'wrap', gap: 8}}>
-              <button onClick={handleStart}>Start</button>
-              <button onClick={stopChrono}>Stop</button>
-              <button onClick={handleSwipe}>Swipe</button>
-              <button onClick={() => buzzer.play()}>Buzzer</button>
+              <button onClick={handleStart}>Start<span className="shortcut-hint">T</span></button>
+              <button onClick={stopChrono}>Stop<span className="shortcut-hint">S</span></button>
+              <button onClick={handleSwipe}>Swipe<span className="shortcut-hint">X</span></button>
+              <button onClick={() => buzzer.play()}>Buzzer<span className="shortcut-hint">B</span></button>
               <button
                 onClick={async () => {
                   console.log('🔵 END button clicked');
@@ -516,6 +540,7 @@ export default function BasketballTableMarquagePage() {
           </div>
         </div>
       </div>
+
     </main>
   );
 }

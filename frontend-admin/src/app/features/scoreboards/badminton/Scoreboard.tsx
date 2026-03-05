@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { getAvailableCourts } from "./courtUtils";
 import "./badminton.css";
+import "../football/football.css";
 import { useSearchParams } from "next/navigation";
 // Make sure the hook exists at the correct path, or create a stub if missing
 import { useBadmintonMatch } from "./useBadmintonMatch";
@@ -78,7 +79,9 @@ export default function BadmintonTableMarquagePage() {
     changeService,
     updateMatchStatus,
     setNumSets,
-    resetChrono
+    resetChrono,
+    undoLastAction,
+    canUndo,
   } = useBadmintonMatch(matchId);
 
   // Redéfinir les handlers pour intégrer la gestion du statut
@@ -185,13 +188,34 @@ export default function BadmintonTableMarquagePage() {
     }
   };
 
-  const handleSwipe = () => {
-    const a = teamA;
-    const b = teamB;
-    setTeamA(b);
-    setTeamB(a);
+  const handleSwipe = useCallback(() => {
+    setTeamA((prevA) => { setTeamB(prevA); return teamB; });
     swapSides();
-  };
+  }, [teamB, swapSides]);
+
+  // Raccourcis clavier
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+      switch (e.key) {
+        case "w": case "W": addPoint("A"); break;
+        case "q": case "Q": subPoint("A"); break;
+        case "o": case "O": addPoint("B"); break;
+        case "l": case "L": subPoint("B"); break;
+        case "t": case "T": startChrono(); break;
+        case "Escape": stopChrono(); break;
+        case "r": case "R": resetChrono(); break;
+        case "s": case "S": changeService(); break;
+        case "x": case "X": handleSwipe(); break;
+        case "z": case "Z":
+          if (e.ctrlKey || e.metaKey) { e.preventDefault(); undoLastAction(); }
+          break;
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [addPoint, subPoint, startChrono, stopChrono, resetChrono, changeService, undoLastAction, handleSwipe]);
 
     useEffect(() => {
     async function fetchTournamentId() {
@@ -400,27 +424,35 @@ export default function BadmintonTableMarquagePage() {
           <div className="points-section">
             <div className="flex items-center gap-2">
               <p>Points : {matchData.teamA.score}</p>
-              <button onClick={() => subPoint("A")}>-</button>
-              <button onClick={() => addPoint("A")}>+</button>
+              <button onClick={() => subPoint("A")} title="Q">- <span className="shortcut-hint">Q</span></button>
+              <button onClick={() => addPoint("A")} title="W">+ <span className="shortcut-hint">W</span></button>
             </div>
             <div>
-              <p>Pause</p> 
+              <p>Pause</p>
               <div className="timer">{formattedTime}</div>
             </div>
             <div className="flex items-center gap-2">
               <p>Points : {matchData.teamB.score}</p>
-              <button onClick={() => subPoint("B")}>-</button>
-              <button onClick={() => addPoint("B")}>+</button>
+              <button onClick={() => subPoint("B")} title="L">- <span className="shortcut-hint">L</span></button>
+              <button onClick={() => addPoint("B")} title="O">+ <span className="shortcut-hint">O</span></button>
             </div>
           </div>
 
           <div className="bottom-controls">
             <button onClick={handleStart}>Start Match</button>
-            <button onClick={startChrono}>Start Timer</button>
-            <button onClick={stopChrono}>Stop</button>
-            <button onClick={resetChrono}>Reset</button>
-            <button onClick={changeService}>Service</button>
-            <button onClick={handleSwipe}>Swipe</button>
+            <button onClick={startChrono} title="T">Start Timer <span className="shortcut-hint">T</span></button>
+            <button onClick={stopChrono} title="Échap">Stop <span className="shortcut-hint">Échap</span></button>
+            <button onClick={resetChrono} title="R">Reset <span className="shortcut-hint">R</span></button>
+            <button onClick={changeService} title="S">Service <span className="shortcut-hint">S</span></button>
+            <button onClick={handleSwipe} title="X">Swipe <span className="shortcut-hint">X</span></button>
+            <button
+              onClick={undoLastAction}
+              disabled={!canUndo()}
+              title="Ctrl+Z"
+              style={{ opacity: canUndo() ? 1 : 0.4 }}
+            >
+              Annuler <span className="shortcut-hint">Ctrl+Z</span>
+            </button>
               <button
                 onClick={async () => {
                   console.log('🔵 END button clicked');
@@ -445,6 +477,7 @@ export default function BadmintonTableMarquagePage() {
           </div>
         </div>
       </div>
+
     </main>
   );
 }

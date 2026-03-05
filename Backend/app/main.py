@@ -107,6 +107,7 @@ from app.routers import tournament_structure
 from app.routers import courts_status
 from app.routers import auth as auth_router
 from app.routers import users as users_router
+from app.routers import matches as matches_router
 
 # Router d'authentification
 app.include_router(auth_router.router, tags=["Authentication"])
@@ -123,6 +124,9 @@ app.include_router(
 
 # Router des terrains
 app.include_router(courts_status.router, tags=["Courts"])
+
+# Router des matchs (fiche de match + événements)
+app.include_router(matches_router.router, prefix="")
 
 @app.on_event("startup")
 async def startup_event():
@@ -144,6 +148,19 @@ async def startup_event():
             logger.info("Default users initialized successfully")
         finally:
             db.close()
+
+        # Migration: ajouter les colonnes standing_points si elles n'existent pas
+        from app.db import engine
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            cols = [row[1] for row in conn.execute(text("PRAGMA table_info(Pool)")).fetchall()]
+            if "use_standing_points" not in cols:
+                conn.execute(text("ALTER TABLE Pool ADD COLUMN use_standing_points BOOLEAN NOT NULL DEFAULT 0"))
+                logger.info("Migration: added Pool.use_standing_points column")
+            if "standing_points" not in cols:
+                conn.execute(text("ALTER TABLE Pool ADD COLUMN standing_points TEXT DEFAULT NULL"))
+                logger.info("Migration: added Pool.standing_points column")
+            conn.commit()
 
     except Exception as e:
         logger.error(f"Error initializing database: {e}")
@@ -1662,9 +1679,9 @@ async def get_tournament_final_ranking(
             team_points[team_sport_b.team_id]["goals_against"] += match.score_a or 0
 
             # Déterminer le vainqueur et attribuer les points
-            winner_points = match.winner_points if match.winner_points is not None else 3
+            winner_points = match.winner_points if match.winner_points is not None else 0
             loser_points = match.loser_points if match.loser_points is not None else 0
-            draw_points = 1
+            draw_points = loser_points
 
             if match.score_a > match.score_b:
                 # Équipe A gagne

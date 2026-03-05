@@ -4,13 +4,44 @@ import { MatchData } from "./types";
 import { submitMatchResultWithPropagation, updateMatchStatus as updateStatus } from "../common/useMatchPropagation";
 import { useLiveScoreSync } from "../common/useLiveScoreSync";
 
+export type MatchPlayer = {
+    id: number;
+    team_sport_id: number;
+    team: "A" | "B";
+    first_name?: string | null;
+    last_name?: string | null;
+    jersey_number?: number | null;
+    is_captain: boolean;
+    is_active: boolean;
+};
+
+// Événement local (en mémoire pendant le match, persisté en lot sur END)
+export type LocalMatchEvent = {
+    localId: number;
+    event_type: "goal" | "yellow_card" | "red_card";
+    team: "A" | "B";
+    player_id?: number | null;
+    match_time_seconds?: number | null;
+    timestamp: string; // ISO, utilisé pour l'animation spectateur
+    player?: {
+        id: number;
+        first_name?: string | null;
+        last_name?: string | null;
+        jersey_number?: number | null;
+    } | null;
+};
+
+// Convertit les secondes écoulées en minute affichable
+const toMinute = (secs: number | null | undefined): number =>
+    Math.ceil((secs ?? 0) / 60);
+
 // Ajout du type tournamentId si besoin
 type MatchDataWithTournament = MatchData & { tournamentId?: string | number; court?: string; numericId?: number };
 const HALF_TIME_DURATION = 10 * 60; // 10 minutes en secondes
 
 
 export function useHandballMatch(initialMatchId: string | null) {
-    console.log('[Handball Hook] ========== VERSION 2.0 - With phase_id support ==========');
+    console.log('[Handball Hook] ========== VERSION 3.0 - With match events ==========');
     const { data: session } = useSession();
     const token = (session as { accessToken?: string } | null)?.accessToken;
     const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -30,6 +61,15 @@ export function useHandballMatch(initialMatchId: string | null) {
 
     const intervalRef = useRef<number | null>(null);
     const [court, setCourt] = useState<string>("");
+
+    // Fiche de match & événements locaux
+    const [players, setPlayers] = useState<MatchPlayer[]>([]);
+    const [pendingEvents, setPendingEvents] = useState<LocalMatchEvent[]>([]);
+    const pendingEventCounter = useRef(0);
+    const [pendingCardEvent, setPendingCardEvent] = useState<{
+        team: "A" | "B";
+        event_type: "yellow_card" | "red_card";
+    } | null>(null);
 
     // UN SEUL useEffect pour récupérer les données du match
     useEffect(() => {
@@ -84,7 +124,6 @@ export function useHandballMatch(initialMatchId: string | null) {
                         }
                     }
                 } else if (match.team_a_source) {
-                    // Fallback: afficher la source si l'équipe n'est pas encore résolue
                     teamAName = match.team_a_source;
                     console.log('[Handball Hook] Team A (source fallback):', teamAName);
                 }
@@ -105,7 +144,6 @@ export function useHandballMatch(initialMatchId: string | null) {
                         }
                     }
                 } else if (match.team_b_source) {
-                    // Fallback: afficher la source si l'équipe n'est pas encore résolue
                     teamBName = match.team_b_source;
                     console.log('[Handball Hook] Team B (source fallback):', teamBName);
                 }
@@ -159,6 +197,19 @@ export function useHandballMatch(initialMatchId: string | null) {
             } catch (error) {
                 console.error('[Handball Hook] Error fetching match data:', error);
             }
+
+            // Charger le roster des joueurs
+            try {
+                const playersRes = await fetch(
+                    `${process.env.NEXT_PUBLIC_API_URL}/matches/${initialMatchId}/players`
+                );
+                if (playersRes.ok) {
+                    const playersData = await playersRes.json();
+                    setPlayers(playersData.data || []);
+                }
+            } catch (e) {
+                console.warn("[Handball Hook] Erreur chargement joueurs:", e);
+            }
         }
 
         fetchMatchData();
@@ -170,7 +221,6 @@ export function useHandballMatch(initialMatchId: string | null) {
     }
 
     /** ---------- CHRONO ---------- */
-    // Chrono logic
     const [formattedTime, setFormattedTime] = useState<string>("10:00");
     // Pour forcer le switch visuel de période (MT1/MT2)
     const [periodSwitchChecked, setPeriodSwitchChecked] = useState(false);
@@ -179,16 +229,22 @@ export function useHandballMatch(initialMatchId: string | null) {
         const sec = time % 60;
         return `${min.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
     }
-    // Update formattedTime when chrono changes
     useEffect(() => {
         setFormattedTime(formatChrono(matchData.chrono.time));
     }, [matchData.chrono.time]);
 
-    // Chrono handlers
+    // Période (MT1 / MT2)
+    const [period, setPeriod] = useState<"MT1" | "MT2">("MT1");
+
+    // Temps écoulé en secondes selon la mi-temps (chrono compte à rebours)
+    const getElapsedSeconds = (): number =>
+        period === "MT1"
+            ? HALF_TIME_DURATION - matchData.chrono.time
+            : HALF_TIME_DURATION + (HALF_TIME_DURATION - matchData.chrono.time);
+
     const startChrono = () => {
         if (intervalRef.current !== null) return;
 
-        // ✅ Recharge le temps AVANT de démarrer
         setMatchData((prev) => ({
             ...prev,
             chrono: {
@@ -256,9 +312,8 @@ export function useHandballMatch(initialMatchId: string | null) {
             ...prev,
             chrono: { ...prev.chrono, time: prev.chrono.time + 1 }
         }));
-    }
+    };
 
-    // Définir le chrono principal (minutes et secondes)
     const setChrono = (minutes: number, seconds: number) => {
         const totalSeconds = minutes * 60 + seconds;
         setMatchData((p) => ({
@@ -267,10 +322,6 @@ export function useHandballMatch(initialMatchId: string | null) {
         }));
     };
 
-    // Bascule période MT1 <-> MT2 et réinitialise le chrono à 10 minutes
-    // Période (MT1 / MT2)
-    const [period, setPeriod] = useState<"MT1" | "MT2">("MT1");
-    
     const togglePeriod = () => {
         if (period === "MT1") {
             setPeriod("MT2");
@@ -285,58 +336,16 @@ export function useHandballMatch(initialMatchId: string | null) {
     const syncMatchStatus = async (scoreA: number, scoreB: number, currentChrono: string) => {
         if (!initialMatchId) return;
         try {
-            const headers: HeadersInit = {
-                'Content-Type': 'application/json',
-            };
-            if (token) {
-                headers['Authorization'] = `Bearer ${token}`;
-            }
+            const headers: HeadersInit = { 'Content-Type': 'application/json' };
+            if (token) headers['Authorization'] = `Bearer ${token}`;
             await fetch(`${API_URL}/matches/${initialMatchId}`, {
                 method: 'PATCH',
                 headers,
-                body: JSON.stringify({
-                    score_a: scoreA,
-                    score_b: scoreB,
-                    time: currentChrono // On utilise le champ 'time' du modèle Match
-                })
+                body: JSON.stringify({ score_a: scoreA, score_b: scoreB, time: currentChrono })
             });
         } catch (e) {
             console.error("Erreur de synchro", e);
         }
-    };
-
-    // Correction du +1 (on évite de mettre la logique de fetch DANS le setter)
-    const addPoint = (team: "A" | "B") => {
-        let newScoreA = matchData.teamA.score;
-        let newScoreB = matchData.teamB.score;
-
-        if (team === "A") newScoreA += 1;
-        else newScoreB += 1;
-
-        // 1. Mise à jour visuelle immédiate
-        setMatchData(prev => ({
-            ...prev,
-            teamA: { ...prev.teamA, score: team === "A" ? prev.teamA.score + 1 : prev.teamA.score },
-            teamB: { ...prev.teamB, score: team === "B" ? prev.teamB.score + 1 : prev.teamB.score },
-        }));
-
-        // 2. Envoi au serveur
-        syncMatchStatus(newScoreA, newScoreB, formattedTime);
-    };
-
-    const subPoint = (team: "A" | "B") => {
-        let newScoreA = matchData.teamA.score;
-        let newScoreB = matchData.teamB.score;
-        if (team === "A") newScoreA = Math.max(0, newScoreA - 1);
-        else newScoreB = Math.max(0, newScoreB - 1);
-        // 1. Mise à jour visuelle immédiate
-        setMatchData(prev => ({
-            ...prev,
-            teamA: { ...prev.teamA, score: team === "A" ? Math.max(0, prev.teamA.score - 1) : prev.teamA.score },
-            teamB: { ...prev.teamB, score: team === "B" ? Math.max(0, prev.teamB.score - 1) : prev.teamB.score },
-        }));
-        // 2. Envoi au serveur
-        syncMatchStatus(newScoreA, newScoreB, formattedTime);
     };
 
     // Synchro automatique du chrono toutes les 10 secondes
@@ -344,72 +353,180 @@ export function useHandballMatch(initialMatchId: string | null) {
         if (matchData.chrono.running) {
             const syncInterval = setInterval(() => {
                 syncMatchStatus(matchData.teamA.score, matchData.teamB.score, formattedTime);
-            }, 10000); // Toutes les 10 secondes
+            }, 10000);
             return () => clearInterval(syncInterval);
         }
     }, [matchData.chrono.running, formattedTime]);
 
+    /** ---------- POINTS / BUTS ---------- */
+
+    /** addPoint : incrémente directement sans modal de sélection joueur */
+    const addPoint = (team: "A" | "B") => {
+        let newScoreA = matchData.teamA.score;
+        let newScoreB = matchData.teamB.score;
+        if (team === "A") newScoreA += 1; else newScoreB += 1;
+        setMatchData(prev => ({
+            ...prev,
+            teamA: { ...prev.teamA, score: team === "A" ? prev.teamA.score + 1 : prev.teamA.score },
+            teamB: { ...prev.teamB, score: team === "B" ? prev.teamB.score + 1 : prev.teamB.score },
+        }));
+        syncMatchStatus(newScoreA, newScoreB, formattedTime);
+    };
+
+    const subPoint = (team: "A" | "B") => {
+        // Supprimer le dernier événement "goal" de cette équipe
+        setPendingEvents((prev) => {
+            const lastIdx =
+                [...prev]
+                    .map((e, i) => ({ e, i }))
+                    .filter(({ e }) => e.event_type === "goal" && e.team === team)
+                    .pop()?.i ?? -1;
+            return lastIdx === -1 ? prev : prev.filter((_, i) => i !== lastIdx);
+        });
+
+        let newScoreA = matchData.teamA.score;
+        let newScoreB = matchData.teamB.score;
+        if (team === "A") newScoreA = Math.max(0, newScoreA - 1);
+        else newScoreB = Math.max(0, newScoreB - 1);
+        setMatchData(prev => ({
+            ...prev,
+            teamA: { ...prev.teamA, score: team === "A" ? Math.max(0, prev.teamA.score - 1) : prev.teamA.score },
+            teamB: { ...prev.teamB, score: team === "B" ? Math.max(0, prev.teamB.score - 1) : prev.teamB.score },
+        }));
+        syncMatchStatus(newScoreA, newScoreB, formattedTime);
+    };
+
     /** ---------- CARTONS ---------- */
-    const addYellowCard = (team: "A" | "B") =>
+
+    const addYellowCard = (team: "A" | "B") => {
+        const teamPlayers = players.filter((p) => p.team === team);
+        if (teamPlayers.length > 0) {
+            setPendingCardEvent({ team, event_type: "yellow_card" });
+        } else {
+            setMatchData((p: MatchDataWithTournament) => {
+                const k = teamKey(team);
+                return { ...p, [k]: { ...p[k], yellowCards: p[k].yellowCards + 1 } };
+            });
+            const localId = ++pendingEventCounter.current;
+            setPendingEvents((prev) => [
+                ...prev,
+                {
+                    localId,
+                    event_type: "yellow_card" as const,
+                    team,
+                    player_id: null,
+                    match_time_seconds: getElapsedSeconds(),
+                    timestamp: new Date().toISOString(),
+                    player: null,
+                },
+            ]);
+        }
+    };
+
+    const subYellowCard = (team: "A" | "B") => {
         setMatchData((p: MatchDataWithTournament) => {
             const k = teamKey(team);
-            return {
-                ...p,
-                [k]: { ...p[k], yellowCards: p[k].yellowCards + 1 },
-            };
+            return { ...p, [k]: { ...p[k], yellowCards: Math.max(0, p[k].yellowCards - 1) } };
+        });
+        setPendingEvents((prev) => {
+            const lastIdx =
+                [...prev]
+                    .map((e, i) => ({ e, i }))
+                    .filter(({ e }) => e.event_type === "yellow_card" && e.team === team)
+                    .pop()?.i ?? -1;
+            return lastIdx === -1 ? prev : prev.filter((_, i) => i !== lastIdx);
+        });
+    };
+
+    const addRedCard = (team: "A" | "B") => {
+        const teamPlayers = players.filter((p) => p.team === team);
+        if (teamPlayers.length > 0) {
+            setPendingCardEvent({ team, event_type: "red_card" });
+        } else {
+            setMatchData((p: MatchDataWithTournament) => {
+                const k = teamKey(team);
+                return { ...p, [k]: { ...p[k], redCards: p[k].redCards + 1 } };
+            });
+            const localId = ++pendingEventCounter.current;
+            setPendingEvents((prev) => [
+                ...prev,
+                {
+                    localId,
+                    event_type: "red_card" as const,
+                    team,
+                    player_id: null,
+                    match_time_seconds: getElapsedSeconds(),
+                    timestamp: new Date().toISOString(),
+                    player: null,
+                },
+            ]);
+        }
+    };
+
+    const subRedCard = (team: "A" | "B") => {
+        setMatchData((p: MatchDataWithTournament) => {
+            const k = teamKey(team);
+            return { ...p, [k]: { ...p[k], redCards: Math.max(0, p[k].redCards - 1) } };
+        });
+        setPendingEvents((prev) => {
+            const lastIdx =
+                [...prev]
+                    .map((e, i) => ({ e, i }))
+                    .filter(({ e }) => e.event_type === "red_card" && e.team === team)
+                    .pop()?.i ?? -1;
+            return lastIdx === -1 ? prev : prev.filter((_, i) => i !== lastIdx);
+        });
+    };
+
+    const confirmCard = (playerId?: number) => {
+        if (!pendingCardEvent) return;
+        const { team, event_type } = pendingCardEvent;
+        setPendingCardEvent(null);
+
+        const player = playerId ? (players.find((p) => p.id === playerId) ?? null) : null;
+
+        setMatchData((p: MatchDataWithTournament) => {
+            const k = teamKey(team);
+            if (event_type === "yellow_card") {
+                return { ...p, [k]: { ...p[k], yellowCards: p[k].yellowCards + 1 } };
+            }
+            return { ...p, [k]: { ...p[k], redCards: p[k].redCards + 1 } };
         });
 
-    const subYellowCard = (team: "A" | "B") =>
-        setMatchData((p: MatchDataWithTournament) => {
-            const k = teamKey(team);
-            return {
-                ...p,
-                [k]: { ...p[k], yellowCards: Math.max(0, p[k].yellowCards - 1) },
-            };
-        });
+        const localId = ++pendingEventCounter.current;
+        setPendingEvents((prev) => [
+            ...prev,
+            {
+                localId,
+                event_type,
+                team,
+                player_id: player?.id ?? null,
+                match_time_seconds: getElapsedSeconds(),
+                timestamp: new Date().toISOString(),
+                player: player
+                    ? { id: player.id, first_name: player.first_name, last_name: player.last_name, jersey_number: player.jersey_number }
+                    : null,
+            },
+        ]);
+    };
 
-    const addRedCard = (team: "A" | "B") =>
-        setMatchData((p: MatchDataWithTournament) => {
-            const k = teamKey(team);
-            return {
-                ...p,
-                [k]: { ...p[k], redCards: p[k].redCards + 1 },
-            };
-        });
-
-    const subRedCard = (team: "A" | "B") =>
-        setMatchData((p: MatchDataWithTournament) => {
-            const k = teamKey(team);
-            return {
-                ...p,
-                [k]: { ...p[k], redCards: Math.max(0, p[k].redCards - 1) },
-            };
-        });
+    const cancelCardModal = () => setPendingCardEvent(null);
 
     /** ---------- METADATA UPDATES ---------- */
     const setTeamName = (team: "A" | "B", name: string) =>
         setMatchData((p: MatchDataWithTournament) => ({
             ...p,
-            [`team${team}`]: {
-                ...p[`team${team}` as "teamA" | "teamB"],
-                name,
-            },
+            [`team${team}`]: { ...p[`team${team}` as "teamA" | "teamB"], name },
         }));
 
     const setTeamLogo = (team: "A" | "B", logo_url: string) =>
         setMatchData((p: MatchDataWithTournament) => ({
             ...p,
-            [`team${team}`]: {
-                ...p[`team${team}` as "teamA" | "teamB"],
-                logo_url,
-            },
+            [`team${team}`]: { ...p[`team${team}` as "teamA" | "teamB"], logo_url },
         }));
 
     const setMatchType = (type: string) =>
-        setMatchData((p: MatchDataWithTournament) => ({
-            ...p,
-            matchType: type,
-        }));
+        setMatchData((p: MatchDataWithTournament) => ({ ...p, matchType: type }));
 
     /** ---------- STATUS ---------- */
     const updateMatchStatus = async (status: 'scheduled' | 'in_progress' | 'completed') => {
@@ -438,7 +555,7 @@ export function useHandballMatch(initialMatchId: string | null) {
                 }
             },
             onError: (error) => {
-                console.error('[Handball Hook] ❌ Error:', error);
+                console.error('[Handball Hook] Error:', error);
                 alert('Erreur lors de la fin du match : ' + error);
             },
         });
@@ -447,12 +564,65 @@ export function useHandballMatch(initialMatchId: string | null) {
     /** ---------- END MATCH ---------- */
     const handleEnd = async () => {
         stopChrono();
+
+        // 1. Soumettre le résultat du match
         await submitMatchResult();
+
+        // 2. Persister les événements en lot — uniquement si END est pressé
+        const currentPendingEvents = pendingEvents;
+        if (currentPendingEvents.length > 0) {
+            const matchId = matchData.numericId?.toString() || initialMatchId;
+            if (matchId) {
+                try {
+                    await fetch(
+                        `${process.env.NEXT_PUBLIC_API_URL}/matches/${matchId}/events/batch`,
+                        {
+                            method: "POST",
+                            headers: {
+                                "Content-Type": "application/json",
+                                ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                            },
+                            body: JSON.stringify(
+                                currentPendingEvents.map((e) => ({
+                                    team: e.team,
+                                    event_type: e.event_type,
+                                    player_id: e.player_id ?? null,
+                                    match_time_seconds: e.match_time_seconds ?? null,
+                                }))
+                            ),
+                        }
+                    );
+                } catch (e) {
+                    console.error("[Handball Hook] Erreur sauvegarde événements batch:", e);
+                }
+            }
+        }
     };
 
     /** ---------- SYNC TO LOCAL STORAGE + BACKEND SSE ---------- */
     useEffect(() => {
         try {
+            // Dernier événement pour l'animation spectateur
+            const lastEvent = pendingEvents[pendingEvents.length - 1];
+            const lastGoal = lastEvent
+                ? {
+                    event_type: lastEvent.event_type,
+                    minute: toMinute(lastEvent.match_time_seconds),
+                    playerNumber: lastEvent.player?.jersey_number ?? null,
+                    playerName: lastEvent.player
+                        ? [lastEvent.player.first_name, lastEvent.player.last_name]
+                            .filter(Boolean)
+                            .join(" ") || null
+                        : null,
+                    teamName:
+                        lastEvent.team === "A"
+                            ? matchData.teamA.name || "Équipe A"
+                            : matchData.teamB.name || "Équipe B",
+                    team: lastEvent.team,
+                    timestamp: lastEvent.timestamp,
+                }
+                : null;
+
             const payload = {
                 team1: matchData.teamA.name || "ÉQUIPE A",
                 team2: matchData.teamB.name || "ÉQUIPE B",
@@ -468,27 +638,27 @@ export function useHandballMatch(initialMatchId: string | null) {
                 redCards2: Math.max(0, matchData.teamB.redCards),
                 chrono: formattedTime,
                 period,
+                lastGoal,
                 lastUpdate: new Date().toISOString(),
             };
-            // Sync to localStorage (for same-device spectator)
+
             localStorage.setItem("liveHandballMatch", JSON.stringify(payload));
             if (initialMatchId) {
                 localStorage.setItem(`liveHandballMatch_${initialMatchId}`, JSON.stringify(payload));
             }
 
-            // Sync to backend SSE (for cross-device split-screen spectators)
             if (initialMatchId) {
                 const sseMatchId = matchData.numericId?.toString() || initialMatchId;
                 sendLiveScore({
                     matchId: sseMatchId,
-                    sport: 'handball' as any, // Extended sport type
+                    sport: 'handball' as any,
                     payload,
                 });
             }
-        } catch (e) {
+        } catch {
             // Ignore storage errors
         }
-    }, [matchData, formattedTime, period, court, initialMatchId, sendLiveScore]);
+    }, [matchData, formattedTime, period, court, initialMatchId, sendLiveScore, pendingEvents]);
 
     // Cleanup à l'unmount
     useEffect(() => {
@@ -497,7 +667,6 @@ export function useHandballMatch(initialMatchId: string | null) {
                 window.clearInterval(intervalRef.current);
                 intervalRef.current = null;
             }
-            // Cleanup live score sync
             if (initialMatchId) {
                 cleanupLiveScore(initialMatchId);
             }
@@ -512,5 +681,15 @@ export function useHandballMatch(initialMatchId: string | null) {
             teamB: { ...p.teamA },
         }));
 
-    return { matchData, formattedTime, handleEnd, updateMatchStatus, startChrono, stopChrono, addSecond, setChrono, addPoint, subPoint, addYellowCard, subYellowCard, addRedCard, subRedCard, setTeamName, setTeamLogo, setMatchType, swapSides, court, togglePeriod, period, periodSwitchChecked, setPeriodSwitchChecked };
+    return {
+        matchData, formattedTime, handleEnd, updateMatchStatus,
+        startChrono, stopChrono, addSecond, setChrono,
+        addPoint, subPoint,
+        addYellowCard, subYellowCard, addRedCard, subRedCard,
+        setTeamName, setTeamLogo, setMatchType, swapSides,
+        court, togglePeriod, period, periodSwitchChecked, setPeriodSwitchChecked,
+        // Fiche de match & événements
+        players, pendingEvents,
+        pendingCardEvent, confirmCard, cancelCardModal,
+    };
 }

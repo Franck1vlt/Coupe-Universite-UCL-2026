@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import { useMatchSSE, type LiveScoreData } from "../features/scoreboards/common/useMatchSSE";
+import {
+  useMatchSSE,
+  type LiveScoreData,
+} from "../features/scoreboards/common/useMatchSSE";
 import { useRouter } from "next/navigation";
 
 // --- TYPES ---
@@ -54,28 +57,39 @@ const normalizeSport = (sport: string | undefined): string => {
   if (!sport) return "unknown";
   const normalized = sport.toLowerCase().trim();
   const sportMap: Record<string, string> = {
-    "volley": "volleyball",
+    volley: "volleyball",
     "volley-ball": "volleyball",
-    "foot": "football",
-    "basket": "basketball",
-    "hand": "handball",
-    "petanque": "petanque",
-    "pétanque": "petanque",
-    "flechettes": "flechettes",
-    "fléchettes": "flechettes",
-    "darts": "flechettes",
+    foot: "football",
+    basket: "basketball",
+    hand: "handball",
+    petanque: "petanque",
+    pétanque: "petanque",
+    flechettes: "flechettes",
+    fléchettes: "flechettes",
+    darts: "flechettes",
   };
   return sportMap[normalized] || normalized;
 };
 
 // Helper to extract gender from tournament name
-const extractGender = (tournamentName: string | undefined): { label: string; color: string } | null => {
+const extractGender = (
+  tournamentName: string | undefined,
+): { label: string; color: string } | null => {
   if (!tournamentName) return null;
   const lower = tournamentName.toLowerCase();
-  if (lower.includes("homme") || lower.includes("men") || lower.includes("masculin")) {
+  if (
+    lower.includes("homme") ||
+    lower.includes("men") ||
+    lower.includes("masculin")
+  ) {
     return { label: "Hommes", color: "text-blue-400" };
   }
-  if (lower.includes("femme") || lower.includes("women") || lower.includes("féminin") || lower.includes("feminin")) {
+  if (
+    lower.includes("femme") ||
+    lower.includes("women") ||
+    lower.includes("féminin") ||
+    lower.includes("feminin")
+  ) {
     return { label: "Femmes", color: "text-pink-400" };
   }
   if (lower.includes("mixte") || lower.includes("mixed")) {
@@ -90,7 +104,9 @@ export default function ScoresDirectPage() {
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [liveScores, setLiveScores] = useState<Map<number, LiveScoreData>>(new Map());
+  const [liveScores, setLiveScores] = useState<Map<number, LiveScoreData>>(
+    new Map(),
+  );
   const router = useRouter();
 
   // URL de l'API (ajustez si nécessaire)
@@ -98,7 +114,7 @@ export default function ScoresDirectPage() {
 
   // Extraire les IDs des matchs en cours pour SSE
   const inProgressMatchIds = useMemo(() => {
-    return matches.map(m => m.id).filter(id => !isNaN(id));
+    return matches.map((m) => m.id).filter((id) => !isNaN(id));
   }, [matches]);
 
   // SSE pour les scores en temps réel
@@ -106,14 +122,14 @@ export default function ScoresDirectPage() {
     matchIds: inProgressMatchIds,
     enabled: inProgressMatchIds.length > 0,
     onScoreUpdate: (data) => {
-      console.log('[ScoresDirect] SSE update:', data);
-      setLiveScores(prev => {
+      console.log("[ScoresDirect] SSE update:", data);
+      setLiveScores((prev) => {
         const newMap = new Map(prev);
         newMap.set(data.match_id, data);
         return newMap;
       });
       setLastUpdated(new Date());
-    }
+    },
   });
 
   // Fonction pour obtenir le score live d'un match
@@ -127,11 +143,15 @@ export default function ScoresDirectPage() {
       // Get all tournaments to map sport info
       const tournamentsRes = await fetch(`${API_URL}/tournaments`);
       const tournamentsData = await tournamentsRes.json();
-      const tournaments = tournamentsData.data?.items || tournamentsData.data || [];
+      const tournaments =
+        tournamentsData.data?.items || tournamentsData.data || [];
 
       // Create sport and tournament mapping
       const sportMap = new Map<number, { code: string; name: string }>();
-      const tournamentMap = new Map<number, { sport_id: number; name: string }>(); // tournament_id -> { sport_id, name }
+      const tournamentMap = new Map<
+        number,
+        { sport_id: number; name: string }
+      >(); // tournament_id -> { sport_id, name }
 
       for (const t of tournaments) {
         tournamentMap.set(t.id, { sport_id: t.sport_id, name: t.name });
@@ -141,8 +161,12 @@ export default function ScoresDirectPage() {
             if (sportRes.ok) {
               const sportData = await sportRes.json();
               sportMap.set(t.sport_id, {
-                code: sportData.data?.code || sportData.data?.slug || sportData.data?.name?.toLowerCase().replace(/\s+/g, '') || "unknown",
-                name: sportData.data?.name || "Sport"
+                code:
+                  sportData.data?.code ||
+                  sportData.data?.slug ||
+                  sportData.data?.name?.toLowerCase().replace(/\s+/g, "") ||
+                  "unknown",
+                name: sportData.data?.name || "Sport",
               });
             }
           } catch {
@@ -156,12 +180,18 @@ export default function ScoresDirectPage() {
       if (!response.ok) throw new Error("Erreur réseau");
 
       const json = await response.json();
-      const rawMatches = json.data ? json.data : (Array.isArray(json) ? json : []);
+      const rawMatches = json.data
+        ? json.data
+        : Array.isArray(json)
+          ? json
+          : [];
 
       // Enrich matches with sport and tournament info
       const enrichedMatches: Match[] = rawMatches.map((m: any) => {
         const tournamentInfo = tournamentMap.get(m.tournament_id);
-        const sportInfo = tournamentInfo ? sportMap.get(tournamentInfo.sport_id) : null;
+        const sportInfo = tournamentInfo
+          ? sportMap.get(tournamentInfo.sport_id)
+          : null;
         return {
           ...m,
           uuid: m.uuid || `match-${m.id}`,
@@ -176,7 +206,8 @@ export default function ScoresDirectPage() {
       setError(null);
     } catch (err) {
       console.error("Erreur fetch live matches:", err);
-      if (matches.length === 0) setError("Impossible de charger les scores en direct.");
+      if (matches.length === 0)
+        setError("Impossible de charger les scores en direct.");
     } finally {
       setLoading(false);
     }
@@ -196,11 +227,13 @@ export default function ScoresDirectPage() {
   const getTeamName = (match: Match, side: "a" | "b") => {
     if (side === "a") {
       if (match.team_sport_a?.team?.name) return match.team_sport_a.team.name;
-      if (match.team_sport_a?.team_sport_name) return match.team_sport_a.team_sport_name;
+      if (match.team_sport_a?.team_sport_name)
+        return match.team_sport_a.team_sport_name;
       return match.team_a_source || "Équipe A";
     } else {
       if (match.team_sport_b?.team?.name) return match.team_sport_b.team.name;
-      if (match.team_sport_b?.team_sport_name) return match.team_sport_b.team_sport_name;
+      if (match.team_sport_b?.team_sport_name)
+        return match.team_sport_b.team_sport_name;
       return match.team_b_source || "Équipe B";
     }
   };
@@ -223,7 +256,7 @@ export default function ScoresDirectPage() {
   });
 
   // --- RENDU ---
-  
+
   if (loading && matches.length === 0) {
     return (
       <div className="flex justify-center items-center min-h-[50vh]">
@@ -234,7 +267,7 @@ export default function ScoresDirectPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 p-4 md:p-8">
-            {/* Bouton retour */}
+      {/* Bouton retour */}
       <button
         onClick={() => router.push("/")}
         className="absolute left-4 top-4 flex items-center gap-2 bg-white rounded-full shadow px-4 py-2 hover:bg-blue-50 transition focus:outline-none focus:ring-2 focus:ring-blue-400"
@@ -255,36 +288,61 @@ export default function ScoresDirectPage() {
         </svg>
         <span className="text-blue-700 font-medium">Retour</span>
       </button>
-      
+
       {/* En-tête */}
       <div className="max-w-7xl mx-auto mb-8">
         <div className="flex flex-col items-center justify-center gap-4 text-center">
           <div>
             <h1 className="text-3xl font-bold text-white">Scores en Direct</h1>
             <p className="text-sm text-gray-400 mt-1">
-              Mise à jour automatique • Dernière synchro : {lastUpdated?.toLocaleTimeString()}
+              Mise à jour automatique • Dernière synchro :{" "}
+              {lastUpdated?.toLocaleTimeString()}
             </p>
           </div>
 
-          <div className={`absolute right-4 top-4 flex items-center px-4 py-2 rounded-full border w-fit ${
-            connectionState.isConnected
-              ? 'bg-green-900/50 border-green-500'
-              : connectionState.isConnecting
-                ? 'bg-yellow-900/50 border-yellow-500'
-                : 'bg-red-900/50 border-red-500'
-          }`}>
+          <div
+            className={`absolute right-4 top-4 flex items-center px-4 py-2 rounded-full border w-fit ${
+              connectionState.isConnected
+                ? "bg-green-900/50 border-green-500"
+                : connectionState.isConnecting
+                  ? "bg-yellow-900/50 border-yellow-500"
+                  : "bg-red-900/50 border-red-500"
+            }`}
+          >
             <span className="relative flex h-3 w-3 mr-3">
-              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
-                connectionState.isConnected ? 'bg-green-400' : connectionState.isConnecting ? 'bg-yellow-400' : 'bg-red-400'
-              }`}></span>
-              <span className={`relative inline-flex rounded-full h-3 w-3 ${
-                connectionState.isConnected ? 'bg-green-500' : connectionState.isConnecting ? 'bg-yellow-500' : 'bg-red-500'
-              }`}></span>
+              <span
+                className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                  connectionState.isConnected
+                    ? "bg-green-400"
+                    : connectionState.isConnecting
+                      ? "bg-yellow-400"
+                      : "bg-red-400"
+                }`}
+              ></span>
+              <span
+                className={`relative inline-flex rounded-full h-3 w-3 ${
+                  connectionState.isConnected
+                    ? "bg-green-500"
+                    : connectionState.isConnecting
+                      ? "bg-yellow-500"
+                      : "bg-red-500"
+                }`}
+              ></span>
             </span>
-            <span className={`font-bold text-sm uppercase tracking-wide ${
-              connectionState.isConnected ? 'text-green-400' : connectionState.isConnecting ? 'text-yellow-400' : 'text-red-400'
-            }`}>
-              {connectionState.isConnected ? 'Live' : connectionState.isConnecting ? 'Connexion...' : 'Déconnecté'}
+            <span
+              className={`font-bold text-sm uppercase tracking-wide ${
+                connectionState.isConnected
+                  ? "text-green-400"
+                  : connectionState.isConnecting
+                    ? "text-yellow-400"
+                    : "text-red-400"
+              }`}
+            >
+              {connectionState.isConnected
+                ? "Live"
+                : connectionState.isConnecting
+                  ? "Connexion..."
+                  : "Déconnecté"}
             </span>
           </div>
         </div>
@@ -299,8 +357,12 @@ export default function ScoresDirectPage() {
       {/* Liste des matchs avec ScorebarScoreboard */}
       {matches.length === 0 ? (
         <div className="max-w-7xl mx-auto text-center py-16 bg-gray-800/50 rounded-xl border-2 border-dashed border-gray-600">
-          <p className="text-gray-400 text-lg">Aucun match en cours actuellement.</p>
-          <p className="text-gray-500 text-sm mt-2">Le live démarrera dès le coup d'envoi du prochain match.</p>
+          <p className="text-gray-400 text-lg">
+            Aucun match en cours actuellement.
+          </p>
+          <p className="text-gray-500 text-sm mt-2">
+            Le live démarrera dès le coup d'envoi du prochain match.
+          </p>
         </div>
       ) : (
         <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -315,8 +377,12 @@ export default function ScoresDirectPage() {
             const gender = extractGender(match.tournament_name);
 
             // Scores avec données live
-            const scoreA = data ? (data.score1 ?? data.scoreA ?? compactMatch.score_a ?? 0) : (compactMatch.score_a ?? 0);
-            const scoreB = data ? (data.score2 ?? data.scoreB ?? compactMatch.score_b ?? 0) : (compactMatch.score_b ?? 0);
+            const scoreA = data
+              ? (data.score1 ?? data.scoreA ?? compactMatch.score_a ?? 0)
+              : (compactMatch.score_a ?? 0);
+            const scoreB = data
+              ? (data.score2 ?? data.scoreB ?? compactMatch.score_b ?? 0)
+              : (compactMatch.score_b ?? 0);
             const setsA = data?.sets1 ?? data?.setsA ?? null;
             const setsB = data?.sets2 ?? data?.setsB ?? null;
             const hasSets = setsA !== null && setsB !== null;
@@ -348,19 +414,18 @@ export default function ScoresDirectPage() {
                   {/* Équipe A */}
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-3 flex-1 min-w-0">
-                      {compactMatch.team_a_logo ? (
-                        <img
-                          src={compactMatch.team_a_logo}
-                          alt=""
-                          className="w-10 h-10 rounded-full object-cover bg-gray-700"
-                        />
-                      ) : (
-                        <div className="w-10 h-10 rounded-full bg-gray-700 flex items-center justify-center">
-                          <span className="text-gray-400 font-bold text-sm">
-                            {compactMatch.team_a_name?.charAt(0) || "A"}
-                          </span>
-                        </div>
-                      )}
+                      <img
+                        src={
+                          compactMatch.team_a_logo
+                            ? compactMatch.team_a_logo
+                            : compactMatch.team_a_name
+                              ? `/img/${compactMatch.team_a_name.toLowerCase().replace(/\s+/g, '-')}.png`
+                              : "/img/no-logo.png"
+                        }
+                        onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = "/img/no-logo.png"; }}
+                        alt=""
+                        className="w-10 h-10 rounded-full object-cover bg-gray-700"
+                      />
                       <span className="font-semibold text-white truncate">
                         {data?.team1 || compactMatch.team_a_name}
                       </span>
@@ -371,9 +436,11 @@ export default function ScoresDirectPage() {
                           ({setsA})
                         </span>
                       )}
-                      <span className={`text-2xl font-black min-w-[40px] text-center ${
-                        scoreA > scoreB ? 'text-green-400' : 'text-white'
-                      }`}>
+                      <span
+                        className={`text-2xl font-black min-w-[40px] text-center ${
+                          scoreA > scoreB ? "text-green-400" : "text-white"
+                        }`}
+                      >
                         {scoreA}
                       </span>
                     </div>
@@ -389,19 +456,18 @@ export default function ScoresDirectPage() {
                   {/* Équipe B */}
                   <div className="flex items-center justify-between mt-3">
                     <div className="flex items-center gap-3 flex-1 min-w-0">
-                      {compactMatch.team_b_logo ? (
-                        <img
-                          src={compactMatch.team_b_logo}
-                          alt=""
-                          className="w-10 h-10 rounded-full object-cover bg-gray-700"
-                        />
-                      ) : (
-                        <div className="w-10 h-10 rounded-full bg-gray-700 flex items-center justify-center">
-                          <span className="text-gray-400 font-bold text-sm">
-                            {compactMatch.team_b_name?.charAt(0) || "B"}
-                          </span>
-                        </div>
-                      )}
+                      <img
+                        src={
+                          compactMatch.team_b_logo
+                            ? compactMatch.team_b_logo
+                            : compactMatch.team_b_name
+                              ? `/img/${compactMatch.team_b_name.toLowerCase().replace(/\s+/g, '-')}.png`
+                              : "/img/no-logo.png"
+                        }
+                        onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = "/img/no-logo.png"; }}
+                        alt=""
+                        className="w-10 h-10 rounded-full object-cover bg-gray-700"
+                      />
                       <span className="font-semibold text-white truncate">
                         {data?.team2 || compactMatch.team_b_name}
                       </span>
@@ -412,9 +478,11 @@ export default function ScoresDirectPage() {
                           ({setsB})
                         </span>
                       )}
-                      <span className={`text-2xl font-black min-w-[40px] text-center ${
-                        scoreB > scoreA ? 'text-green-400' : 'text-white'
-                      }`}>
+                      <span
+                        className={`text-2xl font-black min-w-[40px] text-center ${
+                          scoreB > scoreA ? "text-green-400" : "text-white"
+                        }`}
+                      >
                         {scoreB}
                       </span>
                     </div>
