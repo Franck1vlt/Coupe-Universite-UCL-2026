@@ -412,7 +412,7 @@ export default function GestionSports() {
                         </button>
                         {menuOpenId === sport.id && (
                           <div
-                            className="absolute right-0 z-10 mt-1 w-32 bg-white border border-gray-200 rounded-lg shadow-lg py-1 dropdown-sport-menu"
+                            className="absolute right-0 top-full z-10 mt-1 w-32 bg-white border border-gray-200 rounded-lg shadow-lg py-1 dropdown-sport-menu"
                             tabIndex={-1}
                           >
                             <button

@@ -452,6 +452,8 @@ def create_tournament_structure(
             match.court = get_val(m_data, 'court', match.court)
             match.duration = get_val(m_data, 'duration', match.duration)
             match.updated_at = datetime.utcnow()
+            if pool_id is not None:
+                match.pool_id = pool_id
 
             # Mise à jour des destinations et points
             if isinstance(m_data, dict):
@@ -842,6 +844,11 @@ def get_tournament_structure(
         winner_dest_uuid = id_to_uuid.get(m.winner_destination_match_id) if m.winner_destination_match_id else None
         loser_dest_uuid = id_to_uuid.get(m.loser_destination_match_id) if m.loser_destination_match_id else None
 
+        # Lire les infos de planification depuis MatchSchedule via la relation
+        schedule = getattr(m, 'schedule', None)
+        if isinstance(schedule, list) and schedule:
+            schedule = schedule[0]
+
         return {
             "id": m.id,
             "uuid": getattr(m, 'uuid', None),
@@ -872,10 +879,10 @@ def get_tournament_structure(
             "court": m.court if m.court else "Terrain",
             "date": str(m.date) if m.date else None,
             "time": str(m.time) if m.time else None,
-            "court_id": getattr(m, 'court_id', 1) or 1,
-            "duration": getattr(m, 'duration', 90),
-            "scheduled_datetime": getattr(m, 'scheduled_datetime', None),
-            "estimated_duration_minutes": getattr(m, 'estimated_duration_minutes', 90)
+            "court_id": schedule.court_id if schedule else None,
+            "duration": m.duration or 90,
+            "scheduled_datetime": schedule.scheduled_datetime.isoformat() if schedule and schedule.scheduled_datetime else None,
+            "estimated_duration_minutes": schedule.estimated_duration_minutes if schedule else 90
         }
 
     for phase in phases:

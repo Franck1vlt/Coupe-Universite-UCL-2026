@@ -1626,7 +1626,10 @@ async def get_tournament_final_ranking(
     from app.models.match import Match
     from app.models.teamsport import TeamSport
     from app.models.team import Team
+    from app.models.pool import Pool
+    from app.models.tournamentphase import TournamentPhase
     from collections import defaultdict
+    import json as _json
 
     # Récupérer tous les matchs terminés du tournoi
     completed_matches = db.query(Match).filter(
@@ -1702,6 +1705,71 @@ async def get_tournament_final_ranking(
                 team_points[team_sport_b.team_id]["total_points"] += draw_points
                 team_points[team_sport_b.team_id]["draws"] += 1
 
+    # Ajouter les points par position finale (pool standing_points)
+    phase_ids = db.query(TournamentPhase.id).filter(
+        TournamentPhase.tournament_id == tournament_id
+    ).all()
+    phase_id_list = [pid for (pid,) in phase_ids]
+
+    standing_pools = db.query(Pool).filter(
+        Pool.phase_id.in_(phase_id_list),
+        Pool.use_standing_points == True
+    ).all()
+
+    for pool in standing_pools:
+        if not pool.standing_points:
+            continue
+        try:
+            standing_pts = _json.loads(pool.standing_points) if isinstance(pool.standing_points, str) else pool.standing_points
+        except Exception:
+            continue
+
+        # Calculer le classement de la poule à partir des matchs de poule terminés
+        pool_matches = db.query(Match).filter(
+            Match.pool_id == pool.id,
+            Match.status == "completed"
+        ).all()
+
+        pool_stats: dict = {}
+        for pm in pool_matches:
+            if not pm.team_sport_a_id or not pm.team_sport_b_id:
+                continue
+            tsa = db.query(TeamSport).filter(TeamSport.id == pm.team_sport_a_id).first()
+            tsb = db.query(TeamSport).filter(TeamSport.id == pm.team_sport_b_id).first()
+            if not tsa or not tsb:
+                continue
+            for tid in [tsa.team_id, tsb.team_id]:
+                if tid not in pool_stats:
+                    pool_stats[tid] = {"wins": 0, "goals_for": 0, "goals_against": 0, "points": 0}
+            sa = pm.score_a or 0
+            sb = pm.score_b or 0
+            pool_stats[tsa.team_id]["goals_for"] += sa
+            pool_stats[tsa.team_id]["goals_against"] += sb
+            pool_stats[tsb.team_id]["goals_for"] += sb
+            pool_stats[tsb.team_id]["goals_against"] += sa
+            if sa > sb:
+                pool_stats[tsa.team_id]["wins"] += 1
+                pool_stats[tsa.team_id]["points"] += 3
+            elif sb > sa:
+                pool_stats[tsb.team_id]["wins"] += 1
+                pool_stats[tsb.team_id]["points"] += 3
+            else:
+                pool_stats[tsa.team_id]["points"] += 1
+                pool_stats[tsb.team_id]["points"] += 1
+
+        # Trier pour déterminer les positions
+        pool_ranking = sorted(
+            pool_stats.items(),
+            key=lambda x: (
+                -x[1]["points"],
+                -(x[1]["goals_for"] - x[1]["goals_against"]),
+                -x[1]["goals_for"]
+            )
+        )
+        for pos, (tid, _) in enumerate(pool_ranking, start=1):
+            pts = standing_pts.get(str(pos), 0) or standing_pts.get(pos, 0)
+            team_points[tid]["total_points"] += pts
+
     # Convertir en liste et trier par points (puis par différence de buts)
     ranking_list = []
     for team_id, stats in team_points.items():
@@ -1750,7 +1818,10 @@ async def get_global_final_ranking(
     from app.models.teamsport import TeamSport
     from app.models.team import Team
     from app.models.tournament import Tournament
+    from app.models.pool import Pool
+    from app.models.tournamentphase import TournamentPhase
     from collections import defaultdict
+    import json as _json
 
     # Dictionnaire pour stocker les points totaux de chaque équipe
     global_team_points = defaultdict(lambda: {
@@ -1829,6 +1900,69 @@ async def get_global_final_ranking(
                 else:
                     tournament_team_points[team_sport_a.team_id]["total_points"] += draw_points
                     tournament_team_points[team_sport_b.team_id]["total_points"] += draw_points
+
+        # Ajouter les points par position finale (pool standing_points)
+        t_phase_ids = db.query(TournamentPhase.id).filter(
+            TournamentPhase.tournament_id == tournament.id
+        ).all()
+        t_phase_id_list = [pid for (pid,) in t_phase_ids]
+
+        t_standing_pools = db.query(Pool).filter(
+            Pool.phase_id.in_(t_phase_id_list),
+            Pool.use_standing_points == True
+        ).all()
+
+        for pool in t_standing_pools:
+            if not pool.standing_points:
+                continue
+            try:
+                standing_pts = _json.loads(pool.standing_points) if isinstance(pool.standing_points, str) else pool.standing_points
+            except Exception:
+                continue
+
+            pool_matches = db.query(Match).filter(
+                Match.pool_id == pool.id,
+                Match.status == "completed"
+            ).all()
+
+            pool_stats: dict = {}
+            for pm in pool_matches:
+                if not pm.team_sport_a_id or not pm.team_sport_b_id:
+                    continue
+                tsa = db.query(TeamSport).filter(TeamSport.id == pm.team_sport_a_id).first()
+                tsb = db.query(TeamSport).filter(TeamSport.id == pm.team_sport_b_id).first()
+                if not tsa or not tsb:
+                    continue
+                for tid in [tsa.team_id, tsb.team_id]:
+                    if tid not in pool_stats:
+                        pool_stats[tid] = {"wins": 0, "goals_for": 0, "goals_against": 0, "points": 0}
+                sa = pm.score_a or 0
+                sb = pm.score_b or 0
+                pool_stats[tsa.team_id]["goals_for"] += sa
+                pool_stats[tsa.team_id]["goals_against"] += sb
+                pool_stats[tsb.team_id]["goals_for"] += sb
+                pool_stats[tsb.team_id]["goals_against"] += sa
+                if sa > sb:
+                    pool_stats[tsa.team_id]["wins"] += 1
+                    pool_stats[tsa.team_id]["points"] += 3
+                elif sb > sa:
+                    pool_stats[tsb.team_id]["wins"] += 1
+                    pool_stats[tsb.team_id]["points"] += 3
+                else:
+                    pool_stats[tsa.team_id]["points"] += 1
+                    pool_stats[tsb.team_id]["points"] += 1
+
+            pool_ranking = sorted(
+                pool_stats.items(),
+                key=lambda x: (
+                    -x[1]["points"],
+                    -(x[1]["goals_for"] - x[1]["goals_against"]),
+                    -x[1]["goals_for"]
+                )
+            )
+            for pos, (tid, _) in enumerate(pool_ranking, start=1):
+                pts = standing_pts.get(str(pos), 0) or standing_pts.get(pos, 0)
+                tournament_team_points[tid]["total_points"] += pts
 
         # Trier les équipes de ce tournoi pour déterminer les podiums
         tournament_ranking = sorted(

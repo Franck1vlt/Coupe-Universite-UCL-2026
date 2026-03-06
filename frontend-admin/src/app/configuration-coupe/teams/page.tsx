@@ -468,7 +468,7 @@ export default function GestionTeams() {
                         </button>
                         {menuOpenId === team.id && (
                           <div
-                            className="absolute right-0 z-10 mt-1 w-40 bg-white border border-gray-200 rounded-lg shadow-lg py-1 dropdown-team-menu"
+                            className="absolute right-0 top-full z-10 mt-1 w-40 bg-white border border-gray-200 rounded-lg shadow-lg py-1 dropdown-team-menu"
                             tabIndex={-1}
                           >
                             <button

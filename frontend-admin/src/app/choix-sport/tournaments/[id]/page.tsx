@@ -64,6 +64,7 @@ type Pool = {
   teams: string[];
   qualifiedToFinals?: number;
   qualifiedToLoserBracket?: number;
+  qualifiedAsBestThird?: boolean;
   useStandingPoints?: boolean;
   standingPoints?: Record<number, number>;
 };
@@ -523,6 +524,7 @@ export default function TournamentViewPage() {
               teams: [], // Les équipes seront récupérées via l'API standings
               qualifiedToFinals: p.qualified_to_finals || 2,
               qualifiedToLoserBracket: p.qualified_to_loser_bracket || 0,
+              qualifiedAsBestThird: p.qualified_as_best_third || false,
               useStandingPoints: p.use_standing_points || false,
               standingPoints: p.standing_points || undefined,
             });
@@ -1661,7 +1663,7 @@ export default function TournamentViewPage() {
             </button>
 
             {showMenu && (
-              <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-xl border border-gray-200 py-2 z-50">
+              <div className="absolute right-0 top-full mt-2 w-64 bg-white rounded-lg shadow-xl border border-gray-200 py-2 z-50">
                 <button
                   onClick={() => {
                     setShowMatchSelect(true);
@@ -2283,10 +2285,12 @@ export default function TournamentViewPage() {
                                 bracket
                               </span>
                             )}
-                            <span className="flex items-center gap-1">
-                              <span className="w-3 h-3 bg-blue-100 border border-blue-400 rounded"></span>
-                              3ème (repêchage possible)
-                            </span>
+                            {pool?.qualifiedAsBestThird && (
+                              <span className="flex items-center gap-1">
+                                <span className="w-3 h-3 bg-blue-100 border border-blue-400 rounded"></span>
+                                3ème (repêchage possible)
+                              </span>
+                            )}
                           </div>
                         </div>
                         <div className="overflow-x-auto">
@@ -2328,7 +2332,7 @@ export default function TournamentViewPage() {
                                 ) {
                                   bgColor =
                                     "bg-orange-50 hover:bg-orange-100 border-l-4 border-orange-500";
-                                } else if (entry.position === 3) {
+                                } else if (entry.position === 3 && pool?.qualifiedAsBestThird) {
                                   // Meilleur 3ème - couleur bleue pour indiquer qu'il peut être repêché
                                   bgColor =
                                     "bg-blue-50 hover:bg-blue-100 border-l-4 border-blue-500";

@@ -532,8 +532,8 @@ export default function TournamentsPage() {
           : m.status === "in_progress"
             ? "en-cours"
             : "terminé") as MatchStatus,
-        date: m.date || "",
-        time: m.time || "",
+        date: m.scheduled_datetime ? m.scheduled_datetime.split("T")[0] : (m.date || ""),
+        time: m.scheduled_datetime ? (m.scheduled_datetime.split("T")[1]?.slice(0, 5) ?? "") : (m.time || ""),
         court: m.court || "",
         duration: m.duration || 90,
         type: type,
@@ -818,8 +818,8 @@ export default function TournamentsPage() {
                           type: "poule" as MatchType,
                           scoreA: m.score_a,
                           scoreB: m.score_b,
-                          date: m.date || "",
-                          time: m.time || "",
+                          date: m.scheduled_datetime ? m.scheduled_datetime.split("T")[0] : (m.date || ""),
+                          time: m.scheduled_datetime ? (m.scheduled_datetime.split("T")[1]?.slice(0, 5) ?? "") : (m.time || ""),
                           court: m.court || "",
                           duration: m.duration || 90,
                           winnerPoints: m.winner_points ?? 0,
@@ -865,8 +865,8 @@ export default function TournamentsPage() {
                       status,
                       scoreA: m.score_a,
                       scoreB: m.score_b,
-                      date: m.date || "",
-                      time: m.time || "",
+                      date: m.scheduled_datetime ? m.scheduled_datetime.split("T")[0] : (m.date || ""),
+                      time: m.scheduled_datetime ? (m.scheduled_datetime.split("T")[1]?.slice(0, 5) ?? "") : (m.time || ""),
                       court: m.court || "",
                       duration: m.duration || 90,
                       winnerPoints: m.winner_points ?? 0,
@@ -910,8 +910,8 @@ export default function TournamentsPage() {
                       status,
                       scoreA: m.score_a,
                       scoreB: m.score_b,
-                      date: m.date || "",
-                      time: m.time || "",
+                      date: m.scheduled_datetime ? m.scheduled_datetime.split("T")[0] : (m.date || ""),
+                      time: m.scheduled_datetime ? (m.scheduled_datetime.split("T")[1]?.slice(0, 5) ?? "") : (m.time || ""),
                       court: m.court || "",
                       duration: m.duration || 90,
                       winnerPoints: m.winner_points ?? 0,
@@ -1015,8 +1015,8 @@ export default function TournamentsPage() {
                             type: "poule" as MatchType,
                             scoreA: m.score_a,
                             scoreB: m.score_b,
-                            date: m.date || "",
-                            time: m.time || "",
+                            date: m.scheduled_datetime ? m.scheduled_datetime.split("T")[0] : (m.date || ""),
+                            time: m.scheduled_datetime ? (m.scheduled_datetime.split("T")[1]?.slice(0, 5) ?? "") : (m.time || ""),
                             court: m.court || "",
                             duration: m.duration || 90,
                             position: { x: 0, y: mIdx * 80 },
@@ -1060,8 +1060,8 @@ export default function TournamentsPage() {
                             status,
                             scoreA: m.score_a,
                             scoreB: m.score_b,
-                            date: m.date || "",
-                            time: m.time || "",
+                            date: m.scheduled_datetime ? m.scheduled_datetime.split("T")[0] : (m.date || ""),
+                            time: m.scheduled_datetime ? (m.scheduled_datetime.split("T")[1]?.slice(0, 5) ?? "") : (m.time || ""),
                             court: m.court || "",
                             duration: m.duration || 90,
                             winnerPoints: m.winner_points ?? 0,
@@ -1139,8 +1139,8 @@ export default function TournamentsPage() {
                             status,
                             scoreA: m.score_a,
                             scoreB: m.score_b,
-                            date: m.date || "",
-                            time: m.time || "",
+                            date: m.scheduled_datetime ? m.scheduled_datetime.split("T")[0] : (m.date || ""),
+                            time: m.scheduled_datetime ? (m.scheduled_datetime.split("T")[1]?.slice(0, 5) ?? "") : (m.time || ""),
                             court: m.court || "",
                             duration: m.duration || 90,
                             winnerPoints: m.winner_points ?? 0,
@@ -4190,11 +4190,12 @@ export default function TournamentsPage() {
                           </span>
                           <input
                             type="number"
+                            min={0}
                             value={selectedPool.standingPoints?.[position] || 0}
                             onChange={(e) => {
                               const newPoints = {
                                 ...(selectedPool.standingPoints || {}),
-                                [position]: parseInt(e.target.value) || 0,
+                                [position]: Math.max(0, parseInt(e.target.value) || 0),
                               };
                               updatePool({
                                 ...selectedPool,
