@@ -21,6 +21,8 @@ from app.utils.serializers import match_to_dict
 from app.models.court import Court
 from app.models.matchschedule import MatchSchedule
 from app.models.matchset import MatchSet
+from app.models.tournamentranking import TournamentRanking
+import json as _json
 
 
 router = APIRouter()
@@ -1073,6 +1075,26 @@ def propagate_tournament_results(
         pools.extend(db.query(Pool).filter(Pool.phase_id == phase.id).all())
     pools_by_name = {p.name: p for p in pools}
 
+    # Réparer pool_id=NULL sur les matchs de poule existants (données historiques)
+    # Guard: m.phase_id == pool.phase_id (les matchs de bracket sont dans une phase différente)
+    # NB: match_type n'est PAS mis à jour dans l'UPDATE path de upsert_match → peut être NULL
+    for pool in pools:
+        pool_team_ids = [tp.team_id for tp in pool.team_pools]
+        if not pool_team_ids:
+            continue
+        ts_ids = set(
+            ts.id for ts in db.query(TeamSport).filter(
+                TeamSport.team_id.in_(pool_team_ids),
+                TeamSport.sport_id == tournament.sport_id
+            ).all()
+        )
+        for m in all_matches:
+            if (m.phase_id == pool.phase_id
+                    and m.pool_id is None
+                    and m.team_sport_a_id in ts_ids
+                    and m.team_sport_b_id in ts_ids):
+                m.pool_id = pool.id
+
     # Vérifier si toutes les poules sont terminées
     pools_status = {}
     for pool in pools:
@@ -1148,6 +1170,31 @@ def propagate_tournament_results(
 
         pool_standings[pool.name] = [(team_id, stats["points"], stats["goal_diff"]) for team_id, stats in sorted_teams]
         print(f"[POOL-STANDINGS] {pool.name}: {pool_standings[pool.name]}")
+
+    # Upsert TournamentRanking avec les standing_points des poules
+    for pool in pools:
+        if not pool.use_standing_points or not pool.standing_points:
+            continue
+        try:
+            standing_pts = _json.loads(pool.standing_points) if isinstance(pool.standing_points, str) else pool.standing_points
+        except Exception:
+            continue
+        standings = pool_standings.get(pool.name, [])
+        for pos, (ts_id, _, _) in enumerate(standings, start=1):
+            pts = standing_pts.get(str(pos), 0) or standing_pts.get(pos, 0)
+            existing = db.query(TournamentRanking).filter_by(
+                tournament_id=tournament_id, team_sport_id=ts_id
+            ).first()
+            if existing:
+                existing.final_position = pos
+                existing.points_awarded = pts
+            else:
+                db.add(TournamentRanking(
+                    tournament_id=tournament_id,
+                    team_sport_id=ts_id,
+                    final_position=pos,
+                    points_awarded=pts
+                ))
 
     def resolve_source_code(source_code: str) -> Optional[int]:
         if not source_code:
