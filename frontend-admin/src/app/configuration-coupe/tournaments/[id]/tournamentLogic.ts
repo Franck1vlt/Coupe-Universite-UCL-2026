@@ -9,7 +9,7 @@ export type Match = {
   court: string;
   status: "planifié" | "en-cours" | "terminé" | "annulé";
   duration: number;
-  type: "qualifications" | "poule" | "phase-finale" | "loser-bracket";
+  type: "qualifications" | "poule" | "ligue" | "phase-finale" | "loser-bracket";
   scoreA?: number;
   scoreB?: number;
   winnerPoints?: number;

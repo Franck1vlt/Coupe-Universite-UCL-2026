@@ -78,6 +78,7 @@ class TournamentStructureCreate(BaseModel):
     """Structure complète d'un tournoi (sans tournament_id, il vient du path)"""
     qualification_matches: List[TournamentMatchCreate] = []
     pools: List[TournamentPoolCreate] = []
+    leagues: List[TournamentPoolCreate] = []
     brackets: List[TournamentBracketCreate] = []
     loser_brackets: List[TournamentBracketCreate] = []
 
@@ -293,9 +294,11 @@ def create_tournament_structure(
         return parts[0], parts[1][:5]
 
     def get_or_create_phase(p_type, p_order):
+        # Recherche par type ET ordre pour éviter les collisions (ex: pools order=2 vs leagues order=5)
         phase = db.query(TournamentPhase).filter(
             TournamentPhase.tournament_id == tournament_id,
-            TournamentPhase.phase_type == p_type
+            TournamentPhase.phase_type == p_type,
+            TournamentPhase.phase_order == p_order
         ).first()
         if not phase:
             phase = TournamentPhase(tournament_id=tournament_id, phase_type=p_type, phase_order=p_order)
@@ -649,6 +652,40 @@ def create_tournament_structure(
                     if match_obj and match_obj.id:
                         processed_match_ids.add(match_obj.id)
 
+    if structure.leagues:
+        # Utilise phase_type='pools' pour compatibilité avec la contrainte CHECK existante
+        # Les ligues sont distinguées des poules par phase_order=5
+        p_league = get_or_create_phase("pools", 5)
+        for l_data in structure.leagues:
+            pool = db.query(Pool).filter(Pool.phase_id == p_league.id, Pool.name == l_data.name).first()
+            import json
+            sp_json = json.dumps({str(k): v for k, v in l_data.standing_points.items()}) if l_data.standing_points else None
+            if not pool:
+                pool = Pool(
+                    phase_id=p_league.id,
+                    name=l_data.name,
+                    order=l_data.display_order,
+                    qualified_to_finals=l_data.qualified_to_finals,
+                    qualified_to_loser_bracket=l_data.qualified_to_loser_bracket,
+                    use_standing_points=l_data.use_standing_points,
+                    standing_points=sp_json
+                )
+                db.add(pool)
+                db.flush()
+            else:
+                pool.qualified_to_finals = l_data.qualified_to_finals
+                pool.qualified_to_loser_bracket = l_data.qualified_to_loser_bracket
+                pool.use_standing_points = l_data.use_standing_points
+                pool.standing_points = sp_json
+            if hasattr(l_data, 'matches') and l_data.matches:
+                for m in l_data.matches:
+                    collect_destinations(m)
+                    match_obj = upsert_match(m, p_league.id, "pool", pool.id)
+                    if match_obj and match_obj.uuid:
+                        created_matches_by_uuid[match_obj.uuid] = match_obj
+                    if match_obj and match_obj.id:
+                        processed_match_ids.add(match_obj.id)
+
     if structure.brackets:
         phase_final = get_or_create_phase("final", 3)
         for bracket_group in structure.brackets:
@@ -838,6 +875,7 @@ def get_tournament_structure(
 
     qualification_matches = []
     pools_data = []
+    leagues_data = []
     bracket_matches = []
     loser_bracket_matches = []
 
@@ -898,19 +936,46 @@ def get_tournament_structure(
             qualification_matches.extend([match_to_dict_internal(m) for m in matches])
             
         # 2. Gestion des Poules (supporte "pools" et "poule")
-        elif "poule" in p_type or "pool" in p_type:
-            pools = db.query(Pool).filter(Pool.phase_id == phase.id).all()
-            for pool in pools:
-                pool_matches = [m for m in matches if m.pool_id == pool.id]
+        # Les ligues utilisent aussi phase_type='pools' mais phase_order=5
+        elif p_type == "pools" or "poule" in p_type:
+            import json as _json
+            pool_list = db.query(Pool).filter(Pool.phase_id == phase.id).all()
+            # Distinguer poules (order!=5) des ligues (order==5)
+            if phase.phase_order == 5:
+                for league in pool_list:
+                    league_matches = [m for m in matches if m.pool_id == league.id]
+                    leagues_data.append({
+                        "id": league.id,
+                        "name": league.name,
+                        "qualified_to_finals": league.qualified_to_finals if hasattr(league, 'qualified_to_finals') else 8,
+                        "qualified_to_loser_bracket": league.qualified_to_loser_bracket if hasattr(league, 'qualified_to_loser_bracket') else 0,
+                        "matches": [match_to_dict_internal(m) for m in league_matches]
+                    })
+            else:
+                for pool in pool_list:
+                    pool_matches = [m for m in matches if m.pool_id == pool.id]
+                    pools_data.append({
+                        "id": pool.id,
+                        "name": pool.name,
+                        "qualified_to_finals": pool.qualified_to_finals if hasattr(pool, 'qualified_to_finals') else 2,
+                        "qualified_to_loser_bracket": pool.qualified_to_loser_bracket if hasattr(pool, 'qualified_to_loser_bracket') else 0,
+                        "use_standing_points": bool(pool.use_standing_points) if hasattr(pool, 'use_standing_points') else False,
+                        "standing_points": _json.loads(pool.standing_points) if hasattr(pool, 'standing_points') and pool.standing_points else None,
+                        "matches": [match_to_dict_internal(m) for m in pool_matches]
+                    })
+
+        # 2b. Gestion des Ligues (phase_type='leagues' — valide si la contrainte DB a été migrée)
+        elif p_type == "leagues":
+            league_pools = db.query(Pool).filter(Pool.phase_id == phase.id).all()
+            for league in league_pools:
+                league_matches = [m for m in matches if m.pool_id == league.id]
                 import json as _json
-                pools_data.append({
-                    "id": pool.id,
-                    "name": pool.name,
-                    "qualified_to_finals": pool.qualified_to_finals if hasattr(pool, 'qualified_to_finals') else 2,
-                    "qualified_to_loser_bracket": pool.qualified_to_loser_bracket if hasattr(pool, 'qualified_to_loser_bracket') else 0,
-                    "use_standing_points": bool(pool.use_standing_points) if hasattr(pool, 'use_standing_points') else False,
-                    "standing_points": _json.loads(pool.standing_points) if hasattr(pool, 'standing_points') and pool.standing_points else None,
-                    "matches": [match_to_dict_internal(m) for m in pool_matches]
+                leagues_data.append({
+                    "id": league.id,
+                    "name": league.name,
+                    "qualified_to_finals": league.qualified_to_finals if hasattr(league, 'qualified_to_finals') else 8,
+                    "qualified_to_loser_bracket": league.qualified_to_loser_bracket if hasattr(league, 'qualified_to_loser_bracket') else 0,
+                    "matches": [match_to_dict_internal(m) for m in league_matches]
                 })
                 
         # 3. Gestion des Brackets (élimination, finale, etc.)
@@ -931,6 +996,7 @@ def get_tournament_structure(
     return create_success_response({
         "qualification_matches": qualification_matches,
         "pools": pools_data,
+        "leagues": leagues_data,
         "bracket_matches": bracket_matches,
         "loser_bracket_matches": loser_bracket_matches
     })

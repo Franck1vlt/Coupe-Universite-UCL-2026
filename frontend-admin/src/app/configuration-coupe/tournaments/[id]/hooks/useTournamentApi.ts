@@ -1,7 +1,7 @@
 import { useState, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { v4 as uuidv4 } from "uuid";
-import { Match, Pool, Bracket, LoserBracket, MatchStatus } from "../types/tournament.types";
+import { Match, Pool, League, Bracket, LoserBracket, MatchStatus } from "../types/tournament.types";
 
 export function useTournamentApi(tournamentId: number | null) {
   const { data: session } = useSession();
@@ -77,6 +77,7 @@ export function useTournamentApi(tournamentId: number | null) {
   const saveTournament = useCallback(async (
     matches: Match[],
     pools: Pool[],
+    leagues: League[],
     brackets: Bracket[],
     loserBrackets: LoserBracket[]
   ) => {
@@ -123,7 +124,25 @@ export function useTournamentApi(tournamentId: number | null) {
           })),
         })),
 
-        // 3. BRACKETS
+        // 3. LIGUES
+        leagues: leagues.map((league, lIdx) => ({
+          name: league.name,
+          display_order: lIdx + 1,
+          matches: league.matches.map((m) => ({
+            uuid: m.uuid || uuidv4(),
+            ...(m.id && /^\d+$/.test(m.id) ? { id: parseInt(m.id) } : {}),
+            match_type: "pool",
+            label: m.label || null,
+            status: mapStatus(m.status),
+            court: m.court || null,
+            scheduled_datetime: m.date && m.time ? `${m.date}T${m.time}:00` : null,
+            duration: m.duration || 90,
+            team_a_source: m.teamA || null,
+            team_b_source: m.teamB || null,
+          })),
+        })),
+
+        // 4. BRACKETS
         brackets: brackets.map((b) => ({
           name: b.name,
           matches: b.matches.map((m) => ({
@@ -141,7 +160,7 @@ export function useTournamentApi(tournamentId: number | null) {
           })),
         })),
 
-        // 4. LOSER BRACKETS
+        // 5. LOSER BRACKETS
         loserBrackets: loserBrackets.map((lb) => ({
           name: lb.name,
           matches: lb.matches.map((m) => ({
@@ -194,6 +213,10 @@ export function useTournamentApi(tournamentId: number | null) {
           syncedPools: pools.map((p) => ({
             ...p,
             matches: p.matches.map(syncMatchWithDB),
+          })),
+          syncedLeagues: leagues.map((l) => ({
+            ...l,
+            matches: l.matches.map(syncMatchWithDB),
           })),
           syncedBrackets: brackets.map((b) => ({
             ...b,

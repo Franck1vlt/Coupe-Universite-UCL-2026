@@ -157,6 +157,7 @@ export default function FlechettesTableMarquagePage() {
   // Raccourcis clavier
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.repeat) return;
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
       switch (e.key) {
         case "b": addThrow(25); break;

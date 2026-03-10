@@ -18,6 +18,9 @@ interface MatchData {
     redCards2?: number;
     technicalFouls1?: number;
     technicalFouls2?: number;
+    fouls1?: number;
+    fouls2?: number;
+    possession?: "A" | "B" | null;
     chrono?: string;
     shotClock?: string;
     period?: string;
@@ -39,7 +42,6 @@ export default function BasketballTableSpectatorPage() {
     const [buzzerFlash, setBuzzerFlash] = useState(false);
     const [periodChanging, setPeriodChanging] = useState(false);
 
-    // Refs pour éviter les stale closures dans le polling
     const oldScoreARef = useRef(0);
     const oldScoreBRef = useRef(0);
     const teamANameRef = useRef("");
@@ -48,11 +50,9 @@ export default function BasketballTableSpectatorPage() {
     const oldPeriodRef = useRef("");
     const oldBuzzerFiredAtRef = useRef<number>(0);
 
-    // Clé localStorage spécifique au match si matchId présent
     const storageKey = matchId ? `liveBasketballMatch_${matchId}` : 'liveBasketballMatch';
 
     useEffect(() => {
-        // Charger les données initiales
         try {
             const liveData = localStorage.getItem(storageKey);
             if (liveData) {
@@ -67,14 +67,12 @@ export default function BasketballTableSpectatorPage() {
             console.error('Erreur lors du chargement des données initiales:', error);
         }
 
-        // Polling rapide toutes les 50ms pour une meilleure fluidité
         const poll = setInterval(() => {
             try {
                 const raw = localStorage.getItem(storageKey);
                 if (!raw) return;
                 const newData: MatchData = JSON.parse(raw);
 
-                // Animation si le score change
                 if (oldScoreARef.current !== (newData.score1 || 0)) {
                     setAnimateScoreA(true);
                     setTimeout(() => setAnimateScoreA(false), 800);
@@ -86,7 +84,6 @@ export default function BasketballTableSpectatorPage() {
                     oldScoreBRef.current = newData.score2 || 0;
                 }
 
-                // Mettre à jour les noms d'équipe
                 if (newData.team1 && teamANameRef.current !== newData.team1) {
                     teamANameRef.current = newData.team1;
                 }
@@ -94,13 +91,11 @@ export default function BasketballTableSpectatorPage() {
                     teamBNameRef.current = newData.team2;
                 }
 
-                // Animation buzzer : détection via buzzerFiredAt (buzzer manuel ou shot clock à 0)
                 if (newData.buzzerFiredAt && newData.buzzerFiredAt !== oldBuzzerFiredAtRef.current) {
                     setBuzzerFlash(true);
                     setTimeout(() => setBuzzerFlash(false), 500);
                     oldBuzzerFiredAtRef.current = newData.buzzerFiredAt;
                 }
-                // Fallback : détection via shot clock (>= 0.1 pour capturer la transition 0.1→0.0)
                 const newShotClock = parseFloat(newData.shotClock || "24") || 0;
                 if (oldShotClockRef.current >= 0.1 && newShotClock <= 0) {
                     setBuzzerFlash(true);
@@ -108,7 +103,6 @@ export default function BasketballTableSpectatorPage() {
                 }
                 oldShotClockRef.current = newShotClock;
 
-                // Animation changement de mi-temps
                 if (oldPeriodRef.current && newData.period && oldPeriodRef.current !== newData.period) {
                     setPeriodChanging(true);
                     setTimeout(() => setPeriodChanging(false), 2000);
@@ -119,7 +113,6 @@ export default function BasketballTableSpectatorPage() {
             } catch {}
         }, 50);
 
-        // Écouter les changements de localStorage provenant d'un autre onglet
         const onStorage = (e: StorageEvent) => {
             if (e.key !== storageKey || !e.newValue) return;
             try {
@@ -158,11 +151,9 @@ export default function BasketballTableSpectatorPage() {
         }
     }, [matchData.team2, matchData.logo2]);
 
-    // Calculer si le shot clock doit être visible
     const gameTimerStr = matchData.chrono || '09:00';
     const shotClockStr = matchData.shotClock || '24.0';
 
-    // Convertir en secondes pour la comparaison
     let gameTimerSeconds = 0;
     if (gameTimerStr.includes(':')) {
         const parts = gameTimerStr.split(':');
@@ -182,7 +173,7 @@ export default function BasketballTableSpectatorPage() {
         <main>
             <div className="score-board">
                 <div className="content-wrapper">
-                    {/* Équipes et score en premier */}
+                    {/* Équipes et score */}
                     <div className="teams">
                         <div className="team">
                             {logoA ? (
@@ -229,7 +220,18 @@ export default function BasketballTableSpectatorPage() {
                         </div>
                     </div>
 
-                    {/* Timers au milieu */}
+                    {/* Fautes — order:2 pour apparaître après teams(1) et avant timers(3) */}
+                    <div style={{ textAlign: "center", fontSize: "3vw", margin: "0.5vh 0", order: 2, width: "100%" }}>
+                        <span style={{ color: (matchData.fouls1 ?? 0) >= 5 ? "red" : "inherit", fontWeight: "bold" }}>
+                            {matchData.fouls1 ?? 0}
+                        </span>
+                        {" Fautes "}
+                        <span style={{ color: (matchData.fouls2 ?? 0) >= 5 ? "red" : "inherit", fontWeight: "bold" }}>
+                            {matchData.fouls2 ?? 0}
+                        </span>
+                    </div>
+
+                    {/* Timers — order:3 (défini dans le CSS) */}
                     <div className="timers">
                         <div className="timer-block">
                             <div className="timer" id="gameTimer">{displayGameTimer}</div>
@@ -243,7 +245,24 @@ export default function BasketballTableSpectatorPage() {
                         )}
                     </div>
 
-                    {/* Match info ensuite */}
+                    {/* Flèche de possession — order:4 pour apparaître après timers(3) */}
+                    {matchData.possession && (
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", margin: "1.5vh 0", padding: "0 8vw", order: 4, width: "100%" }}>
+                            {matchData.possession === "A" ? (
+                                <div style={{ display: "flex", alignItems: "center", width: "50%" }}>
+                                    <div style={{ width: 0, height: 0, borderTop: "2vh solid transparent", borderBottom: "2vh solid transparent", borderRight: "3vw solid red", flexShrink: 0 }} />
+                                    <div style={{ flex: 1, height: "0.5vh", background: "red" }} />
+                                </div>
+                            ) : (
+                                <div style={{ display: "flex", alignItems: "center", width: "50%" }}>
+                                    <div style={{ flex: 1, height: "0.5vh", background: "red" }} />
+                                    <div style={{ width: 0, height: 0, borderTop: "2vh solid transparent", borderBottom: "2vh solid transparent", borderLeft: "3vw solid red", flexShrink: 0 }} />
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Match info — order:5 (défini dans le CSS) */}
                     <div className="match-info-section">
                         <span className="info-pill">{matchData.matchType || 'Match'}</span>
                         <span className="info-pill">{matchData.matchGround || 'Terrain'}</span>

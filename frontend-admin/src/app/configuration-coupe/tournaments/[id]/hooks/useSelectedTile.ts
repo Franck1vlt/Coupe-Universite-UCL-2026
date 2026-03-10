@@ -3,6 +3,7 @@ import { useState } from 'react';
 export function useSelectedTile() {
   const [selectedMatch, setSelectedMatch] = useState<any>(null);
   const [selectedPool, setSelectedPool] = useState<any>(null);
+  const [selectedLeague, setSelectedLeague] = useState<any>(null);
   const [selectedBracket, setSelectedBracket] = useState<any>(null);
   const [selectedLoserBracket, setSelectedLoserBracket] = useState<any>(null);
 
@@ -11,6 +12,8 @@ export function useSelectedTile() {
     setSelectedMatch,
     selectedPool,
     setSelectedPool,
+    selectedLeague,
+    setSelectedLeague,
     selectedBracket,
     setSelectedBracket,
     selectedLoserBracket,

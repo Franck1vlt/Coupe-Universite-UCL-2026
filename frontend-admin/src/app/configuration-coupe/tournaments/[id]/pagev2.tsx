@@ -14,6 +14,7 @@ import {
 import PaletteTuile from "./components/PaletteTuile";
 import { MatchTile } from "./components/MatchTile";
 import { PoolTile } from "./components/PoolTile";
+import { LigueTile } from "./components/LigueTile";
 import { BracketTile } from "./components/BracketTile";
 import { LoserBracketTile } from "./components/LoserBracketTile";
 import { useSelectedTile } from "./hooks/useSelectedTile";
@@ -37,6 +38,7 @@ export default function TournamentPage() {
   const {
     selectedMatch, setSelectedMatch,
     selectedPool, setSelectedPool,
+    selectedLeague, setSelectedLeague,
     selectedBracket, setSelectedBracket,
     selectedLoserBracket, setSelectedLoserBracket
   } = useSelectedTile();
@@ -68,6 +70,16 @@ export default function TournamentPage() {
     e.dataTransfer.effectAllowed = "move";
   };
   const addNewMatchFromPalette = (type: MatchType, x: number, y: number) => {
+    if (type === "ligue") {
+      const count = tournament.leagues.length + 1;
+      tournament.addLeague(`Ligue ${count}`, { x, y });
+      return;
+    }
+    if (type === "poule") {
+      const count = tournament.pools.length + 1;
+      tournament.addPool(`Poule ${count}`, { x, y });
+      return;
+    }
     tournament.addMatch(type, { x, y });
   };
   const handleDrop = (e: React.DragEvent) => {
@@ -91,6 +103,11 @@ export default function TournamentPage() {
     const pool = tournament.pools.find((p) => p.id === itemId);
     if (pool) {
       tournament.updatePool({ ...pool, position: { x, y } });
+      return;
+    }
+    const league = tournament.leagues.find((l) => l.id === itemId);
+    if (league) {
+      tournament.updateLeague({ ...league, position: { x, y } });
       return;
     }
     const bracket = tournament.brackets.find((b) => b.id === itemId);
@@ -199,6 +216,7 @@ export default function TournamentPage() {
               onSelect={() => {
                 setSelectedMatch(match);
                 setSelectedPool(null);
+                setSelectedLeague(null);
                 setSelectedBracket(null);
                 setSelectedLoserBracket(null);
               }}
@@ -213,10 +231,26 @@ export default function TournamentPage() {
               onSelect={() => {
                 setSelectedPool(pool);
                 setSelectedMatch(null);
+                setSelectedLeague(null);
                 setSelectedBracket(null);
                 setSelectedLoserBracket(null);
               }}
               onDragStart={e => handleDragStart(e, pool.id)}
+            />
+          ))}
+          {tournament.leagues.map(league => (
+            <LigueTile
+              key={league.id}
+              league={league}
+              selected={selectedLeague?.id === league.id}
+              onSelect={() => {
+                setSelectedLeague(league);
+                setSelectedMatch(null);
+                setSelectedPool(null);
+                setSelectedBracket(null);
+                setSelectedLoserBracket(null);
+              }}
+              onDragStart={e => handleDragStart(e, league.id)}
             />
           ))}
           {tournament.brackets.map(bracket => (
@@ -228,6 +262,7 @@ export default function TournamentPage() {
                 setSelectedBracket(bracket);
                 setSelectedMatch(null);
                 setSelectedPool(null);
+                setSelectedLeague(null);
                 setSelectedLoserBracket(null);
               }}
               onDragStart={e => handleDragStart(e, bracket.id)}
@@ -242,6 +277,7 @@ export default function TournamentPage() {
                 setSelectedLoserBracket(loserBracket);
                 setSelectedMatch(null);
                 setSelectedPool(null);
+                setSelectedLeague(null);
                 setSelectedBracket(null);
               }}
               onDragStart={e => handleDragStart(e, loserBracket.id)}
@@ -346,6 +382,36 @@ export default function TournamentPage() {
                   <input type="number" className="w-full p-2 border rounded" value={selectedPool.qualifiedToLoserBracket || 0} onChange={e => tournament.updatePool({ ...selectedPool, qualifiedToLoserBracket: parseInt(e.target.value) || 0 })} />
                 </div>
                 <button className="w-full bg-red-600 text-white py-2 rounded hover:bg-red-700 mt-2" onClick={() => { tournament.deletePool(selectedPool.id); setSelectedPool(null); }}>Supprimer la poule</button>
+              </div>
+            </div>
+          )}
+          {selectedLeague && (
+            <div className="w-80 bg-white border-l shadow-lg flex flex-col">
+              <div className="p-4 border-b bg-gray-50 flex items-center justify-between">
+                <h3 className="font-bold text-gray-900">Configuration de la ligue</h3>
+                <button onClick={() => setSelectedLeague(null)} className="text-gray-500 hover:text-gray-700">
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <div className="flex-1 p-4 overflow-y-auto space-y-3">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Nom</label>
+                  <input className="w-full p-2 border rounded" value={selectedLeague.name || ''} onChange={e => tournament.updateLeague({ ...selectedLeague, name: e.target.value })} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Équipes (séparées par virgule)</label>
+                  <input className="w-full p-2 border rounded" value={selectedLeague.teams.join(', ')} onChange={e => tournament.updateLeague({ ...selectedLeague, teams: e.target.value.split(',').map((s: string) => s.trim()).filter(Boolean) })} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Nombre de qualifiés phase finale</label>
+                  <input type="number" className="w-full p-2 border rounded" value={selectedLeague.qualifiedToFinals || 0} onChange={e => tournament.updateLeague({ ...selectedLeague, qualifiedToFinals: parseInt(e.target.value) || 0 })} />
+                </div>
+                <div className="p-3 bg-blue-50 rounded text-xs text-blue-700">
+                  Les matchs sont créés manuellement. Chaque équipe ne rencontre qu'un sous-ensemble des adversaires.
+                </div>
+                <button className="w-full bg-red-600 text-white py-2 rounded hover:bg-red-700 mt-2" onClick={() => { tournament.deleteLeague(selectedLeague.id); setSelectedLeague(null); }}>Supprimer la ligue</button>
               </div>
             </div>
           )}

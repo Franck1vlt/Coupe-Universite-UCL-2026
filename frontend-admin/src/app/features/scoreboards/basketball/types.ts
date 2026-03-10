@@ -6,6 +6,7 @@ export interface TeamData {
   redCards: number;
   penalties: number;
   technicalFouls: number;
+  fouls: number;
 }
 
 export interface ChronoData {

@@ -7,7 +7,7 @@ export type Sport = {
   created_at?: string;
 };
 
-export type MatchType = "qualifications" | "poule" | "phase-finale" | "loser-bracket";
+export type MatchType = "qualifications" | "poule" | "ligue" | "phase-finale" | "loser-bracket";
 export type MatchStatus = "planifié" | "en-cours" | "terminé" | "annulé";
 export type BracketMatchType = "quarts" | "demi" | "finale" | "petite-finale";
 export type LoserBracketMatchType = "loser-round-1" | "loser-round-2" | "loser-petite-finale" | "loser-finale";
@@ -52,6 +52,9 @@ export type Pool = {
   qualifiedToLoserBracket: number;
 };
 
+// Une ligue a la même structure qu'une poule (matchs préconfigurés, pas de round-robin automatique)
+export type League = Pool;
+
 export type Bracket = {
   id: string;
   name: string;
@@ -88,6 +91,7 @@ export type Court = {
 export type TournamentStructure = {
   qualification_matches: any[];
   pools: any[];
+  leagues: any[];
   brackets: any[];
   loserBrackets: any[];
 };
@@ -98,10 +102,12 @@ export type TournamentState = {
   sportId: number | null;
   matches: Match[];
   pools: Pool[];
+  leagues: League[];
   brackets: Bracket[];
   loserBrackets: LoserBracket[];
   selectedMatch: Match | null;
   selectedPool: Pool | null;
+  selectedLeague: League | null;
   selectedBracket: Bracket | null;
   selectedLoserBracket: LoserBracket | null;
 };
@@ -113,6 +119,6 @@ export type Position = {
 
 export type DragState = {
   isDragging: boolean;
-  draggedItem: Match | Pool | Bracket | null;
-  draggedType: "match" | "pool" | "bracket" | null;
+  draggedItem: Match | Pool | League | Bracket | null;
+  draggedType: "match" | "pool" | "league" | "bracket" | null;
 };
