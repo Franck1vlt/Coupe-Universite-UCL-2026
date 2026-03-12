@@ -299,6 +299,20 @@ export function useVolleyballMatch(initialMatchId: string | null) {
         numberOfSets: num,
     }));
 
+    const addSet = (team: "A" | "B") =>
+        setMatchData((p: MatchDataWithTournament) => {
+            saveToHistory(p);
+            const key = team === "A" ? "teamA" : "teamB";
+            return { ...p, [key]: { ...p[key], sets: p[key].sets + 1 } };
+        });
+
+    const subSet = (team: "A" | "B") =>
+        setMatchData((p: MatchDataWithTournament) => {
+            saveToHistory(p);
+            const key = team === "A" ? "teamA" : "teamB";
+            return { ...p, [key]: { ...p[key], sets: Math.max(0, p[key].sets - 1) } };
+        });
+
     function isSetFinished(scoreA: number, scoreB: number) {
         const pointsToWin = 25;
         if (scoreA >= pointsToWin || scoreB >= pointsToWin) {
@@ -461,8 +475,9 @@ export function useVolleyballMatch(initialMatchId: string | null) {
             tournamentId: matchData.tournamentId,
             token,
             payload: {
-                score_a: matchData.teamA.sets,
-                score_b: matchData.teamB.sets,
+                // Si 1 set : score = points marqués ; sinon : score = sets gagnés
+                score_a: matchData.numberOfSets === 1 ? matchData.teamA.score : matchData.teamA.sets,
+                score_b: matchData.numberOfSets === 1 ? matchData.teamB.score : matchData.teamB.sets,
                 status: 'completed',
             },
             onSuccess: (propagationResult) => {
@@ -571,11 +586,14 @@ export function useVolleyballMatch(initialMatchId: string | null) {
         stopChrono,
         addPoint,
         subPoint,
+        addSet,
+        subSet,
         setTeamName,
         setTeamLogo,
         setMatchType,
         swapSides,
         court,
+        setCourt,
         changeService,
         updateMatchStatus,
         setNumSets,

@@ -765,6 +765,7 @@ export function useFootballMatch(initialMatchId: string | null) {
     setMatchType,
     swapSides,
     court,
+    setCourt,
     // Fiche de match & événements
     players,
     pendingEvents,

@@ -105,7 +105,7 @@ body {
     justify-content: center;
     gap: 4vw;
     margin: 10vh 0;
-    order: 2;
+    order: 3;
     width: 100%;
 }
 
@@ -149,7 +149,7 @@ body {
     margin: 3vh 0;
     flex-wrap: wrap;
     justify-content: center;
-    order: 3;
+    order: 5;
     width: 100%;
 }
 

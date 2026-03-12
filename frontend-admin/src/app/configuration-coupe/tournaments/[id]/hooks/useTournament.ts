@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
 import { useMatches } from "./useMatches";
 import { usePools } from "./usePools";
+import { useLeagues } from "./useLeagues";
 import { useBrackets } from "./useBrackets";
 import { useTournamentApi } from "./useTournamentApi";
-import { Match, Pool, Bracket, LoserBracket } from "../types/tournament.types";
+import { Match, Pool, League, Bracket, LoserBracket } from "../types/tournament.types";
 
 export function useTournament(tournamentId: number | null) {
   const [tournamentName, setTournamentName] = useState("");
@@ -12,6 +13,7 @@ export function useTournament(tournamentId: number | null) {
   // Hooks spécialisés
   const matchesHook = useMatches();
   const poolsHook = usePools();
+  const leaguesHook = useLeagues();
   const bracketsHook = useBrackets();
   const apiHook = useTournamentApi(tournamentId);
 
@@ -77,6 +79,37 @@ export function useTournament(tournamentId: number | null) {
         qualifiedToLoserBracket: p.qualified_to_loser_bracket || 0,
       }));
       poolsHook.setPools(loadedPools);
+    }
+
+    // Charger les ligues
+    if (data.leagues) {
+      const loadedLeagues = data.leagues.map((l: any, idx: number) => ({
+        id: l.id?.toString() || `league-${idx}`,
+        name: l.name,
+        teams: [],
+        matches: (l.matches || []).map((m: any) => ({
+          id: m.id.toString(),
+          uuid: m.uuid,
+          label: m.label,
+          teamA: m.team_a_source ?? "",
+          teamB: m.team_b_source ?? "",
+          date: m.scheduled_datetime?.split("T")[0] ?? m.date ?? "",
+          time: m.scheduled_datetime?.split("T")[1]?.slice(0, 5) ?? m.time ?? "",
+          court: m.court ?? "",
+          status: m.status === "upcoming" ? "planifié" :
+                  m.status === "in_progress" ? "en-cours" :
+                  m.status === "completed" ? "terminé" : "planifié",
+          duration: m.duration || 90,
+          type: "ligue" as const,
+          scoreA: m.score_a,
+          scoreB: m.score_b,
+          position: { x: 0, y: 0 },
+        })),
+        position: { x: 600, y: 100 + idx * 300 },
+        qualifiedToFinals: l.qualified_to_finals || 8,
+        qualifiedToLoserBracket: l.qualified_to_loser_bracket || 0,
+      }));
+      leaguesHook.setLeagues(loadedLeagues);
     }
 
     // Charger les brackets
@@ -156,6 +189,7 @@ export function useTournament(tournamentId: number | null) {
       const result = await apiHook.saveTournament(
         matchesHook.matches,
         poolsHook.pools,
+        leaguesHook.leagues,
         bracketsHook.brackets,
         bracketsHook.loserBrackets
       );
@@ -164,6 +198,7 @@ export function useTournament(tournamentId: number | null) {
         // Synchroniser les IDs retournés
         matchesHook.setMatches(result.syncedMatches);
         poolsHook.setPools(result.syncedPools);
+        leaguesHook.setLeagues(result.syncedLeagues);
         bracketsHook.setBrackets(result.syncedBrackets);
         bracketsHook.setLoserBrackets(result.syncedLoserBrackets);
       }
@@ -176,6 +211,7 @@ export function useTournament(tournamentId: number | null) {
   }, [
     matchesHook.matches,
     poolsHook.pools,
+    leaguesHook.leagues,
     bracketsHook.brackets,
     bracketsHook.loserBrackets,
   ]);
@@ -186,10 +222,12 @@ export function useTournament(tournamentId: number | null) {
   const reset = useCallback(() => {
     matchesHook.setMatches([]);
     poolsHook.setPools([]);
+    leaguesHook.setLeagues([]);
     bracketsHook.setBrackets([]);
     bracketsHook.setLoserBrackets([]);
     matchesHook.setSelectedMatch(null);
     poolsHook.setSelectedPool(null);
+    leaguesHook.setSelectedLeague(null);
     bracketsHook.setSelectedBracket(null);
     bracketsHook.setSelectedLoserBracket(null);
   }, []);
@@ -225,6 +263,15 @@ export function useTournament(tournamentId: number | null) {
     updatePool: poolsHook.updatePool,
     deletePool: poolsHook.deletePool,
     updatePoolMatch: poolsHook.updatePoolMatch,
+
+    // Ligues
+    leagues: leaguesHook.leagues,
+    selectedLeague: leaguesHook.selectedLeague,
+    setSelectedLeague: leaguesHook.setSelectedLeague,
+    addLeague: leaguesHook.addLeague,
+    updateLeague: leaguesHook.updateLeague,
+    deleteLeague: leaguesHook.deleteLeague,
+    updateLeagueMatch: leaguesHook.updateLeagueMatch,
 
     // Brackets
     brackets: bracketsHook.brackets,

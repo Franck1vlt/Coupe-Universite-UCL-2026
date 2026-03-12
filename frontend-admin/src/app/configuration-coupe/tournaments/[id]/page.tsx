@@ -20,7 +20,12 @@ type Sport = {
   created_at?: string;
 };
 
-type MatchType = "qualifications" | "poule" | "phase-finale" | "loser-bracket";
+type MatchType =
+  | "qualifications"
+  | "poule"
+  | "ligue"
+  | "phase-finale"
+  | "loser-bracket";
 type MatchStatus = "planifié" | "en-cours" | "terminé" | "annulé";
 type BracketMatchType = "quarts" | "demi" | "finale" | "petite-finale";
 type LoserBracketMatchType =
@@ -80,6 +85,22 @@ type Pool = {
     number,
     { matchUuid: string; slot: "A" | "B" } | null
   >;
+};
+
+// Une ligue a la même structure qu'une poule (matchs préconfigurés manuellement)
+type League = {
+  id: string;
+  name: string;
+  teams: string[];
+  matches: Match[];
+  position: { x: number; y: number };
+  qualifiedToFinals: number;
+  qualifiedToLoserBracket: number;
+  qualifiedAsBestThird?: boolean;
+  bestThirdDestination?: { matchUuid: string; slot: "A" | "B" } | null;
+  useStandingPoints?: boolean;
+  standingPoints?: Record<number, number>;
+  standingDestinations?: Record<number, { matchUuid: string; slot: "A" | "B" } | null>;
 };
 
 type Bracket = {
@@ -291,18 +312,24 @@ export default function TournamentsPage() {
   const [loadingCourts, setLoadingCourts] = useState(true);
   const [matches, setMatches] = useState<Match[]>([]);
   const [pools, setPools] = useState<Pool[]>([]);
+  const [leagues, setLeagues] = useState<League[]>([]);
   const [brackets, setBrackets] = useState<Bracket[]>([]);
   const [loserBrackets, setLoserBrackets] = useState<LoserBracket[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [courts, setCourts] = useState<Court[]>([]);
   const [selectedMatch, setSelectedMatch] = useState<Match | null>(null);
   const [selectedPool, setSelectedPool] = useState<Pool | null>(null);
+  const [selectedLeague, setSelectedLeague] = useState<League | null>(null);
   const [selectedBracket, setSelectedBracket] = useState<Bracket | null>(null);
   const [selectedLoserBracket, setSelectedLoserBracket] =
     useState<LoserBracket | null>(null);
   const [selectedPoolMatch, setSelectedPoolMatch] = useState<Match | null>(
     null,
   );
+  const [selectedLeagueMatch, setSelectedLeagueMatch] =
+    useState<Match | null>(null);
+  const [newLeagueMatchTeamA, setNewLeagueMatchTeamA] = useState<string>("");
+  const [newLeagueMatchTeamB, setNewLeagueMatchTeamB] = useState<string>("");
   const [selectedBracketMatch, setSelectedBracketMatch] =
     useState<Match | null>(null);
   const [selectedLoserBracketMatch, setSelectedLoserBracketMatch] =
@@ -532,8 +559,12 @@ export default function TournamentsPage() {
           : m.status === "in_progress"
             ? "en-cours"
             : "terminé") as MatchStatus,
-        date: m.date || "",
-        time: m.time || "",
+        date: m.scheduled_datetime
+          ? m.scheduled_datetime.split("T")[0]
+          : m.date || "",
+        time: m.scheduled_datetime
+          ? (m.scheduled_datetime.split("T")[1]?.slice(0, 5) ?? "")
+          : m.time || "",
         court: m.court || "",
         duration: m.duration || 90,
         type: type,
@@ -804,7 +835,11 @@ export default function TournamentsPage() {
                     (p: any, pIdx: number) => ({
                       id: p.id.toString(),
                       name: p.name,
-                      teams: [],
+                      teams: Array.from(new Set(
+                        (p.matches || []).flatMap((m: any) =>
+                          [m.team_a_source, m.team_b_source].filter(Boolean)
+                        )
+                      )) as string[],
                       matches: (p.matches || []).map(
                         (m: any, mIdx: number) => ({
                           id: m.id.toString(),
@@ -818,8 +853,14 @@ export default function TournamentsPage() {
                           type: "poule" as MatchType,
                           scoreA: m.score_a,
                           scoreB: m.score_b,
-                          date: m.date || "",
-                          time: m.time || "",
+                          date: m.scheduled_datetime
+                            ? m.scheduled_datetime.split("T")[0]
+                            : m.date || "",
+                          time: m.scheduled_datetime
+                            ? (m.scheduled_datetime
+                                .split("T")[1]
+                                ?.slice(0, 5) ?? "")
+                            : m.time || "",
                           court: m.court || "",
                           duration: m.duration || 90,
                           winnerPoints: m.winner_points ?? 0,
@@ -844,7 +885,56 @@ export default function TournamentsPage() {
                     }),
                   );
 
-                  // 3. Charger les Brackets depuis la structure
+                  // 3. Charger les Ligues depuis la structure
+                  const apiLeagues: League[] = (structureData.data.leagues || []).map(
+                    (l: any, lIdx: number) => ({
+                      id: l.id.toString(),
+                      name: l.name,
+                      teams: Array.from(new Set(
+                        (l.matches || []).flatMap((m: any) =>
+                          [m.team_a_source, m.team_b_source].filter(Boolean)
+                        )
+                      )) as string[],
+                      matches: (l.matches || []).map((m: any, mIdx: number) => ({
+                        id: m.id.toString(),
+                        uuid: m.uuid || uuidv4(),
+                        label: m.label || "",
+                        teamA: m.team_a_source ?? "",
+                        teamB: m.team_b_source ?? "",
+                        status: (m.status === "completed"
+                          ? "terminé"
+                          : m.status === "in_progress"
+                            ? "en-cours"
+                            : "planifié") as MatchStatus,
+                        type: "ligue" as MatchType,
+                        scoreA: m.score_a,
+                        scoreB: m.score_b,
+                        date: m.scheduled_datetime
+                          ? m.scheduled_datetime.split("T")[0]
+                          : m.date || "",
+                        time: m.scheduled_datetime
+                          ? (m.scheduled_datetime.split("T")[1]?.slice(0, 5) ?? "")
+                          : m.time || "",
+                        court: m.court || "",
+                        duration: m.duration || 90,
+                        winnerPoints: m.winner_points ?? 0,
+                        loserPoints: m.loser_points ?? 0,
+                        winner_destination_match_id: m.winner_destination_match_uuid || null,
+                        loser_destination_match_id: m.loser_destination_match_uuid || null,
+                        winner_destination_slot: m.winner_destination_slot || undefined,
+                        loser_destination_slot: m.loser_destination_slot || undefined,
+                        position: { x: 0, y: mIdx * 80 },
+                      })),
+                      position: l.position || { x: 300 + lIdx * 350, y: 100 },
+                      qualifiedToFinals: l.qualified_to_finals || 8,
+                      qualifiedToLoserBracket: l.qualified_to_loser_bracket || 0,
+                      useStandingPoints: l.use_standing_points || false,
+                      standingPoints: l.standing_points || undefined,
+                    }),
+                  );
+                  if (apiLeagues.length > 0) setLeagues(apiLeagues);
+
+                  // 4. Charger les Brackets depuis la structure
                   const apiBracketMatches = (
                     structureData.data.bracket_matches || []
                   ).map((m: any, index: number) => {
@@ -865,8 +955,13 @@ export default function TournamentsPage() {
                       status,
                       scoreA: m.score_a,
                       scoreB: m.score_b,
-                      date: m.date || "",
-                      time: m.time || "",
+                      date: m.scheduled_datetime
+                        ? m.scheduled_datetime.split("T")[0]
+                        : m.date || "",
+                      time: m.scheduled_datetime
+                        ? (m.scheduled_datetime.split("T")[1]?.slice(0, 5) ??
+                          "")
+                        : m.time || "",
                       court: m.court || "",
                       duration: m.duration || 90,
                       winnerPoints: m.winner_points ?? 0,
@@ -910,8 +1005,13 @@ export default function TournamentsPage() {
                       status,
                       scoreA: m.score_a,
                       scoreB: m.score_b,
-                      date: m.date || "",
-                      time: m.time || "",
+                      date: m.scheduled_datetime
+                        ? m.scheduled_datetime.split("T")[0]
+                        : m.date || "",
+                      time: m.scheduled_datetime
+                        ? (m.scheduled_datetime.split("T")[1]?.slice(0, 5) ??
+                          "")
+                        : m.time || "",
                       court: m.court || "",
                       duration: m.duration || 90,
                       winnerPoints: m.winner_points ?? 0,
@@ -983,7 +1083,8 @@ export default function TournamentsPage() {
                     allMatchesRaw = matchesJson.data || [];
 
                     // RECONSTRUCTION DES POULES si vides dans la structure
-                    if (apiPools.length === 0) {
+                    // Guard: ne pas reconstruire si des ligues existent (leurs matchs sont match_type="pool" aussi)
+                    if (apiPools.length === 0 && apiLeagues.length === 0) {
                       const poolMatches = allMatchesRaw.filter(
                         (m: any) =>
                           m.match_type === "pool" || m.match_type === "poule",
@@ -1015,8 +1116,14 @@ export default function TournamentsPage() {
                             type: "poule" as MatchType,
                             scoreA: m.score_a,
                             scoreB: m.score_b,
-                            date: m.date || "",
-                            time: m.time || "",
+                            date: m.scheduled_datetime
+                              ? m.scheduled_datetime.split("T")[0]
+                              : m.date || "",
+                            time: m.scheduled_datetime
+                              ? (m.scheduled_datetime
+                                  .split("T")[1]
+                                  ?.slice(0, 5) ?? "")
+                              : m.time || "",
                             court: m.court || "",
                             duration: m.duration || 90,
                             position: { x: 0, y: mIdx * 80 },
@@ -1060,8 +1167,14 @@ export default function TournamentsPage() {
                             status,
                             scoreA: m.score_a,
                             scoreB: m.score_b,
-                            date: m.date || "",
-                            time: m.time || "",
+                            date: m.scheduled_datetime
+                              ? m.scheduled_datetime.split("T")[0]
+                              : m.date || "",
+                            time: m.scheduled_datetime
+                              ? (m.scheduled_datetime
+                                  .split("T")[1]
+                                  ?.slice(0, 5) ?? "")
+                              : m.time || "",
                             court: m.court || "",
                             duration: m.duration || 90,
                             winnerPoints: m.winner_points ?? 0,
@@ -1139,8 +1252,14 @@ export default function TournamentsPage() {
                             status,
                             scoreA: m.score_a,
                             scoreB: m.score_b,
-                            date: m.date || "",
-                            time: m.time || "",
+                            date: m.scheduled_datetime
+                              ? m.scheduled_datetime.split("T")[0]
+                              : m.date || "",
+                            time: m.scheduled_datetime
+                              ? (m.scheduled_datetime
+                                  .split("T")[1]
+                                  ?.slice(0, 5) ?? "")
+                              : m.time || "",
                             court: m.court || "",
                             duration: m.duration || 90,
                             winnerPoints: m.winner_points ?? 0,
@@ -1265,6 +1384,22 @@ export default function TournamentsPage() {
       setPools([...pools, newPool]);
       setSelectedPool(newPool);
       setSelectedMatch(null);
+      setSelectedBracket(null);
+      setNextMatchId(nextMatchId + 1);
+    } else if (type === "ligue") {
+      const newLeague: League = {
+        id: `league-${nextMatchId}`,
+        name: `Ligue ${leagues.length + 1}`,
+        teams: [],
+        matches: [],
+        position: { x: Math.max(0, x - 150), y: Math.max(0, y - 100) },
+        qualifiedToFinals: 0,
+        qualifiedToLoserBracket: 0,
+      };
+      setLeagues([...leagues, newLeague]);
+      setSelectedLeague(newLeague);
+      setSelectedMatch(null);
+      setSelectedPool(null);
       setSelectedBracket(null);
       setNextMatchId(nextMatchId + 1);
     } else if (type === "phase-finale") {
@@ -1436,30 +1571,54 @@ export default function TournamentsPage() {
     }
   };
 
-  // Fonction pour propager les résultats des poules vers les phases finales
-  const propagatePoolResultsToBrackets = (updatedPools: Pool[]) => {
+  // Fonction pour propager les résultats des poules et ligues vers les phases finales
+  const propagatePoolResultsToBrackets = (updatedPools: Pool[], updatedLeagues?: League[]) => {
+    const leaguesToProcess = updatedLeagues ?? leagues;
+
     // Vérifier si toutes les poules ont terminé tous leurs matchs
-    const allPoolsComplete = updatedPools.every(
+    const allPoolsComplete = updatedPools.length > 0 && updatedPools.every(
       (pool) =>
         pool.matches.length > 0 &&
         pool.matches.every((m) => m.status === "terminé"),
     );
 
-    if (!allPoolsComplete) return;
+    // Vérifier si toutes les ligues ont terminé tous leurs matchs
+    const allLeaguesComplete = leaguesToProcess.length > 0 && leaguesToProcess.every(
+      (league) =>
+        league.matches.length > 0 &&
+        league.matches.every((m) => m.status === "terminé"),
+    );
 
-    // Calculer le classement de chaque poule
+    if (!allPoolsComplete && !allLeaguesComplete) return;
+
+    // Calculer le classement de chaque poule et ligue
     const poolStandings: Map<
       string,
       { team: string; points: number; scoreDiff: number; goalsFor: number }[]
     > = new Map();
-    updatedPools.forEach((pool) => {
-      const standings = calculatePoolStandings(pool);
-      poolStandings.set(pool.name, standings);
-    });
+
+    if (allPoolsComplete) {
+      updatedPools.forEach((pool) => {
+        const standings = calculatePoolStandings(pool);
+        poolStandings.set(pool.name, standings);
+      });
+    }
+
+    if (allLeaguesComplete) {
+      leaguesToProcess.forEach((league) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const standings = calculatePoolStandings(league as any);
+        poolStandings.set(league.name, standings);
+      });
+    }
 
     // Trouver le meilleur 3ème parmi les poules qui ont cette option
     let bestThird: string | null = null;
-    let bestThirdStats = { points: -1, scoreDiff: -Infinity, goalsFor: -Infinity };
+    let bestThirdStats = {
+      points: -1,
+      scoreDiff: -Infinity,
+      goalsFor: -Infinity,
+    };
     updatedPools.forEach((pool) => {
       if (pool.qualifiedAsBestThird) {
         const standings = poolStandings.get(pool.name);
@@ -1638,6 +1797,93 @@ export default function TournamentsPage() {
       updatePool(updatedPool);
       generatePoolMatches(updatedPool);
     }
+  };
+
+  // --- Fonctions de gestion des ligues ---
+
+  const updateLeague = (updatedLeague: League) => {
+    setLeagues(leagues.map((l) => (l.id === updatedLeague.id ? updatedLeague : l)));
+    setSelectedLeague(updatedLeague);
+  };
+
+  const addTeamToLeague = (leagueId: string, teamName: string) => {
+    const league = leagues.find((l) => l.id === leagueId);
+    if (league && !league.teams.includes(teamName)) {
+      updateLeague({ ...league, teams: [...league.teams, teamName] });
+    }
+  };
+
+  const removeTeamFromLeague = (leagueId: string, teamName: string) => {
+    const league = leagues.find((l) => l.id === leagueId);
+    if (league) {
+      updateLeague({ ...league, teams: league.teams.filter((t) => t !== teamName) });
+    }
+  };
+
+  const updateLeagueMatch = (updatedMatch: Match) => {
+    const league = leagues.find((l) => l.matches.some((m) => m.id === updatedMatch.id));
+    if (league) {
+      const oldMatch = league.matches.find((m) => m.id === updatedMatch.id);
+      const justCompleted =
+        oldMatch &&
+        oldMatch.status !== "terminé" &&
+        updatedMatch.status === "terminé";
+
+      const updatedLeague = {
+        ...league,
+        matches: league.matches.map((m) => (m.id === updatedMatch.id ? updatedMatch : m)),
+      };
+      const newLeagues = leagues.map((l) => (l.id === updatedLeague.id ? updatedLeague : l));
+      setLeagues(newLeagues);
+      setSelectedLeague(updatedLeague);
+      setSelectedLeagueMatch({ ...updatedMatch });
+
+      // Si le match vient d'être terminé, propager les résultats vers la phase finale
+      if (justCompleted) {
+        propagatePoolResultsToBrackets(pools, newLeagues);
+      }
+    }
+  };
+
+  const addLeagueMatch = (leagueId: string, teamA: string, teamB: string) => {
+    if (!teamA || !teamB || teamA === teamB) return;
+    const league = leagues.find((l) => l.id === leagueId);
+    if (!league) return;
+    // Éviter les doublons
+    const exists = league.matches.some(
+      (m) =>
+        (m.teamA === teamA && m.teamB === teamB) ||
+        (m.teamA === teamB && m.teamB === teamA),
+    );
+    if (exists) return;
+    const matchUuid = uuidv4();
+    const newMatch: Match = {
+      id: matchUuid,
+      uuid: matchUuid,
+      teamA,
+      teamB,
+      date: "",
+      time: "",
+      court: "",
+      status: "planifié" as MatchStatus,
+      duration: 90,
+      type: "ligue" as MatchType,
+      position: { x: 0, y: league.matches.length * 80 },
+    };
+    const updatedLeague = { ...league, matches: [...league.matches, newMatch] };
+    setLeagues(leagues.map((l) => (l.id === leagueId ? updatedLeague : l)));
+    setSelectedLeague(updatedLeague);
+  };
+
+  const deleteLeagueMatch = (leagueId: string, matchId: string) => {
+    const league = leagues.find((l) => l.id === leagueId);
+    if (!league) return;
+    const updatedLeague = {
+      ...league,
+      matches: league.matches.filter((m) => m.id !== matchId),
+    };
+    setLeagues(leagues.map((l) => (l.id === leagueId ? updatedLeague : l)));
+    setSelectedLeague(updatedLeague);
   };
 
   const generatePoolMatches = (pool: Pool) => {
@@ -2115,6 +2361,7 @@ export default function TournamentsPage() {
     if (
       paletteData &&
       (paletteData === "poule" ||
+        paletteData === "ligue" ||
         paletteData === "qualifications" ||
         paletteData === "phase-finale" ||
         paletteData === "loser-bracket" ||
@@ -2140,32 +2387,44 @@ export default function TournamentsPage() {
         ),
       );
     } else {
-      // Vérifier si c'est un bracket
-      const bracket = brackets.find((b) => b.id === draggedMatch);
-      if (bracket) {
-        setBrackets(
-          brackets.map((b) =>
-            b.id === draggedMatch ? { ...b, position: { x, y } } : b,
+      // Vérifier si c'est une ligue
+      const league = leagues.find((l) => l.id === draggedMatch);
+      if (league) {
+        setLeagues(
+          leagues.map((l) =>
+            l.id === draggedMatch ? { ...l, position: { x, y } } : l,
           ),
         );
       } else {
-        // Vérifier si c'est un loser bracket
-        const loserBracket = loserBrackets.find((lb) => lb.id === draggedMatch);
-        if (loserBracket) {
-          setLoserBrackets(
-            loserBrackets.map((lb) =>
-              lb.id === draggedMatch ? { ...lb, position: { x, y } } : lb,
+        // Vérifier si c'est un bracket
+        const bracket = brackets.find((b) => b.id === draggedMatch);
+        if (bracket) {
+          setBrackets(
+            brackets.map((b) =>
+              b.id === draggedMatch ? { ...b, position: { x, y } } : b,
             ),
           );
         } else {
-          // C'est un match
-          setMatches(
-            matches.map((match) =>
-              match.id === draggedMatch
-                ? { ...match, position: { x, y } }
-                : match,
-            ),
+          // Vérifier si c'est un loser bracket
+          const loserBracket = loserBrackets.find(
+            (lb) => lb.id === draggedMatch,
           );
+          if (loserBracket) {
+            setLoserBrackets(
+              loserBrackets.map((lb) =>
+                lb.id === draggedMatch ? { ...lb, position: { x, y } } : lb,
+              ),
+            );
+          } else {
+            // C'est un match
+            setMatches(
+              matches.map((match) =>
+                match.id === draggedMatch
+                  ? { ...match, position: { x, y } }
+                  : match,
+              ),
+            );
+          }
         }
       }
     }
@@ -2279,6 +2538,13 @@ export default function TournamentsPage() {
       });
     });
 
+    // Matchs de ligues
+    leagues.forEach((league) => {
+      league.matches.forEach((m) => {
+        options.push({ match: m, label: `${league.name} - Match ${m.label || m.id}` });
+      });
+    });
+
     return options;
   };
 
@@ -2333,11 +2599,14 @@ export default function TournamentsPage() {
       // 2. Réinitialiser tous les états frontend
       setMatches([]);
       setPools([]);
+      setLeagues([]);
       setBrackets([]);
       setLoserBrackets([]);
       setSelectedMatch(null);
       setSelectedPool(null);
       setSelectedPoolMatch(null);
+      setSelectedLeague(null);
+      setSelectedLeagueMatch(null);
       setSelectedBracket(null);
       setSelectedBracketMatch(null);
       setSelectedLoserBracket(null);
@@ -2378,6 +2647,7 @@ export default function TournamentsPage() {
     const allMatches = [
       ...matches,
       ...pools.flatMap((p) => p.matches),
+      ...leagues.flatMap((l) => l.matches),
       ...brackets.flatMap((b) => b.matches),
       ...loserBrackets.flatMap((lb) => lb.matches),
     ];
@@ -2433,6 +2703,7 @@ export default function TournamentsPage() {
       const allMatches = [
         ...matches,
         ...pools.flatMap((p) => p.matches),
+        ...leagues.flatMap((l) => l.matches),
         ...brackets.flatMap((b) => b.matches),
         ...loserBrackets.flatMap((lb) => lb.matches),
       ];
@@ -2515,6 +2786,33 @@ export default function TournamentsPage() {
                 m.loserPoints !== undefined ? Number(m.loserPoints) : 0,
             };
           }),
+        })),
+
+        leagues: leagues.map((league, lIdx) => ({
+          name: league.name,
+          display_order: lIdx + 1,
+          qualified_to_finals: league.qualifiedToFinals ?? 8,
+          qualified_to_loser_bracket: league.qualifiedToLoserBracket ?? 0,
+          use_standing_points: league.useStandingPoints ?? false,
+          standing_points: league.standingPoints ?? null,
+          matches: league.matches.map((m) => ({
+            uuid: m.uuid,
+            id: m.id && /^\d+$/.test(m.id) ? parseInt(m.id) : null,
+            match_type: "league",
+            label: m.label || m.winnerCode || null,
+            status: mapStatus(m.status),
+            court: m.court || null,
+            scheduled_datetime: m.date && m.time ? `${m.date}T${m.time}:00` : null,
+            duration: m.duration || 90,
+            team_a_source: m.teamA || null,
+            team_b_source: m.teamB || null,
+            winner_destination_match_uuid: m.winner_destination_match_id || null,
+            loser_destination_match_uuid: m.loser_destination_match_id || null,
+            winner_destination_slot: m.winner_destination_slot || null,
+            loser_destination_slot: m.loser_destination_slot || null,
+            winner_points: m.winnerPoints !== undefined ? Number(m.winnerPoints) : 0,
+            loser_points: m.loserPoints !== undefined ? Number(m.loserPoints) : 0,
+          })),
         })),
 
         brackets: brackets.map((b) => ({
@@ -2653,6 +2951,13 @@ export default function TournamentsPage() {
           prev.map((p) => ({
             ...p,
             matches: p.matches.map(syncMatchWithDB),
+          })),
+        );
+
+        setLeagues((prev) =>
+          prev.map((l) => ({
+            ...l,
+            matches: l.matches.map(syncMatchWithDB),
           })),
         );
 
@@ -3104,6 +3409,93 @@ export default function TournamentsPage() {
                 ) : (
                   <div className="text-xs text-gray-500 italic">
                     Ajoutez des équipes pour générer les matchs
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+
+          {/* Tuiles de ligues */}
+          {leagues.map((league) => (
+            <div
+              key={league.id}
+              draggable
+              onDragStart={(e) => handleDragStart(e, league.id)}
+              onClick={() => {
+                setSelectedLeague(league);
+                setSelectedMatch(null);
+                setSelectedPool(null);
+              }}
+              className={`absolute bg-white rounded-lg shadow-lg border-2 p-4 w-80 cursor-move transition-all hover:shadow-xl ${
+                selectedLeague?.id === league.id
+                  ? "border-blue-500 ring-2 ring-blue-200"
+                  : "border-blue-200"
+              }`}
+              style={{
+                left: league.position.x,
+                top: league.position.y,
+                minHeight: "200px",
+              }}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <span className="px-3 py-1 text-sm font-medium rounded-full bg-blue-100 text-blue-800">
+                  {league.name}
+                </span>
+                <span className="text-xs text-gray-500">
+                  {league.teams.length} équipes
+                </span>
+              </div>
+              <div className="mb-3">
+                <div className="text-xs font-medium text-black mb-2">
+                  Équipes :
+                </div>
+                {league.teams.length > 0 ? (
+                  <div className="flex flex-wrap gap-1">
+                    {league.teams.map((team, index) => (
+                      <span
+                        key={index}
+                        className="px-2 py-1 text-xs rounded font-medium bg-blue-200 text-black"
+                      >
+                        {team}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-xs text-gray-500 italic">
+                    Aucune équipe sélectionnée
+                  </div>
+                )}
+              </div>
+              <div>
+                <div className="text-xs font-medium text-black mb-2">
+                  Matchs : {league.matches.length}
+                </div>
+                {league.matches.length > 0 ? (
+                  <div className="space-y-1">
+                    {league.matches.slice(0, 3).map((match, index) => (
+                      <div
+                        key={index}
+                        className="text-xs text-black flex justify-between p-1 rounded hover:bg-blue-50"
+                      >
+                        <span>
+                          {match.teamA} vs {match.teamB}
+                        </span>
+                        <span
+                          className={`px-1 py-0.5 rounded text-xs ${getStatusColor(match.status)}`}
+                        >
+                          {match.status}
+                        </span>
+                      </div>
+                    ))}
+                    {league.matches.length > 3 && (
+                      <div className="text-xs text-blue-600 italic cursor-pointer hover:text-blue-800">
+                        +{league.matches.length - 3} autres matchs...
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-xs text-gray-500 italic">
+                    Ajoutez les équipes et créez les matchs manuellement
                   </div>
                 )}
               </div>
@@ -4190,11 +4582,15 @@ export default function TournamentsPage() {
                           </span>
                           <input
                             type="number"
+                            min={0}
                             value={selectedPool.standingPoints?.[position] || 0}
                             onChange={(e) => {
                               const newPoints = {
                                 ...(selectedPool.standingPoints || {}),
-                                [position]: parseInt(e.target.value) || 0,
+                                [position]: Math.max(
+                                  0,
+                                  parseInt(e.target.value) || 0,
+                                ),
                               };
                               updatePool({
                                 ...selectedPool,
@@ -4487,6 +4883,590 @@ export default function TournamentsPage() {
           </div>
         )}
 
+        {/* Panel de configuration des ligues */}
+        {selectedLeague && (
+          <div className="w-96 bg-white border-l shadow-lg flex flex-col">
+            <div className="p-4 border-b bg-gray-50">
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-gray-900">
+                  Configuration de la ligue
+                </h3>
+                <button
+                  onClick={() => setSelectedLeague(null)}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  <svg
+                    className="w-5 h-5"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M6 18L18 6M6 6l12 12"
+                    />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 p-4 overflow-y-auto space-y-3">
+              <div>
+                <label className="block text-sm font-medium mb-1">Nom</label>
+                <input
+                  className="w-full p-2 border rounded"
+                  value={selectedLeague.name}
+                  onChange={(e) =>
+                    setLeagues(
+                      leagues.map((l) =>
+                        l.id === selectedLeague.id
+                          ? { ...l, name: e.target.value }
+                          : l,
+                      ),
+                    )
+                  }
+                />
+              </div>
+
+              {/* Nombre d'équipes qualifiées */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-black mb-1">
+                    Qualifiés Phase Finale
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={selectedLeague.qualifiedToFinals ?? 2}
+                    onChange={(e) =>
+                      updateLeague({
+                        ...selectedLeague,
+                        qualifiedToFinals: parseInt(e.target.value) || 0,
+                      })
+                    }
+                    className="w-full p-2 text-black border border-gray-300 rounded-md focus:ring-purple-500 focus:border-purple-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-black mb-1">
+                    Qualifiés Loser Bracket
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={selectedLeague.qualifiedToLoserBracket ?? 0}
+                    onChange={(e) =>
+                      updateLeague({
+                        ...selectedLeague,
+                        qualifiedToLoserBracket: parseInt(e.target.value) || 0,
+                      })
+                    }
+                    className="w-full p-2 text-black border border-gray-300 rounded-md focus:ring-purple-500 focus:border-purple-500"
+                  />
+                </div>
+              </div>
+
+              {/* Option meilleur 3ème */}
+              <div className="p-3 bg-purple-50 rounded-md space-y-2">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="best-third"
+                    checked={selectedLeague.qualifiedAsBestThird || false}
+                    onChange={(e) =>
+                      updateLeague({
+                        ...selectedLeague,
+                        qualifiedAsBestThird: e.target.checked,
+                      })
+                    }
+                    className="w-4 h-4 text-purple-600 rounded"
+                  />
+                  <label htmlFor="best-third" className="text-sm text-black">
+                    Meilleur 3ème qualifié
+                  </label>
+                  <span className="text-xs text-gray-500 ml-auto">
+                    (comparé aux autres poules)
+                  </span>
+                </div>
+
+                {/* Destination du meilleur 3ème - visible si checkbox cochée */}
+                {selectedLeague.qualifiedAsBestThird && (
+                  <div className="pt-2 border-t border-purple-200">
+                    <label className="block text-xs font-medium text-purple-800 mb-1">
+                      Destination du meilleur 3ème
+                    </label>
+                    <div className="flex gap-1">
+                      <select
+                        className="flex-1 p-1 text-xs border border-purple-300 rounded text-black bg-white"
+                        value={
+                          selectedLeague.bestThirdDestination?.matchUuid || ""
+                        }
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          if (value === "") {
+                            updateLeague({
+                              ...selectedLeague,
+                              bestThirdDestination: null,
+                            });
+                          } else {
+                            updateLeague({
+                              ...selectedLeague,
+                              bestThirdDestination: {
+                                matchUuid: value,
+                                slot:
+                                  selectedLeague.bestThirdDestination?.slot ||
+                                  "A",
+                              },
+                            });
+                          }
+                        }}
+                      >
+                        <option value="">Aucune</option>
+                        {getDestinationOptions()
+                          .filter((opt) => opt.match.type !== "poule")
+                          .map((opt) => (
+                            <option key={opt.match.id} value={opt.match.uuid}>
+                              {opt.label}
+                            </option>
+                          ))}
+                      </select>
+                      <select
+                        className="w-12 p-1 text-xs border border-purple-300 rounded text-black bg-white font-bold"
+                        value={selectedLeague.bestThirdDestination?.slot || ""}
+                        onChange={(e) => {
+                          if (!selectedLeague.bestThirdDestination?.matchUuid)
+                            return;
+                          updateLeague({
+                            ...selectedLeague,
+                            bestThirdDestination: {
+                              matchUuid:
+                                selectedLeague.bestThirdDestination.matchUuid,
+                              slot: (e.target.value as "A" | "B") || "A",
+                            },
+                          });
+                        }}
+                        disabled={
+                          !selectedLeague.bestThirdDestination?.matchUuid
+                        }
+                      >
+                        <option value="">-</option>
+                        <option value="A">A</option>
+                        <option value="B">B</option>
+                      </select>
+                    </div>
+                    <p className="mt-1 text-xs text-purple-600">
+                      Le meilleur 3ème de toutes les poules ira vers ce match
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Configuration des points par position */}
+              <div className="border-t pt-4 mt-4">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm font-bold text-gray-700">
+                    Points par position finale
+                  </label>
+                  <input
+                    type="checkbox"
+                    checked={selectedLeague.useStandingPoints || false}
+                    onChange={(e) =>
+                      updateLeague({
+                        ...selectedLeague,
+                        useStandingPoints: e.target.checked,
+                      })
+                    }
+                    className="w-4 h-4 text-purple-600"
+                  />
+                </div>
+
+                {selectedLeague.useStandingPoints && (
+                  <div className="space-y-2 bg-gray-50 p-2 rounded-md">
+                    {selectedLeague.teams.map((_, index) => {
+                      const position = index + 1;
+                      return (
+                        <div
+                          key={position}
+                          className="flex items-center justify-between gap-2"
+                        >
+                          <span className="text-xs text-gray-600 w-12">
+                            {position}er :
+                          </span>
+                          <input
+                            type="number"
+                            min={0}
+                            value={
+                              selectedLeague.standingPoints?.[position] || 0
+                            }
+                            onChange={(e) => {
+                              const newPoints = {
+                                ...(selectedLeague.standingPoints || {}),
+                                [position]: Math.max(
+                                  0,
+                                  parseInt(e.target.value) || 0,
+                                ),
+                              };
+                              updateLeague({
+                                ...selectedLeague,
+                                standingPoints: newPoints,
+                              });
+                            }}
+                            className="flex-1 p-1 text-xs border rounded text-black"
+                            placeholder="Points"
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Destination par position finale */}
+              <div className="border-t pt-4 mt-4">
+                <label className="text-sm font-bold text-gray-700 mb-2 block">
+                  Destination par position finale
+                </label>
+                <div className="space-y-2 bg-gray-50 p-2 rounded-md">
+                  {selectedLeague.teams.map((_, index) => {
+                    const position = index + 1;
+                    const currentDest =
+                      selectedLeague.standingDestinations?.[position];
+                    const ordinalSuffix = position === 1 ? "er" : "e";
+                    return (
+                      <div key={position} className="flex items-center gap-2">
+                        <span className="text-xs text-gray-600 w-12">
+                          {position}
+                          {ordinalSuffix} :
+                        </span>
+                        <select
+                          className="flex-1 p-1 text-xs border rounded text-black"
+                          value={currentDest?.matchUuid || ""}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            const newDestinations = {
+                              ...(selectedLeague.standingDestinations || {}),
+                            };
+                            if (value === "") {
+                              newDestinations[position] = null;
+                            } else {
+                              newDestinations[position] = {
+                                matchUuid: value,
+                                slot: currentDest?.slot || "A",
+                              };
+                            }
+                            updateLeague({
+                              ...selectedLeague,
+                              standingDestinations: newDestinations,
+                            });
+                          }}
+                        >
+                          <option value="">Aucune</option>
+                          {getDestinationOptions()
+                            .filter((opt) => opt.match.type !== "poule") // Exclure les matchs de poule pour les destinations de position
+                            .map((opt) => (
+                              <option key={opt.match.id} value={opt.match.uuid}>
+                                {opt.label}
+                              </option>
+                            ))}
+                        </select>
+                        <select
+                          className="w-12 p-1 text-xs border rounded text-black font-bold"
+                          value={currentDest?.slot || ""}
+                          onChange={(e) => {
+                            if (!currentDest?.matchUuid) return;
+                            const newDestinations = {
+                              ...(selectedLeague.standingDestinations || {}),
+                            };
+                            newDestinations[position] = {
+                              matchUuid: currentDest.matchUuid,
+                              slot: (e.target.value as "A" | "B") || "A",
+                            };
+                            updateLeague({
+                              ...selectedLeague,
+                              standingDestinations: newDestinations,
+                            });
+                          }}
+                          disabled={!currentDest?.matchUuid}
+                        >
+                          <option value="">-</option>
+                          <option value="A">A</option>
+                          <option value="B">B</option>
+                        </select>
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="mt-1 text-xs text-gray-500">
+                  Configurez où chaque position de la poule sera envoyée
+                </p>
+              </div>
+
+              {/* Sélection des équipes */}
+              <div>
+                <label className="block text-sm font-medium text-black mb-1">
+                  Équipes participantes
+                </label>
+                {loadingTeams ? (
+                  <div className="text-sm text-gray-500 p-2">
+                    Chargement des équipes...
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {(() => {
+                      const usedTeams = getUsedTeamsByPhase(
+                        matches,
+                        pools,
+                        brackets,
+                        loserBrackets,
+                        "pool",
+                        selectedLeague.id,
+                      );
+
+                      return (
+                        <>
+                          {/* Vainqueurs des qualifications */}
+                          {(() => {
+                            const qualifWinners = matches
+                              .filter(
+                                (m) =>
+                                  m.type === "qualifications" && m.winnerCode,
+                              )
+                              .map((m) => m.winnerCode as string)
+                              .filter(
+                                (code, index, self) =>
+                                  self.indexOf(code) === index,
+                              )
+                              .sort();
+
+                            if (qualifWinners.length === 0) return null;
+
+                            return (
+                              <>
+                                <div className="text-sm font-semibold text-black mt-2 mb-1">
+                                  Vainqueurs des qualifications
+                                </div>
+                                {qualifWinners.map((code) => {
+                                  const isSelected =
+                                    selectedLeague.teams.includes(code);
+                                  const isUsedElsewhere =
+                                    usedTeams.brackets.has(code) ||
+                                    usedTeams.loserBrackets.has(code);
+                                  return (
+                                    <div
+                                      key={code}
+                                      className="flex items-center"
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        id={`winner-${code}`}
+                                        checked={isSelected}
+                                        disabled={isUsedElsewhere}
+                                        onChange={(e) => {
+                                          if (e.target.checked) {
+                                            addTeamToLeague(
+                                              selectedLeague.id,
+                                              code,
+                                            );
+                                          } else {
+                                            removeTeamFromLeague(
+                                              selectedLeague.id,
+                                              code,
+                                            );
+                                          }
+                                        }}
+                                        className="mr-2"
+                                      />
+                                      <label
+                                        htmlFor={`winner-${code}`}
+                                        className={`text-sm font-medium ${isUsedElsewhere ? "text-gray-400 line-through" : "text-indigo-600"}`}
+                                      >
+                                        {code}{" "}
+                                        {isUsedElsewhere && "(déjà utilisé)"}
+                                      </label>
+                                    </div>
+                                  );
+                                })}
+                                <div className="border-t border-gray-200 my-2"></div>
+                              </>
+                            );
+                          })()}
+
+                          {/* Équipes de la base de données */}
+                          <div className="text-xs font-semibold text-gray-700 mb-1">
+                            Équipes
+                          </div>
+                          {teams.map((team) => {
+                            const isSelected = selectedLeague.teams.includes(
+                              team.name,
+                            );
+                            const isUsedElsewhere =
+                              usedTeams.qualifications.has(team.name) ||
+                              usedTeams.brackets.has(team.name) ||
+                              usedTeams.loserBrackets.has(team.name);
+                            return (
+                              <div
+                                key={team.id}
+                                className="flex items-center text-black"
+                              >
+                                <input
+                                  type="checkbox"
+                                  id={`team-${team.id}`}
+                                  checked={isSelected}
+                                  disabled={isUsedElsewhere}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      addTeamToLeague(
+                                        selectedLeague.id,
+                                        team.name,
+                                      );
+                                    } else {
+                                      removeTeamFromLeague(
+                                        selectedLeague.id,
+                                        team.name,
+                                      );
+                                    }
+                                  }}
+                                  className="mr-2"
+                                />
+                                <label
+                                  htmlFor={`team-${team.id}`}
+                                  className={`text-sm ${isUsedElsewhere ? "text-gray-400 line-through" : ""}`}
+                                >
+                                  {team.name}{" "}
+                                  {isUsedElsewhere && "(déjà utilisé)"}
+                                </label>
+                              </div>
+                            );
+                          })}
+                        </>
+                      );
+                    })()}
+                  </div>
+                )}
+              </div>
+
+              {/* Création et aperçu des matchs */}
+              <div>
+                <label className="block text-sm font-medium text-black mb-2">
+                  Matchs ({selectedLeague.matches.length})
+                </label>
+
+                {/* Formulaire d'ajout de match */}
+                {selectedLeague.teams.length >= 2 ? (
+                  <div className="bg-blue-50 border border-blue-200 rounded-md p-3 mb-2 space-y-2">
+                    <div className="text-xs font-medium text-blue-800 mb-1">
+                      Ajouter un match
+                    </div>
+                    <div className="flex gap-2 items-center">
+                      <select
+                        className="flex-1 p-1 text-xs border border-gray-300 rounded text-black bg-white"
+                        value={newLeagueMatchTeamA}
+                        onChange={(e) => {
+                          setNewLeagueMatchTeamA(e.target.value);
+                          setNewLeagueMatchTeamB("");
+                        }}
+                      >
+                        <option value="">Équipe A</option>
+                        {selectedLeague.teams.map((t) => (
+                          <option key={t} value={t}>{t}</option>
+                        ))}
+                      </select>
+                      <span className="text-xs text-gray-500 font-bold">vs</span>
+                      <select
+                        className="flex-1 p-1 text-xs border border-gray-300 rounded text-black bg-white"
+                        value={newLeagueMatchTeamB}
+                        onChange={(e) => setNewLeagueMatchTeamB(e.target.value)}
+                        disabled={!newLeagueMatchTeamA}
+                      >
+                        <option value="">Équipe B</option>
+                        {selectedLeague.teams
+                          .filter((t) => t !== newLeagueMatchTeamA)
+                          .map((t) => (
+                            <option key={t} value={t}>{t}</option>
+                          ))}
+                      </select>
+                      <button
+                        disabled={!newLeagueMatchTeamA || !newLeagueMatchTeamB}
+                        onClick={() => {
+                          addLeagueMatch(selectedLeague.id, newLeagueMatchTeamA, newLeagueMatchTeamB);
+                          setNewLeagueMatchTeamA("");
+                          setNewLeagueMatchTeamB("");
+                        }}
+                        className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition font-bold"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-xs text-gray-500 italic p-2 bg-gray-50 rounded mb-2">
+                    Ajoutez au moins 2 équipes pour créer des matchs.
+                  </div>
+                )}
+
+                {/* Liste des matchs */}
+                {selectedLeague.matches.length > 0 ? (
+                  <div className="max-h-48 overflow-y-auto space-y-1">
+                    {selectedLeague.matches.map((match, index) => (
+                      <div
+                        key={index}
+                        className="flex items-center gap-2 p-2 bg-gray-50 rounded hover:bg-blue-50 transition-colors text-black"
+                      >
+                        <span
+                          className="text-sm flex-1 cursor-pointer"
+                          onClick={() => {
+                            setSelectedLeagueMatch(match);
+                            setSelectedLeague(null);
+                          }}
+                        >
+                          {match.teamA} vs {match.teamB}
+                        </span>
+                        <span className={`px-2 py-0.5 text-xs rounded ${getStatusColor(match.status)}`}>
+                          {match.status}
+                        </span>
+                        <button
+                          onClick={() => deleteLeagueMatch(selectedLeague.id, match.id)}
+                          className="text-red-400 hover:text-red-600 transition flex-shrink-0"
+                          title="Supprimer ce match"
+                        >
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-xs text-gray-500 italic p-2 bg-gray-50 rounded">
+                    Aucun match. Utilisez le formulaire ci-dessus pour en créer.
+                  </div>
+                )}
+                {selectedLeague.matches.length > 0 && (
+                  <div className="text-xs text-gray-500 mt-1">
+                    Cliquez sur un match pour le configurer (date, heure, terrain...)
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="p-4 border-t bg-gray-50 space-y-2">
+              <div className="p-3 bg-blue-50 rounded text-xs text-blue-700">
+                Les matchs sont créés manuellement. Chaque équipe ne rencontre
+                qu&apos;un sous-ensemble des adversaires.
+              </div>
+              <button
+                className="w-full bg-red-600 text-white py-2 px-4 rounded-md hover:bg-red-700 transition"
+                onClick={() => {
+                  setLeagues(leagues.filter((l) => l.id !== selectedLeague.id));
+                  setSelectedLeague(null);
+                }}
+              >
+                Supprimer la ligue
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Panel de configuration des brackets (Phase Finale) */}
         {selectedBracket && (
           <div className="w-96 bg-white border-l shadow-lg flex flex-col">
@@ -4730,7 +5710,7 @@ export default function TournamentsPage() {
                             );
                           })()}
 
-                          {/* Qualifiés des poules */}
+                          {/* Qualifiés des poules et ligues */}
                           {(() => {
                             const poolQualifiers: string[] = [];
                             pools.forEach((pool) => {
@@ -4740,6 +5720,15 @@ export default function TournamentsPage() {
                                 i++
                               ) {
                                 poolQualifiers.push(`${pool.name}-${i}`);
+                              }
+                            });
+                            leagues.forEach((league) => {
+                              for (
+                                let i = 1;
+                                i <= (league.qualifiedToFinals || 0);
+                                i++
+                              ) {
+                                poolQualifiers.push(`${league.name}-${i}`);
                               }
                             });
 
@@ -5188,7 +6177,7 @@ export default function TournamentsPage() {
                             );
                           })()}
 
-                          {/* Qualifiés Loser Bracket des poules */}
+                          {/* Qualifiés Loser Bracket des poules et ligues */}
                           {(() => {
                             const poolLoserBracketQualifiers: string[] = [];
                             pools.forEach((pool) => {
@@ -5201,6 +6190,19 @@ export default function TournamentsPage() {
                               for (let i = startRank; i <= endRank; i++) {
                                 poolLoserBracketQualifiers.push(
                                   `${pool.name}-${i}`,
+                                );
+                              }
+                            });
+                            leagues.forEach((league) => {
+                              const startRank =
+                                (league.qualifiedToFinals || 0) + 1;
+                              const endRank =
+                                startRank +
+                                (league.qualifiedToLoserBracket || 0) -
+                                1;
+                              for (let i = startRank; i <= endRank; i++) {
+                                poolLoserBracketQualifiers.push(
+                                  `${league.name}-${i}`,
                                 );
                               }
                             });
@@ -5423,6 +6425,75 @@ export default function TournamentsPage() {
                                       <label
                                         htmlFor={`lb-pool-loser-${code}`}
                                         className={`text-sm font-medium ${isUsedElsewhere ? "text-gray-400 line-through" : "text-purple-600"}`}
+                                      >
+                                        {code}{" "}
+                                        {isUsedElsewhere && "(déjà utilisé)"}
+                                      </label>
+                                    </div>
+                                  );
+                                })}
+                                <div className="border-t border-gray-200 my-2"></div>
+                              </>
+                            );
+                          })()}
+
+                          {/* Perdants des ligues */}
+                          {(() => {
+                            const leagueLosers: string[] = [];
+                            leagues.forEach((league) => {
+                              for (
+                                let i =
+                                  (league.qualifiedToFinals || 0) +
+                                  (league.qualifiedToLoserBracket || 0) +
+                                  1;
+                                i <= league.teams.length;
+                                i++
+                              ) {
+                                leagueLosers.push(`${league.name}-${i}`);
+                              }
+                            });
+
+                            if (leagueLosers.length === 0) return null;
+
+                            return (
+                              <>
+                                <div className="text-xs font-semibold text-orange-600 mt-2 mb-1">
+                                  Autres équipes des ligues
+                                </div>
+                                {leagueLosers.map((code) => {
+                                  const isSelected =
+                                    selectedLoserBracket.teams.includes(code);
+                                  const isUsedElsewhere =
+                                    usedTeams.qualifications.has(code) ||
+                                    usedTeams.brackets.has(code);
+                                  return (
+                                    <div
+                                      key={code}
+                                      className="flex items-center"
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        id={`lb-league-loser-${code}`}
+                                        checked={isSelected}
+                                        disabled={isUsedElsewhere}
+                                        onChange={(e) => {
+                                          if (e.target.checked) {
+                                            addTeamToLoserBracket(
+                                              selectedLoserBracket.id,
+                                              code,
+                                            );
+                                          } else {
+                                            removeTeamFromLoserBracket(
+                                              selectedLoserBracket.id,
+                                              code,
+                                            );
+                                          }
+                                        }}
+                                        className="mr-2"
+                                      />
+                                      <label
+                                        htmlFor={`lb-league-loser-${code}`}
+                                        className={`text-sm font-medium ${isUsedElsewhere ? "text-gray-400 line-through" : "text-orange-600"}`}
                                       >
                                         {code}{" "}
                                         {isUsedElsewhere && "(déjà utilisé)"}
@@ -5804,6 +6875,163 @@ export default function TournamentsPage() {
                 className="w-full bg-purple-600 text-white py-2 px-4 rounded-md hover:bg-purple-700 transition"
               >
                 Retour à la poule
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Panel de configuration d'un match de ligue */}
+        {selectedLeagueMatch && (
+          <div className="w-96 bg-white border-l shadow-lg flex flex-col">
+            <div className="p-4 border-b bg-blue-50">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-bold text-gray-900">Match de ligue</h3>
+                  <p className="text-sm text-blue-600">
+                    {selectedLeagueMatch.teamA} vs {selectedLeagueMatch.teamB}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setSelectedLeagueMatch(null)}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 p-4 overflow-y-auto space-y-4">
+              {/* Date et heure */}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-sm font-medium text-black mb-1">Date</label>
+                  <input
+                    type="date"
+                    value={selectedLeagueMatch.date || ""}
+                    onChange={(e) =>
+                      updateLeagueMatch({ ...selectedLeagueMatch, date: e.target.value })
+                    }
+                    className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-black"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-black mb-1">Heure</label>
+                  <input
+                    type="time"
+                    value={selectedLeagueMatch.time || ""}
+                    onChange={(e) =>
+                      updateLeagueMatch({ ...selectedLeagueMatch, time: e.target.value })
+                    }
+                    className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-black"
+                  />
+                </div>
+              </div>
+
+              {/* Terrain */}
+              <div>
+                <label className="block text-sm font-medium text-black mb-1">Terrain</label>
+                {loadingCourts ? (
+                  <div className="text-sm text-gray-500 p-2">Chargement des terrains...</div>
+                ) : (
+                  renderCourtSelect(selectedLeagueMatch, (courtName) =>
+                    updateLeagueMatch({ ...selectedLeagueMatch, court: courtName }),
+                  )
+                )}
+                {!loadingCourts &&
+                  courts.filter((court) =>
+                    isCourtAvailable(
+                      court.name,
+                      selectedLeagueMatch.date,
+                      selectedLeagueMatch.time,
+                      selectedLeagueMatch.duration,
+                      selectedLeagueMatch.id,
+                    ),
+                  ).length === 0 && (
+                    <div className="text-xs text-red-600 mt-2">
+                      Aucun terrain disponible pour ce créneau
+                    </div>
+                  )}
+              </div>
+
+              {/* Statut */}
+              <div>
+                <label className="block text-sm font-medium text-black mb-1">Statut</label>
+                <div className={`w-full p-2 border border-gray-200 rounded-md bg-gray-50 text-black ${getStatusColor(selectedLeagueMatch.status)}`}>
+                  {selectedLeagueMatch.status}
+                </div>
+                <p className="mt-1 text-xs text-gray-500">Le statut est géré automatiquement par le système</p>
+              </div>
+
+              {/* Durée */}
+              <div>
+                <label className="block text-sm font-medium text-black mb-1">Durée (minutes)</label>
+                <input
+                  type="number"
+                  min="30"
+                  max="300"
+                  step="15"
+                  value={selectedLeagueMatch.duration}
+                  onChange={(e) =>
+                    updateLeagueMatch({ ...selectedLeagueMatch, duration: parseInt(e.target.value) })
+                  }
+                  className="w-full p-2 text-black border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+
+              {/* Points vainqueur/perdant */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-black mb-1">Points vainqueur</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={selectedLeagueMatch.winnerPoints ?? 0}
+                    onChange={(e) =>
+                      updateLeagueMatch({ ...selectedLeagueMatch, winnerPoints: parseInt(e.target.value) || 0 })
+                    }
+                    className="w-full p-2 text-black border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-black mb-1">Points perdant</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={selectedLeagueMatch.loserPoints ?? 0}
+                    onChange={(e) =>
+                      updateLeagueMatch({ ...selectedLeagueMatch, loserPoints: parseInt(e.target.value) || 0 })
+                    }
+                    className="w-full p-2 text-black border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+              </div>
+
+              {/* Informations sur la ligue */}
+              <div className="p-3 bg-blue-50 rounded-lg">
+                <div className="text-sm font-medium text-blue-800 mb-1">Match de ligue</div>
+                <div className="text-xs text-blue-600">
+                  Ce match fait partie d&apos;une ligue et sera comptabilisé dans le classement général.
+                </div>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="p-4 border-t bg-gray-50 space-y-2">
+              <button
+                onClick={() => {
+                  const league = leagues.find((l) =>
+                    l.matches.some((m) => m.id === selectedLeagueMatch.id),
+                  );
+                  if (league) {
+                    setSelectedLeague(league);
+                    setSelectedLeagueMatch(null);
+                  }
+                }}
+                className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition"
+              >
+                Retour à la ligue
               </button>
             </div>
           </div>
@@ -6664,6 +7892,39 @@ export default function TournamentsPage() {
                 <div className="font-medium">Équipe B</div>
               </div>
               <div className="text-xs text-gray-500 mt-2">90 min</div>
+            </div>
+
+            {/* Tuile Phase Ligue */}
+            <div
+              draggable
+              onDragStart={(e) => handlePaletteDragStart(e, "ligue")}
+              onDragEnd={handlePaletteDragEnd}
+              className="bg-white border-2 border-blue-200 rounded-lg p-4 cursor-grab hover:shadow-lg hover:border-blue-400 transition-all active:cursor-grabbing"
+            >
+              <div className="flex items-center justify-between mb-2">
+                <span className="px-2 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-800">
+                  Ligue
+                </span>
+                <svg
+                  className="w-4 h-4 text-blue-600"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
+                  />
+                </svg>
+              </div>
+              <div className="text-sm text-gray-700">
+                <div className="font-medium text-xs">Phase de ligue</div>
+                <div className="text-xs text-gray-500 mt-1">
+                  Matchs configurables
+                </div>
+              </div>
             </div>
 
             {/* Tuile Phase Qualifs */}

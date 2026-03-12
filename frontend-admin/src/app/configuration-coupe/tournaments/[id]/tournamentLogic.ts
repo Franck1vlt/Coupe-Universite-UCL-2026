@@ -9,7 +9,7 @@ export type Match = {
   court: string;
   status: "planifié" | "en-cours" | "terminé" | "annulé";
   duration: number;
-  type: "qualifications" | "poule" | "phase-finale" | "loser-bracket";
+  type: "qualifications" | "poule" | "ligue" | "phase-finale" | "loser-bracket";
   scoreA?: number;
   scoreB?: number;
   winnerPoints?: number;
@@ -204,6 +204,16 @@ export function calculatePoolStandings(pool: Pool): PoolStanding[] {
       scoreDiff: 0,
       goalsFor: 0
     });
+  });
+
+  // Fallback : initialiser depuis les matchs si pool.teams est vide ou incomplet
+  pool.matches.forEach(match => {
+    if (match.teamA && !standings.has(match.teamA)) {
+      standings.set(match.teamA, { team: match.teamA, played: 0, won: 0, lost: 0, points: 0, scoreDiff: 0, goalsFor: 0 });
+    }
+    if (match.teamB && !standings.has(match.teamB)) {
+      standings.set(match.teamB, { team: match.teamB, played: 0, won: 0, lost: 0, points: 0, scoreDiff: 0, goalsFor: 0 });
+    }
   });
 
   // Calculer les résultats de chaque match

@@ -687,7 +687,7 @@ export function useHandballMatch(initialMatchId: string | null) {
         addPoint, subPoint,
         addYellowCard, subYellowCard, addRedCard, subRedCard,
         setTeamName, setTeamLogo, setMatchType, swapSides,
-        court, togglePeriod, period, periodSwitchChecked, setPeriodSwitchChecked,
+        court, setCourt, togglePeriod, period, periodSwitchChecked, setPeriodSwitchChecked,
         // Fiche de match & événements
         players, pendingEvents,
         pendingCardEvent, confirmCard, cancelCardModal,

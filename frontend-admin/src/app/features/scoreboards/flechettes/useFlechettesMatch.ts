@@ -36,6 +36,7 @@ export function useFlechettesMatch(initialMatchId: string | null) {
     gameMode: "BO3",
     currentPlayerIndex: 0, // Commence avec joueur 1A
     currentThrows: [], // Volée vide au départ
+    currentThrowsBases: [], // Valeurs de base avant multiplicateur
     previousScoreA: 301,
     previousScoreB: 301,
     lastThrowWasDouble: false,
@@ -248,10 +249,12 @@ export function useFlechettesMatch(initialMatchId: string | null) {
 
       const actualValue = isDouble ? value * 2 : value;
       const newThrows = [...currentThrows, actualValue];
+      const newBases = [...(p.currentThrowsBases || []), actualValue];
 
       return {
         ...p,
         currentThrows: newThrows,
+        currentThrowsBases: newBases,
         lastThrowWasDouble: isDouble,
       };
     });
@@ -269,10 +272,9 @@ export function useFlechettesMatch(initialMatchId: string | null) {
 
       const newThrows = [...currentThrows];
       const lastIndex = newThrows.length - 1;
-      const baseValue = newThrows[lastIndex];
-
-      // Si factor = 2, c'est un double
-      // Si factor = 3, c'est un triple
+      // Toujours multiplier depuis la valeur de base pour rendre l'opération idempotente
+      const bases = p.currentThrowsBases || [];
+      const baseValue = bases[lastIndex] ?? newThrows[lastIndex];
       newThrows[lastIndex] = baseValue * factor;
 
       return {
@@ -294,10 +296,12 @@ export function useFlechettesMatch(initialMatchId: string | null) {
       }
 
       const newThrows = currentThrows.slice(0, -1);
+      const newBases = (p.currentThrowsBases || []).slice(0, -1);
 
       return {
         ...p,
         currentThrows: newThrows,
+        currentThrowsBases: newBases,
         lastThrowWasDouble: false,
       };
     });
@@ -331,6 +335,7 @@ export function useFlechettesMatch(initialMatchId: string | null) {
         return {
           ...p,
           currentThrows: [],
+          currentThrowsBases: [],
           currentPlayerIndex: ((p.currentPlayerIndex || 0) + 1) % 2,
           lastThrowWasDouble: false,
           previousScoreA: prevScoreA,
@@ -394,6 +399,7 @@ export function useFlechettesMatch(initialMatchId: string | null) {
             teamA: newTeamA,
             teamB: newTeamB,
             currentThrows: [],
+            currentThrowsBases: [],
             lastThrowWasDouble: false,
           };
         }
@@ -405,6 +411,7 @@ export function useFlechettesMatch(initialMatchId: string | null) {
           teamA: { ...newTeamA, score: 301 },
           teamB: { ...newTeamB, score: 301 },
           currentThrows: [],
+          currentThrowsBases: [],
           currentPlayerIndex: 0, // Recommence avec joueur 1A
           lastThrowWasDouble: false,
           previousScoreA: 301,
@@ -424,6 +431,7 @@ export function useFlechettesMatch(initialMatchId: string | null) {
         teamA: updatedTeamA,
         teamB: updatedTeamB,
         currentThrows: [],
+        currentThrowsBases: [],
         currentPlayerIndex: ((p.currentPlayerIndex || 0) + 1) % 2,
         lastThrowWasDouble: false,
         previousScoreA: updatedTeamA.score,
@@ -439,6 +447,7 @@ export function useFlechettesMatch(initialMatchId: string | null) {
       return {
         ...p,
         currentThrows: [],
+        currentThrowsBases: [],
         currentPlayerIndex: ((p.currentPlayerIndex || 0) + 1) % 2,
         lastThrowWasDouble: false,
       };
@@ -452,6 +461,7 @@ export function useFlechettesMatch(initialMatchId: string | null) {
       teamA: { ...p.teamA, score: 301 },
       teamB: { ...p.teamB, score: 301 },
       currentThrows: [],
+      currentThrowsBases: [],
       currentPlayerIndex: 0,
       lastThrowWasDouble: false,
       previousScoreA: 301,
@@ -653,6 +663,7 @@ export function useFlechettesMatch(initialMatchId: string | null) {
     setPlayerName,
     swapSides,
     court,
+    setCourt,
     updateMatchStatus,
   };
 }

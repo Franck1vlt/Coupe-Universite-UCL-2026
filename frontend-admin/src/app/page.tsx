@@ -14,7 +14,10 @@ function UserAvatar() {
   // Fermer le dropdown si on clique en dehors
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(event.target as Node)
+      ) {
         setIsOpen(false);
       }
     }
@@ -26,7 +29,12 @@ function UserAvatar() {
 
   // Initiales pour l'avatar
   const initials = userName
-    ? userName.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2)
+    ? userName
+        .split(" ")
+        .map((n: string) => n[0])
+        .join("")
+        .toUpperCase()
+        .slice(0, 2)
     : "?";
 
   // Couleur du badge selon le rôle
@@ -35,7 +43,8 @@ function UserAvatar() {
     staff: "bg-blue-100 text-blue-700",
     technicien: "bg-green-100 text-green-700",
   };
-  const roleBadgeColor = roleBadgeColors[userRole || ""] || "bg-gray-100 text-gray-700";
+  const roleBadgeColor =
+    roleBadgeColors[userRole || ""] || "bg-gray-100 text-gray-700";
 
   return (
     <div className="relative" ref={dropdownRef}>
@@ -52,7 +61,7 @@ function UserAvatar() {
 
       {/* Dropdown Menu */}
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-64 bg-white rounded-xl shadow-xl border border-gray-200 py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-200">
+        <div className="absolute right-0 top-full mt-2 w-64 bg-white rounded-xl shadow-xl border border-gray-200 py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-200">
           {/* Header avec infos utilisateur */}
           <div className="px-4 py-3 border-b border-gray-100">
             <div className="flex items-center gap-3">
@@ -60,8 +69,12 @@ function UserAvatar() {
                 {initials}
               </div>
               <div>
-                <p className="font-semibold text-gray-800">{userName || "Utilisateur"}</p>
-                <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${roleBadgeColor}`}>
+                <p className="font-semibold text-gray-800">
+                  {userName || "Utilisateur"}
+                </p>
+                <span
+                  className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${roleBadgeColor}`}
+                >
                   {userRole?.toUpperCase() || "INCONNU"}
                 </span>
               </div>
@@ -76,8 +89,18 @@ function UserAvatar() {
               className="flex items-center gap-3 px-4 py-2 text-gray-700 hover:bg-gray-50 transition-colors"
               onClick={() => setIsOpen(false)}
             >
-              <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              <svg
+                className="w-5 h-5 text-gray-400"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                />
               </svg>
               Mon profil
             </Link>
@@ -89,8 +112,18 @@ function UserAvatar() {
                 className="flex items-center gap-3 px-4 py-2 text-gray-700 hover:bg-gray-50 transition-colors"
                 onClick={() => setIsOpen(false)}
               >
-                <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
+                <svg
+                  className="w-5 h-5 text-gray-400"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z"
+                  />
                 </svg>
                 Gérer les utilisateurs
                 <span className="ml-auto px-1.5 py-0.5 bg-red-100 text-red-600 text-xs rounded font-medium">
@@ -108,8 +141,18 @@ function UserAvatar() {
             onClick={() => signOut({ callbackUrl: "/login" })}
             className="flex items-center gap-3 w-full px-4 py-2 text-red-600 hover:bg-red-50 transition-colors"
           >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+            <svg
+              className="w-5 h-5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+              />
             </svg>
             Se déconnecter
           </button>
@@ -195,7 +238,8 @@ const links = [
     href: "/scores-direct",
     title: "Scores en direct",
     description: "Pour la technique",
-    color: "bg-gradient-to-tr from-red-100 via-orange-100 to-yellow-100 hover:from-red-200 hover:via-orange-200 hover:to-yellow-200",
+    color:
+      "bg-gradient-to-tr from-red-100 via-orange-100 to-yellow-100 hover:from-red-200 hover:via-orange-200 hover:to-yellow-200",
     icon: (
       <svg
         className="mx-auto mb-3 h-9 w-9 text-red-500"
@@ -209,7 +253,41 @@ const links = [
           strokeLinecap="round"
           strokeLinejoin="round"
         />
-        <circle cx="12" cy="12" r="10" strokeWidth={1.5} stroke="currentColor" fill="none"/>
+        <circle
+          cx="12"
+          cy="12"
+          r="10"
+          strokeWidth={1.5}
+          stroke="currentColor"
+          fill="none"
+        />
+      </svg>
+    ),
+  },
+  {
+    href: "/table-marquage-backup",
+    title: "Table de Marquage Backup",
+    description: "Marquage sans tournoi",
+    color: "bg-white hover:bg-orange-50",
+    icon: (
+      <svg
+        className="mx-auto mb-3 h-9 w-9 text-orange-500"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={1.5}
+          d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
+        />
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={1.5}
+          d="M9 12h6M9 16h4"
+        />
       </svg>
     ),
   },
@@ -223,16 +301,18 @@ export default function StaffHome() {
         <UserAvatar />
       </div>
 
-
       <header className="mb-12 text-center">
         <img
           src="/img/coupe.png"
           alt="Logo Coupe de l'Université"
           className="mx-auto mb-6 h-24 w-24 object-contain"
         />
-        <h1 className="text-4xl font-bold text-gray-800 mb-2">Interface STAFF</h1>
+        <h1 className="text-4xl font-bold text-gray-800 mb-2">
+          Interface STAFF
+        </h1>
         <p className="text-gray-600 text-lg">
-          Accédez à la configuration des tournois, aux matchs en direct et au classements.
+          Accédez à la configuration des tournois, aux matchs en direct et au
+          classements.
         </p>
       </header>
 
@@ -282,7 +362,10 @@ export default function StaffHome() {
 
       {/* Footer Copyright */}
       <footer className="mt-16 text-center text-gray-600 text-sm">
-        <p>&copy; {new Date().getFullYear()} Coupe de l'Université. Tous droits réservés.</p>
+        <p>
+          &copy; {new Date().getFullYear()} Coupe de l'Université. Tous droits
+          réservés.
+        </p>
       </footer>
     </main>
   );

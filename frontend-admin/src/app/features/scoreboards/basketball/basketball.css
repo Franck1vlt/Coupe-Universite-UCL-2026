@@ -36,18 +36,16 @@
     width: 100vw;
     overflow-y: auto;
     background-color: white;
-    padding-top: 15vh; /* espace pour le header fixe */
 }
 
 .basketball-root header {
-    position: fixed;
+    position: sticky;
     top: 0;
     left: 0;
     right: 0;
     width: 100%;
     padding: 15px;
     z-index: 1000;
-    margin-top: 5vh;
     background: white;
 }
 
@@ -368,6 +366,9 @@ input:checked + .slider:before {
     font-size: 2rem;
     font-weight: bold;
     margin-bottom: 10px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
 }
 
 .score-row {

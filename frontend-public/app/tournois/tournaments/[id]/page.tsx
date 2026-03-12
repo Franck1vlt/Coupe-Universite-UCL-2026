@@ -51,6 +51,8 @@ type TournamentMatch = {
   winnerDestinationSlot?: "A" | "B" | null;
   loserDestinationSlot?: "A" | "B" | null;
   poolId?: string; // ID de la poule pour les matchs de poule
+  winnerPoints?: number;
+  loserPoints?: number;
 };
 
 type Pool = {
@@ -59,6 +61,8 @@ type Pool = {
   teams: string[];
   qualifiedToFinals?: number;
   qualifiedToLoserBracket?: number;
+  useStandingPoints?: boolean;
+  standingPoints?: Record<number, number>;
 };
 
 type RankingEntry = {
@@ -476,6 +480,8 @@ export default function TournamentViewPage() {
             loserDestinationMatchId: m.loser_destination_match_id,
             loserDestinationSlot: m.loser_destination_slot,
             poolId: poolId,
+            winnerPoints: m.winner_points,
+            loserPoints: m.loser_points,
           };
         };
 
@@ -502,6 +508,8 @@ export default function TournamentViewPage() {
               teams: [], // Les équipes seront récupérées via l'API standings
               qualifiedToFinals: p.qualified_to_finals || 2,
               qualifiedToLoserBracket: p.qualified_to_loser_bracket || 0,
+              useStandingPoints: p.use_standing_points || false,
+              standingPoints: p.standing_points || undefined,
             });
           });
         }
@@ -935,10 +943,83 @@ export default function TournamentViewPage() {
     generatePoolRankings();
   }, [pools, rankingFilter, matches]);
 
+  // Calculer le classement final par position si activé sur une poule
+  useEffect(() => {
+    const hasStandingPoints = pools.some((p) => p.useStandingPoints);
+    if (!hasStandingPoints || poolRankings.size === 0) return;
+
+    const rankMap: Record<string, RankingEntry> = {};
+    pools.forEach((pool) => {
+      if (!pool.useStandingPoints || !pool.standingPoints) return;
+      const standings = poolRankings.get(pool.name) || [];
+      standings.forEach((entry) => {
+        const pts = pool.standingPoints![entry.position] ?? 0;
+        if (!rankMap[entry.team]) {
+          rankMap[entry.team] = { ...entry, points: pts };
+        } else {
+          rankMap[entry.team].points += pts;
+          rankMap[entry.team].played += entry.played;
+          rankMap[entry.team].won += entry.won;
+          rankMap[entry.team].drawn += entry.drawn;
+          rankMap[entry.team].lost += entry.lost;
+          rankMap[entry.team].scoreDiff =
+            (rankMap[entry.team].scoreDiff || 0) + (entry.scoreDiff || 0);
+        }
+      });
+    });
+
+    // Ajouter les points des matchs de bracket (phase finale, loser bracket, etc.)
+    const bracketMatches = matches.filter(
+      (m) =>
+        m.status === "terminé" &&
+        m.type !== "poule" &&
+        m.scoreA !== undefined &&
+        m.scoreB !== undefined,
+    );
+
+    bracketMatches.forEach((m) => {
+      const {
+        teamA,
+        teamB,
+        scoreA,
+        scoreB,
+        winnerPoints = 0,
+        loserPoints = 0,
+      } = m;
+      if (scoreA! > scoreB!) {
+        if (rankMap[teamA]) rankMap[teamA].points += winnerPoints;
+        if (rankMap[teamB]) rankMap[teamB].points += loserPoints;
+      } else if (scoreB! > scoreA!) {
+        if (rankMap[teamB]) rankMap[teamB].points += winnerPoints;
+        if (rankMap[teamA]) rankMap[teamA].points += loserPoints;
+      }
+      if (rankMap[teamA]) {
+        rankMap[teamA].played++;
+        if (scoreA! > scoreB!) rankMap[teamA].won++;
+        else rankMap[teamA].lost++;
+      }
+      if (rankMap[teamB]) {
+        rankMap[teamB].played++;
+        if (scoreB! > scoreA!) rankMap[teamB].won++;
+        else rankMap[teamB].lost++;
+      }
+    });
+
+    const sorted = Object.values(rankMap).sort(
+      (a, b) =>
+        b.points - a.points ||
+        (b.scoreDiff || 0) - (a.scoreDiff || 0),
+    );
+    sorted.forEach((e, i) => (e.position = i + 1));
+    setFinalRanking(sorted);
+  }, [pools, poolRankings, matches]);
+
   // Charger le classement final depuis l'API
   useEffect(() => {
     const loadFinalRanking = async () => {
       if (!params.id || typeof params.id !== "string") return;
+      // Si au moins une poule utilise les points par position, calcul déjà fait client-side
+      if (pools.some((p) => p.useStandingPoints)) return;
 
       try {
         // Récupérer le tournoi
@@ -982,7 +1063,7 @@ export default function TournamentViewPage() {
     };
 
     loadFinalRanking();
-  }, [params.id, matches]);
+  }, [params.id, matches, pools]);
 
   // Fermer le modal avec la touche Escape
   useEffect(() => {

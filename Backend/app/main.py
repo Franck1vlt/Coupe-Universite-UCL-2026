@@ -1626,7 +1626,11 @@ async def get_tournament_final_ranking(
     from app.models.match import Match
     from app.models.teamsport import TeamSport
     from app.models.team import Team
+    from app.models.pool import Pool
+    from app.models.tournamentphase import TournamentPhase
+    from app.models.tournamentranking import TournamentRanking
     from collections import defaultdict
+    import json as _json
 
     # Récupérer tous les matchs terminés du tournoi
     completed_matches = db.query(Match).filter(
@@ -1702,6 +1706,72 @@ async def get_tournament_final_ranking(
                 team_points[team_sport_b.team_id]["total_points"] += draw_points
                 team_points[team_sport_b.team_id]["draws"] += 1
 
+    # Calculer les standing_points directement depuis les pools (sans dépendre de TournamentRanking)
+    from app.models.pool import Pool as _Pool
+    import json as _json
+
+    all_phase_ids = [p.id for p in db.query(TournamentPhase).filter(
+        TournamentPhase.tournament_id == tournament_id
+    ).all()]
+
+    # Repair pool_id null pour les matchs de ligue (phase_order=5)
+    league_phase_ids = {p.id for p in db.query(TournamentPhase).filter(
+        TournamentPhase.tournament_id == tournament_id,
+        TournamentPhase.phase_order == 5
+    ).all()}
+    for lp_pool in db.query(_Pool).filter(_Pool.phase_id.in_(league_phase_ids)).all():
+        for m in completed_matches:
+            if m.phase_id == lp_pool.phase_id and m.pool_id is None:
+                m.pool_id = lp_pool.id
+
+    for pool in db.query(_Pool).filter(_Pool.phase_id.in_(all_phase_ids)).all():
+        print(f"[FINAL-RANKING] Pool '{pool.name}' use_standing_points={pool.use_standing_points} standing_points={pool.standing_points!r}")
+        if not pool.use_standing_points or not pool.standing_points:
+            continue
+        try:
+            standing_pts = _json.loads(pool.standing_points) if isinstance(pool.standing_points, str) else pool.standing_points
+        except Exception:
+            continue
+        pool_matches = [m for m in completed_matches if m.pool_id == pool.id]
+        print(f"[FINAL-RANKING]   pool_matches count={len(pool_matches)}, pool.id={pool.id}")
+        if not pool_matches:
+            # Diagnostic: combien de matchs complétés ont un pool_id NULL ?
+            null_pool = [m for m in completed_matches if m.pool_id is None and m.phase_id in league_phase_ids]
+            print(f"[FINAL-RANKING]   aucun match pour ce pool — matchs ligue sans pool_id: {len(null_pool)}")
+            continue
+        pool_team_stats: dict = {}
+        for match in pool_matches:
+            if match.score_a is None or match.score_b is None:
+                continue
+            if not match.team_sport_a_id or not match.team_sport_b_id:
+                continue
+            for ts_id in [match.team_sport_a_id, match.team_sport_b_id]:
+                if ts_id not in pool_team_stats:
+                    pool_team_stats[ts_id] = {"pts": 0, "gd": 0, "gf": 0}
+            if match.score_a > match.score_b:
+                pool_team_stats[match.team_sport_a_id]["pts"] += 3
+            elif match.score_b > match.score_a:
+                pool_team_stats[match.team_sport_b_id]["pts"] += 3
+            else:
+                pool_team_stats[match.team_sport_a_id]["pts"] += 1
+                pool_team_stats[match.team_sport_b_id]["pts"] += 1
+            pool_team_stats[match.team_sport_a_id]["gd"] += match.score_a - match.score_b
+            pool_team_stats[match.team_sport_b_id]["gd"] += match.score_b - match.score_a
+            pool_team_stats[match.team_sport_a_id]["gf"] += match.score_a
+            pool_team_stats[match.team_sport_b_id]["gf"] += match.score_b
+
+        sorted_pool = sorted(pool_team_stats.items(),
+                             key=lambda x: (x[1]["pts"], x[1]["gd"], x[1]["gf"]), reverse=True)
+        print(f"[FINAL-RANKING]   sorted_pool (ts_id, pts): {[(ts_id, s['pts']) for ts_id, s in sorted_pool]}")
+        for pos, (ts_id, _) in enumerate(sorted_pool, start=1):
+            sp = standing_pts.get(str(pos), 0) or standing_pts.get(pos, 0)
+            if sp > 0:
+                ts = db.query(TeamSport).filter(TeamSport.id == ts_id).first()
+                in_tp = ts.team_id in team_points if ts else False
+                print(f"[FINAL-RANKING]   pos={pos} ts_id={ts_id} team={ts.team_id if ts else None} sp={sp} in_team_points={in_tp}")
+                if ts and ts.team_id in team_points:
+                    team_points[ts.team_id]["total_points"] += sp
+
     # Convertir en liste et trier par points (puis par différence de buts)
     ranking_list = []
     for team_id, stats in team_points.items():
@@ -1750,7 +1820,10 @@ async def get_global_final_ranking(
     from app.models.teamsport import TeamSport
     from app.models.team import Team
     from app.models.tournament import Tournament
+    from app.models.pool import Pool
+    from app.models.tournamentphase import TournamentPhase
     from collections import defaultdict
+    import json as _json
 
     # Dictionnaire pour stocker les points totaux de chaque équipe
     global_team_points = defaultdict(lambda: {
@@ -1829,6 +1902,17 @@ async def get_global_final_ranking(
                 else:
                     tournament_team_points[team_sport_a.team_id]["total_points"] += draw_points
                     tournament_team_points[team_sport_b.team_id]["total_points"] += draw_points
+
+        # Lire les standing_points depuis TournamentRanking (peuplé par propagation)
+        from app.models.tournamentranking import TournamentRanking as TournamentRankingModel
+        tr_entries = db.query(TournamentRankingModel).filter(
+            TournamentRankingModel.tournament_id == tournament.id
+        ).all()
+        for tr in tr_entries:
+            if tr.points_awarded and tr.points_awarded > 0:
+                ts = db.query(TeamSport).filter(TeamSport.id == tr.team_sport_id).first()
+                if ts:
+                    tournament_team_points[ts.team_id]["total_points"] += tr.points_awarded
 
         # Trier les équipes de ce tournoi pour déterminer les podiums
         tournament_ranking = sorted(
@@ -2967,8 +3051,94 @@ async def propagate_tournament_results(
             match.updated_at = datetime.utcnow()
             propagated_count += 1
     
+    # Calculer et persister les standings points des poules dans TournamentRanking
+    from app.models.teamsport import TeamSport as TeamSportModel
+    from app.models.tournamentranking import TournamentRanking
+    import json as _json
+
+    standing_pools = [p for p in pools if p.use_standing_points and p.standing_points]
+    for pool in standing_pools:
+        try:
+            standing_pts = _json.loads(pool.standing_points) if isinstance(pool.standing_points, str) else pool.standing_points
+        except Exception:
+            continue
+
+        # Trouver les team_sport_ids des équipes de cette poule pour ce sport
+        pool_team_ids = [tp.team_id for tp in pool.team_pools]
+        pool_team_sports = db.query(TeamSportModel).filter(
+            TeamSportModel.team_id.in_(pool_team_ids),
+            TeamSportModel.sport_id == tournament.sport_id
+        ).all()
+        pool_ts_map = {ts.id: ts for ts in pool_team_sports}
+        pool_ts_ids = list(pool_ts_map.keys())
+
+        if not pool_ts_ids:
+            continue
+
+        # Trouver les matchs terminés de cette poule via membership des équipes
+        pool_matches_standing = db.query(Match).filter(
+            Match.tournament_id == tournament_id,
+            Match.team_sport_a_id.in_(pool_ts_ids),
+            Match.team_sport_b_id.in_(pool_ts_ids),
+            Match.status == "completed"
+        ).all()
+
+        # Calculer les stats de chaque équipe dans la poule
+        pool_stats: dict = {}
+        for pm in pool_matches_standing:
+            for ts_id in [pm.team_sport_a_id, pm.team_sport_b_id]:
+                if ts_id and ts_id not in pool_stats:
+                    pool_stats[ts_id] = {"points": 0, "goals_for": 0, "goals_against": 0}
+            sa = pm.score_a or 0
+            sb = pm.score_b or 0
+            if pm.team_sport_a_id:
+                pool_stats[pm.team_sport_a_id]["goals_for"] += sa
+                pool_stats[pm.team_sport_a_id]["goals_against"] += sb
+            if pm.team_sport_b_id:
+                pool_stats[pm.team_sport_b_id]["goals_for"] += sb
+                pool_stats[pm.team_sport_b_id]["goals_against"] += sa
+            if sa > sb:
+                if pm.team_sport_a_id:
+                    pool_stats[pm.team_sport_a_id]["points"] += 3
+            elif sb > sa:
+                if pm.team_sport_b_id:
+                    pool_stats[pm.team_sport_b_id]["points"] += 3
+            else:
+                if pm.team_sport_a_id:
+                    pool_stats[pm.team_sport_a_id]["points"] += 1
+                if pm.team_sport_b_id:
+                    pool_stats[pm.team_sport_b_id]["points"] += 1
+
+        # Trier pour obtenir les positions
+        pool_ranking = sorted(
+            pool_stats.items(),
+            key=lambda x: (
+                -x[1]["points"],
+                -(x[1]["goals_for"] - x[1]["goals_against"]),
+                -x[1]["goals_for"]
+            )
+        )
+
+        # Upsert TournamentRanking pour chaque équipe de la poule
+        for pos, (ts_id, _) in enumerate(pool_ranking, start=1):
+            pts = standing_pts.get(str(pos), 0) or standing_pts.get(pos, 0)
+            existing = db.query(TournamentRanking).filter_by(
+                tournament_id=tournament_id,
+                team_sport_id=ts_id
+            ).first()
+            if existing:
+                existing.final_position = pos
+                existing.points_awarded = pts
+            else:
+                db.add(TournamentRanking(
+                    tournament_id=tournament_id,
+                    team_sport_id=ts_id,
+                    final_position=pos,
+                    points_awarded=pts
+                ))
+
     db.commit()
-    
+
     return create_success_response({
         "tournament_id": tournament_id,
         "propagated_matches": propagated_count

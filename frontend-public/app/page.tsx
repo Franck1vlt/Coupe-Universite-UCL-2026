@@ -15,26 +15,18 @@ const links = [
         viewBox="0 0 24 24"
         stroke="currentColor"
       >
-        <rect x="3" y="5" width="18" height="14" rx="2" strokeWidth={1.5} stroke="currentColor" fill="none" />
+        <rect
+          x="3"
+          y="5"
+          width="18"
+          height="14"
+          rx="2"
+          strokeWidth={1.5}
+          stroke="currentColor"
+          fill="none"
+        />
         <path d="M7 3v4M17 3v4" strokeWidth={1.5} strokeLinecap="round" />
         <path d="M3 9h18" strokeWidth={1.5} strokeLinecap="round" />
-      </svg>
-    ),
-  },
-  {
-    href: "/tableau-scores",
-    title: "Tableau des scores finaux",
-    description: "Visualisez et filtrez les scores finaux par sport.",
-    color: "bg-white border border-green-300 hover:bg-green-50",
-    icon: (
-      <svg
-        className="mx-auto mb-3 h-9 w-9 text-green-500"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-      >
-        <rect x="4" y="6" width="16" height="12" rx="2" strokeWidth={1.5} stroke="currentColor" fill="none" />
-        <path d="M8 10v4M12 8v6M16 12v2" strokeWidth={1.5} strokeLinecap="round" />
       </svg>
     ),
   },
@@ -50,17 +42,20 @@ const links = [
         viewBox="0 0 24 24"
         stroke="currentColor"
       >
-        <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth={1.5} fill="none" />
+        <circle
+          cx="12"
+          cy="12"
+          r="10"
+          stroke="currentColor"
+          strokeWidth={1.5}
+          fill="none"
+        />
         <path
           d="M12 16h.01M12 12a2 2 0 10-2-2"
           strokeWidth={1.5}
           strokeLinecap="round"
         />
-        <path
-          d="M12 14v2"
-          strokeWidth={1.5}
-          strokeLinecap="round"
-        />
+        <path d="M12 14v2" strokeWidth={1.5} strokeLinecap="round" />
       </svg>
     ),
   },
@@ -81,7 +76,14 @@ const links = [
           strokeWidth={1.5}
           strokeLinecap="round"
         />
-        <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth={1.5} fill="none" />
+        <circle
+          cx="12"
+          cy="12"
+          r="10"
+          stroke="currentColor"
+          strokeWidth={1.5}
+          fill="none"
+        />
       </svg>
     ),
   },
@@ -90,22 +92,22 @@ const links = [
 export default function PublicHome() {
   return (
     <main className="min-h-screen bg-gray-100 flex flex-col items-center justify-center px-4 py-8 relative">
-
       <header className="mb-12 text-center">
         <img
           src="/img/coupe.png"
           alt="Logo Coupe de l'Université"
           className="mx-auto mb-6 h-24 w-24 object-contain"
         />
-        <h1 className="text-4xl font-bold text-gray-800 mb-2">Coupe de l'Université {new Date().getFullYear()}</h1>
+        <h1 className="text-4xl font-bold text-gray-800 mb-2">
+          Coupe de l'Université {new Date().getFullYear()}
+        </h1>
         <p className="text-gray-600 text-lg">
-          Découvrez les tournois, consultez les programmations, suivez les scores et trouvez toutes les informations utiles sur la compétition.
+          Découvrez les tournois, consultez les programmations, suivez les
+          scores et trouvez toutes les informations utiles sur la compétition.
         </p>
       </header>
 
-      <section
-        className="w-full px-2 sm:px-4 max-w-6xl grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4"
-      >
+      <section className="w-full px-2 sm:px-4 max-w-6xl grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3">
         {links.map((item) => (
           <Link
             key={item.href}
@@ -133,14 +135,19 @@ export default function PublicHome() {
             <h2 className="text-lg sm:text-xl md:text-2xl font-semibold text-gray-800 mb-2 group-hover:underline underline-offset-4 transition break-words">
               {item.title}
             </h2>
-            <p className="text-gray-600 text-sm sm:text-base break-words">{item.description}</p>
+            <p className="text-gray-600 text-sm sm:text-base break-words">
+              {item.description}
+            </p>
           </Link>
         ))}
       </section>
 
       {/* Footer Copyright */}
       <footer className="mt-16 text-center text-gray-600 text-sm">
-        <p>&copy; {new Date().getFullYear()} Coupe de l'Université. Tous droits réservés.</p>
+        <p>
+          &copy; {new Date().getFullYear()} Coupe de l'Université. Tous droits
+          réservés.
+        </p>
       </footer>
     </main>
   );

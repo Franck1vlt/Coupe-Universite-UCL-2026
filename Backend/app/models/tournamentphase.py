@@ -34,7 +34,7 @@ class TournamentPhase(Base):
     # Contraintes
     __table_args__ = (
         UniqueConstraint("tournament_id", "phase_order", name="uq_tournament_phase_order"),
-        CheckConstraint("phase_type IN ('pools', 'elimination', 'final', 'qualifications')", name="ck_phase_type"),
+        CheckConstraint("phase_type IN ('pools', 'leagues', 'elimination', 'final', 'qualifications')", name="ck_phase_type"),
         CheckConstraint("phase_order > 0", name="ck_phase_order_positive"),
     )
 
