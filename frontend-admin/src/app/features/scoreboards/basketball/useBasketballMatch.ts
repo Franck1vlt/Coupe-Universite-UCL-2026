@@ -894,6 +894,7 @@ export function useBasketballMatch(initialMatchId: string | null) {
     addTechnicalFoul,
     subTechnicalFoul,
     court,
+    setCourt,
     updateMatchStatus,
     submitMatchResult,
     handleEnd,

@@ -206,6 +206,16 @@ export function calculatePoolStandings(pool: Pool): PoolStanding[] {
     });
   });
 
+  // Fallback : initialiser depuis les matchs si pool.teams est vide ou incomplet
+  pool.matches.forEach(match => {
+    if (match.teamA && !standings.has(match.teamA)) {
+      standings.set(match.teamA, { team: match.teamA, played: 0, won: 0, lost: 0, points: 0, scoreDiff: 0, goalsFor: 0 });
+    }
+    if (match.teamB && !standings.has(match.teamB)) {
+      standings.set(match.teamB, { team: match.teamB, played: 0, won: 0, lost: 0, points: 0, scoreDiff: 0, goalsFor: 0 });
+    }
+  });
+
   // Calculer les résultats de chaque match
   pool.matches.forEach(match => {
     if (match.status === "terminé" && match.scoreA !== undefined && match.scoreB !== undefined) {

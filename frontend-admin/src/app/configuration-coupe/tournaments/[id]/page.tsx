@@ -835,7 +835,11 @@ export default function TournamentsPage() {
                     (p: any, pIdx: number) => ({
                       id: p.id.toString(),
                       name: p.name,
-                      teams: [],
+                      teams: Array.from(new Set(
+                        (p.matches || []).flatMap((m: any) =>
+                          [m.team_a_source, m.team_b_source].filter(Boolean)
+                        )
+                      )) as string[],
                       matches: (p.matches || []).map(
                         (m: any, mIdx: number) => ({
                           id: m.id.toString(),
@@ -886,7 +890,11 @@ export default function TournamentsPage() {
                     (l: any, lIdx: number) => ({
                       id: l.id.toString(),
                       name: l.name,
-                      teams: [],
+                      teams: Array.from(new Set(
+                        (l.matches || []).flatMap((m: any) =>
+                          [m.team_a_source, m.team_b_source].filter(Boolean)
+                        )
+                      )) as string[],
                       matches: (l.matches || []).map((m: any, mIdx: number) => ({
                         id: m.id.toString(),
                         uuid: m.uuid || uuidv4(),
@@ -1075,7 +1083,8 @@ export default function TournamentsPage() {
                     allMatchesRaw = matchesJson.data || [];
 
                     // RECONSTRUCTION DES POULES si vides dans la structure
-                    if (apiPools.length === 0) {
+                    // Guard: ne pas reconstruire si des ligues existent (leurs matchs sont match_type="pool" aussi)
+                    if (apiPools.length === 0 && apiLeagues.length === 0) {
                       const poolMatches = allMatchesRaw.filter(
                         (m: any) =>
                           m.match_type === "pool" || m.match_type === "poule",
@@ -1562,26 +1571,46 @@ export default function TournamentsPage() {
     }
   };
 
-  // Fonction pour propager les résultats des poules vers les phases finales
-  const propagatePoolResultsToBrackets = (updatedPools: Pool[]) => {
+  // Fonction pour propager les résultats des poules et ligues vers les phases finales
+  const propagatePoolResultsToBrackets = (updatedPools: Pool[], updatedLeagues?: League[]) => {
+    const leaguesToProcess = updatedLeagues ?? leagues;
+
     // Vérifier si toutes les poules ont terminé tous leurs matchs
-    const allPoolsComplete = updatedPools.every(
+    const allPoolsComplete = updatedPools.length > 0 && updatedPools.every(
       (pool) =>
         pool.matches.length > 0 &&
         pool.matches.every((m) => m.status === "terminé"),
     );
 
-    if (!allPoolsComplete) return;
+    // Vérifier si toutes les ligues ont terminé tous leurs matchs
+    const allLeaguesComplete = leaguesToProcess.length > 0 && leaguesToProcess.every(
+      (league) =>
+        league.matches.length > 0 &&
+        league.matches.every((m) => m.status === "terminé"),
+    );
 
-    // Calculer le classement de chaque poule
+    if (!allPoolsComplete && !allLeaguesComplete) return;
+
+    // Calculer le classement de chaque poule et ligue
     const poolStandings: Map<
       string,
       { team: string; points: number; scoreDiff: number; goalsFor: number }[]
     > = new Map();
-    updatedPools.forEach((pool) => {
-      const standings = calculatePoolStandings(pool);
-      poolStandings.set(pool.name, standings);
-    });
+
+    if (allPoolsComplete) {
+      updatedPools.forEach((pool) => {
+        const standings = calculatePoolStandings(pool);
+        poolStandings.set(pool.name, standings);
+      });
+    }
+
+    if (allLeaguesComplete) {
+      leaguesToProcess.forEach((league) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const standings = calculatePoolStandings(league as any);
+        poolStandings.set(league.name, standings);
+      });
+    }
 
     // Trouver le meilleur 3ème parmi les poules qui ont cette option
     let bestThird: string | null = null;
@@ -1794,13 +1823,25 @@ export default function TournamentsPage() {
   const updateLeagueMatch = (updatedMatch: Match) => {
     const league = leagues.find((l) => l.matches.some((m) => m.id === updatedMatch.id));
     if (league) {
+      const oldMatch = league.matches.find((m) => m.id === updatedMatch.id);
+      const justCompleted =
+        oldMatch &&
+        oldMatch.status !== "terminé" &&
+        updatedMatch.status === "terminé";
+
       const updatedLeague = {
         ...league,
         matches: league.matches.map((m) => (m.id === updatedMatch.id ? updatedMatch : m)),
       };
-      setLeagues(leagues.map((l) => (l.id === updatedLeague.id ? updatedLeague : l)));
+      const newLeagues = leagues.map((l) => (l.id === updatedLeague.id ? updatedLeague : l));
+      setLeagues(newLeagues);
       setSelectedLeague(updatedLeague);
       setSelectedLeagueMatch({ ...updatedMatch });
+
+      // Si le match vient d'être terminé, propager les résultats vers la phase finale
+      if (justCompleted) {
+        propagatePoolResultsToBrackets(pools, newLeagues);
+      }
     }
   };
 
@@ -2494,6 +2535,13 @@ export default function TournamentsPage() {
     loserBrackets.forEach((lb) => {
       lb.matches.forEach((m) => {
         options.push({ match: m, label: getMatchDisplayLabel(m) });
+      });
+    });
+
+    // Matchs de ligues
+    leagues.forEach((league) => {
+      league.matches.forEach((m) => {
+        options.push({ match: m, label: `${league.name} - Match ${m.label || m.id}` });
       });
     });
 
@@ -5662,7 +5710,7 @@ export default function TournamentsPage() {
                             );
                           })()}
 
-                          {/* Qualifiés des poules */}
+                          {/* Qualifiés des poules et ligues */}
                           {(() => {
                             const poolQualifiers: string[] = [];
                             pools.forEach((pool) => {
@@ -5672,6 +5720,15 @@ export default function TournamentsPage() {
                                 i++
                               ) {
                                 poolQualifiers.push(`${pool.name}-${i}`);
+                              }
+                            });
+                            leagues.forEach((league) => {
+                              for (
+                                let i = 1;
+                                i <= (league.qualifiedToFinals || 0);
+                                i++
+                              ) {
+                                poolQualifiers.push(`${league.name}-${i}`);
                               }
                             });
 
@@ -6120,7 +6177,7 @@ export default function TournamentsPage() {
                             );
                           })()}
 
-                          {/* Qualifiés Loser Bracket des poules */}
+                          {/* Qualifiés Loser Bracket des poules et ligues */}
                           {(() => {
                             const poolLoserBracketQualifiers: string[] = [];
                             pools.forEach((pool) => {
@@ -6133,6 +6190,19 @@ export default function TournamentsPage() {
                               for (let i = startRank; i <= endRank; i++) {
                                 poolLoserBracketQualifiers.push(
                                   `${pool.name}-${i}`,
+                                );
+                              }
+                            });
+                            leagues.forEach((league) => {
+                              const startRank =
+                                (league.qualifiedToFinals || 0) + 1;
+                              const endRank =
+                                startRank +
+                                (league.qualifiedToLoserBracket || 0) -
+                                1;
+                              for (let i = startRank; i <= endRank; i++) {
+                                poolLoserBracketQualifiers.push(
+                                  `${league.name}-${i}`,
                                 );
                               }
                             });
@@ -6355,6 +6425,75 @@ export default function TournamentsPage() {
                                       <label
                                         htmlFor={`lb-pool-loser-${code}`}
                                         className={`text-sm font-medium ${isUsedElsewhere ? "text-gray-400 line-through" : "text-purple-600"}`}
+                                      >
+                                        {code}{" "}
+                                        {isUsedElsewhere && "(déjà utilisé)"}
+                                      </label>
+                                    </div>
+                                  );
+                                })}
+                                <div className="border-t border-gray-200 my-2"></div>
+                              </>
+                            );
+                          })()}
+
+                          {/* Perdants des ligues */}
+                          {(() => {
+                            const leagueLosers: string[] = [];
+                            leagues.forEach((league) => {
+                              for (
+                                let i =
+                                  (league.qualifiedToFinals || 0) +
+                                  (league.qualifiedToLoserBracket || 0) +
+                                  1;
+                                i <= league.teams.length;
+                                i++
+                              ) {
+                                leagueLosers.push(`${league.name}-${i}`);
+                              }
+                            });
+
+                            if (leagueLosers.length === 0) return null;
+
+                            return (
+                              <>
+                                <div className="text-xs font-semibold text-orange-600 mt-2 mb-1">
+                                  Autres équipes des ligues
+                                </div>
+                                {leagueLosers.map((code) => {
+                                  const isSelected =
+                                    selectedLoserBracket.teams.includes(code);
+                                  const isUsedElsewhere =
+                                    usedTeams.qualifications.has(code) ||
+                                    usedTeams.brackets.has(code);
+                                  return (
+                                    <div
+                                      key={code}
+                                      className="flex items-center"
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        id={`lb-league-loser-${code}`}
+                                        checked={isSelected}
+                                        disabled={isUsedElsewhere}
+                                        onChange={(e) => {
+                                          if (e.target.checked) {
+                                            addTeamToLoserBracket(
+                                              selectedLoserBracket.id,
+                                              code,
+                                            );
+                                          } else {
+                                            removeTeamFromLoserBracket(
+                                              selectedLoserBracket.id,
+                                              code,
+                                            );
+                                          }
+                                        }}
+                                        className="mr-2"
+                                      />
+                                      <label
+                                        htmlFor={`lb-league-loser-${code}`}
+                                        className={`text-sm font-medium ${isUsedElsewhere ? "text-gray-400 line-through" : "text-orange-600"}`}
                                       >
                                         {code}{" "}
                                         {isUsedElsewhere && "(déjà utilisé)"}

@@ -49,7 +49,7 @@ export default function FlechettesTableMarquagePage() {
   const [courts, setCourts] = useState<Court[]>([]);
   const [courtSchedules, setCourtSchedules] = useState<CourtSchedule[]>([]);
   const [loadingCourts, setLoadingCourts] = useState(true);
-  const [selectedDateTime, setSelectedDateTime] = useState<string>("");
+  const selectedDateTime = "";
 
   // Charger les équipes au montage du composant
   useEffect(() => {
@@ -113,6 +113,7 @@ export default function FlechettesTableMarquagePage() {
     swipeGameMode,
     swapSides,
     court,
+    setCourt,
     handleEnd,
     updateMatchStatus
   } = useFlechettesMatch(matchId);
@@ -123,28 +124,23 @@ export default function FlechettesTableMarquagePage() {
   };
 
 
-  // Synchroniser les données du match avec les states locaux
+  // Synchroniser les données du match avec les states locaux (mode tournoi uniquement)
   useEffect(() => {
-    console.log('[Flechettes Scoreboard] Match data changed:', matchData);
-    console.log('[Flechettes Scoreboard] Court:', court);
-    
+    if (!matchId) return;
+
     if (matchData.teamA.name && matchData.teamA.name !== "Team A") {
       setTeamA(matchData.teamA.name);
-      console.log('[Flechettes Scoreboard] Set Team A to:', matchData.teamA.name);
     }
     if (matchData.teamB.name && matchData.teamB.name !== "Team B") {
       setTeamB(matchData.teamB.name);
-      console.log('[Flechettes Scoreboard] Set Team B to:', matchData.teamB.name);
     }
     if (matchData.matchType) {
       setMatchType(matchData.matchType);
-      console.log('[Flechettes Scoreboard] Set Match Type to:', matchData.matchType);
     }
     if (court) {
       setMatchGround(court);
-      console.log('[Flechettes Scoreboard] Set Court to:', court);
     }
-  }, [matchData, court]);
+  }, [matchData, court, matchId]);
 
   const handleSwipe = () => {
     const a = teamA;
@@ -310,12 +306,17 @@ export default function FlechettesTableMarquagePage() {
           ) : (
             <select id="matchTypeSelector" value={matchType} onChange={handleMatchTypeChange}>
               <option value="">Sélectionner</option>
-              <option value="Qualification">Qualification</option>
+              <option value="Qualifications">Qualifications</option>
               <option value="Poule">Poule</option>
-              <option value="Quart de finale">Quart de finale</option>
+              <option value="Ligue">Ligue</option>
+              <option value="Quarts de finale">Quarts de finale</option>
               <option value="Demi-finale">Demi-finale</option>
               <option value="Petite Finale">Petite Finale</option>
               <option value="Finale">Finale</option>
+              <option value="Repechage">Repechage</option>
+              <option value="Demi-finale de LB">Demi-finale de LB</option>
+              <option value="Place de 7e">Place de 7e</option>
+              <option value="Place de 5e">Place de 5e</option>
             </select>
           )}
 
@@ -343,7 +344,12 @@ export default function FlechettesTableMarquagePage() {
               <select
                 id="matchGroundSelector"
                 value={matchGround}
-                onChange={(e) => setMatchGround(e.target.value)}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  setMatchGround(id);
+                  const name = courts.find((c) => c.id === id)?.name || id;
+                  setCourt(name);
+                }}
                 disabled={loadingCourts}
               >
                 <option value="">{loadingCourts ? "Chargement..." : "Sélectionner"}</option>
@@ -353,13 +359,6 @@ export default function FlechettesTableMarquagePage() {
                   </option>
                 ))}
               </select>
-              {/* Sélecteur de date/heure pour la planification (exemple simple) */}
-              <input
-                type="datetime-local"
-                value={selectedDateTime}
-                onChange={e => setSelectedDateTime(e.target.value)}
-                className="border border-gray-300 rounded px-2 py-1 mt-2"
-              />
             </>
           )}
 

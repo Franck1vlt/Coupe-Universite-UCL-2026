@@ -30,7 +30,7 @@ export default function BasketballTableMarquagePage() {
   const [teamB, setTeamB] = useState("");
   const [matchType, setMatchType] = useState("Type de match");
   const [matchGround, setMatchGround] = useState("Terrain");
-  const [selectedDateTime, setSelectedDateTime] = useState<string>("");
+  const selectedDateTime = "";
   const [courts, setCourts] = useState<Court[]>([]);
   const [loadingCourts, setLoadingCourts] = useState(true);
   const [tournamentId, setTournamentId] = useState<string | null>(null);
@@ -115,6 +115,7 @@ export default function BasketballTableMarquagePage() {
     period,
     buzzer,
     court,
+    setCourt,
     updateMatchStatus,
     handleEnd,
     addFault,
@@ -137,10 +138,11 @@ export default function BasketballTableMarquagePage() {
   // Afficher le shot clock seulement si chrono général > chrono possession
   const shouldShowShotClock = !hideShotClock && matchData.chrono.time > shotClock / 10;
 
-  // Synchroniser les données du match avec les states locaux
+  // Synchroniser les données du match avec les states locaux (mode tournoi uniquement)
   useEffect(() => {
+    if (!matchId) return;
+
     if (teams.length > 0 && matchData.teamA && matchData.teamB) {
-      // Recherche par nom pour l'equipe A
       if (
         matchData.teamA.name &&
         typeof matchData.teamA.name === "string" &&
@@ -153,11 +155,8 @@ export default function BasketballTableMarquagePage() {
             t.name.trim().toLowerCase() ===
               matchData.teamA.name.trim().toLowerCase(),
         );
-        if (foundA) {
-          setTeamA(foundA.id);
-        }
+        if (foundA) setTeamA(foundA.id);
       }
-      // Recherche par nom pour l'equipe B
       if (
         matchData.teamB.name &&
         typeof matchData.teamB.name === "string" &&
@@ -170,9 +169,7 @@ export default function BasketballTableMarquagePage() {
             t.name.trim().toLowerCase() ===
               matchData.teamB.name.trim().toLowerCase(),
         );
-        if (foundB) {
-          setTeamB(foundB.id);
-        }
+        if (foundB) setTeamB(foundB.id);
       }
     }
     if (matchData.matchType && matchData.matchType !== matchType) {
@@ -181,7 +178,7 @@ export default function BasketballTableMarquagePage() {
     if (court && court !== matchGround) {
       setMatchGround(court);
     }
-  }, [matchData, court, teams]);
+  }, [matchData, court, teams, matchId]);
 
   const handleTeamAChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const value = e.target.value;
@@ -468,12 +465,17 @@ export default function BasketballTableMarquagePage() {
               onChange={handleMatchTypeChange}
             >
               <option value="">Sélectionner</option>
-              <option value="Qualification">Qualification</option>
+              <option value="Qualifications">Qualifications</option>
               <option value="Poule">Poule</option>
-              <option value="Quart de finale">Quart de finale</option>
+              <option value="Ligue">Ligue</option>
+              <option value="Quarts de finale">Quarts de finale</option>
               <option value="Demi-finale">Demi-finale</option>
               <option value="Petite Finale">Petite Finale</option>
               <option value="Finale">Finale</option>
+              <option value="Repechage">Repechage</option>
+              <option value="Demi-finale de LB">Demi-finale de LB</option>
+              <option value="Place de 7e">Place de 7e</option>
+              <option value="Place de 5e">Place de 5e</option>
             </select>
           )}
 
@@ -499,12 +501,15 @@ export default function BasketballTableMarquagePage() {
               className="w-full text-center rounded-md border-none mb-2.5 bg-white text-black cursor-not-allowed p-2"
             />
           ) : (
-            <>
-              {/* Sélection du terrain avec désactivation des terrains occupés */}
-              <select
+            <select
                 id="matchGroundSelector"
                 value={matchGround}
-                onChange={(e) => setMatchGround(e.target.value)}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  setMatchGround(id);
+                  const name = courts.find((c) => c.id === id)?.name || id;
+                  setCourt(name);
+                }}
                 disabled={loadingCourts}
               >
                 <option value="">
@@ -524,14 +529,6 @@ export default function BasketballTableMarquagePage() {
                   </option>
                 ))}
               </select>
-              {/* Sélecteur de date/heure pour la planification (exemple simple) */}
-              <input
-                type="datetime-local"
-                value={selectedDateTime}
-                onChange={(e) => setSelectedDateTime(e.target.value)}
-                className="border border-gray-300 rounded px-2 py-1 mt-2"
-              />
-            </>
           )}
 
           <label htmlFor="setChrono">Chrono :</label>

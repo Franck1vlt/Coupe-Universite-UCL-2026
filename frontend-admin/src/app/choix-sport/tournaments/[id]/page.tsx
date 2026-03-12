@@ -50,6 +50,8 @@ type TournamentMatch = {
   estimatedDurationMinutes?: number;
   scoreA?: number;
   scoreB?: number;
+  totalPointsA?: number | null;
+  totalPointsB?: number | null;
   winnerDestinationMatchId?: string | number | null;
   loserDestinationMatchId?: string | number | null;
   winnerDestinationSlot?: "A" | "B" | null;
@@ -494,6 +496,8 @@ export default function TournamentViewPage() {
                     : "planifié",
             scoreA: m.score_a,
             scoreB: m.score_b,
+            totalPointsA: m.total_points_a ?? null,
+            totalPointsB: m.total_points_b ?? null,
             date: matchDate,
             time: matchTime,
             court: m.court || "",
@@ -841,9 +845,9 @@ export default function TournamentViewPage() {
   const [poolRankings, setPoolRankings] = useState<Map<string, RankingEntry[]>>(
     new Map(),
   );
-  const [leagueRankings, setLeagueRankings] = useState<Map<string, RankingEntry[]>>(
-    new Map(),
-  );
+  const [leagueRankings, setLeagueRankings] = useState<
+    Map<string, RankingEntry[]>
+  >(new Map());
   const [finalRanking, setFinalRanking] = useState<RankingEntry[]>([]);
 
   // Générer le classement des poules avec les vrais résultats
@@ -892,14 +896,18 @@ export default function TournamentViewPage() {
         const { teamA, teamB, scoreA, scoreB } = m;
         if (!stats[teamA] || !stats[teamB]) return;
 
+        // Pour les sports à sets : utiliser les points totaux (somme des sets) pour le goal average
+        const gaA = m.totalPointsA != null ? m.totalPointsA : scoreA;
+        const gaB = m.totalPointsB != null ? m.totalPointsB : scoreB;
+
         stats[teamA].played++;
         stats[teamB].played++;
         stats[teamA].scoreDiff =
-          (stats[teamA].scoreDiff || 0) + (scoreA - scoreB);
+          (stats[teamA].scoreDiff || 0) + (gaA - gaB);
         stats[teamB].scoreDiff =
-          (stats[teamB].scoreDiff || 0) + (scoreB - scoreA);
-        stats[teamA].goalsFor = (stats[teamA].goalsFor || 0) + scoreA;
-        stats[teamB].goalsFor = (stats[teamB].goalsFor || 0) + scoreB;
+          (stats[teamB].scoreDiff || 0) + (gaB - gaA);
+        stats[teamA].goalsFor = (stats[teamA].goalsFor || 0) + gaA;
+        stats[teamB].goalsFor = (stats[teamB].goalsFor || 0) + gaB;
 
         if (scoreA > scoreB) {
           stats[teamA].points += 3;
@@ -929,7 +937,8 @@ export default function TournamentViewPage() {
       // 4. Tri par points puis différence de buts/scores
       const sorted = Object.values(stats).sort((a, b) => {
         if (b.points !== a.points) return b.points - a.points;
-        if ((b.scoreDiff || 0) !== (a.scoreDiff || 0)) return (b.scoreDiff || 0) - (a.scoreDiff || 0);
+        if ((b.scoreDiff || 0) !== (a.scoreDiff || 0))
+          return (b.scoreDiff || 0) - (a.scoreDiff || 0);
         return (b.goalsFor || 0) - (a.goalsFor || 0);
       });
 
@@ -963,32 +972,57 @@ export default function TournamentViewPage() {
       ).filter((t) => t && t !== "À définir" && t !== "En attente");
       teamsInLeague.forEach((teamName) => {
         stats[teamName] = {
-          position: 0, team: teamName, played: 0, won: 0,
-          drawn: 0, lost: 0, points: 0, scoreDiff: 0,
+          position: 0,
+          team: teamName,
+          played: 0,
+          won: 0,
+          drawn: 0,
+          lost: 0,
+          points: 0,
+          scoreDiff: 0,
         };
       });
       leagueMatches.forEach((m) => {
-        if (m.status !== "terminé" || m.scoreA === undefined || m.scoreB === undefined) return;
+        if (
+          m.status !== "terminé" ||
+          m.scoreA === undefined ||
+          m.scoreB === undefined
+        )
+          return;
         const { teamA, teamB, scoreA, scoreB } = m;
         if (!stats[teamA] || !stats[teamB]) return;
+
+        // Pour les sports à sets : utiliser les points totaux (somme des sets) pour le goal average
+        const gaA = m.totalPointsA != null ? m.totalPointsA : scoreA;
+        const gaB = m.totalPointsB != null ? m.totalPointsB : scoreB;
+
         stats[teamA].played++;
         stats[teamB].played++;
-        stats[teamA].scoreDiff = (stats[teamA].scoreDiff || 0) + (scoreA - scoreB);
-        stats[teamB].scoreDiff = (stats[teamB].scoreDiff || 0) + (scoreB - scoreA);
-        stats[teamA].goalsFor = (stats[teamA].goalsFor || 0) + scoreA;
-        stats[teamB].goalsFor = (stats[teamB].goalsFor || 0) + scoreB;
+        stats[teamA].scoreDiff =
+          (stats[teamA].scoreDiff || 0) + (gaA - gaB);
+        stats[teamB].scoreDiff =
+          (stats[teamB].scoreDiff || 0) + (gaB - gaA);
+        stats[teamA].goalsFor = (stats[teamA].goalsFor || 0) + gaA;
+        stats[teamB].goalsFor = (stats[teamB].goalsFor || 0) + gaB;
         if (scoreA > scoreB) {
-          stats[teamA].points += 3; stats[teamA].won++; stats[teamB].lost++;
+          stats[teamA].points += 3;
+          stats[teamA].won++;
+          stats[teamB].lost++;
         } else if (scoreB > scoreA) {
-          stats[teamB].points += 3; stats[teamB].won++; stats[teamA].lost++;
+          stats[teamB].points += 3;
+          stats[teamB].won++;
+          stats[teamA].lost++;
         } else {
-          stats[teamA].points += 1; stats[teamB].points += 1;
-          stats[teamA].drawn++; stats[teamB].drawn++;
+          stats[teamA].points += 1;
+          stats[teamB].points += 1;
+          stats[teamA].drawn++;
+          stats[teamB].drawn++;
         }
       });
       const sorted = Object.values(stats).sort((a, b) => {
         if (b.points !== a.points) return b.points - a.points;
-        if ((b.scoreDiff || 0) !== (a.scoreDiff || 0)) return (b.scoreDiff || 0) - (a.scoreDiff || 0);
+        if ((b.scoreDiff || 0) !== (a.scoreDiff || 0))
+          return (b.scoreDiff || 0) - (a.scoreDiff || 0);
         return (b.goalsFor || 0) - (a.goalsFor || 0);
       });
       sorted.forEach((e, i) => (e.position = i + 1));
@@ -1011,6 +1045,8 @@ export default function TournamentViewPage() {
       if (!pool.useStandingPoints || !pool.standingPoints) return;
       const standings = poolRankings.get(pool.name) || [];
       standings.forEach((entry) => {
+        // N'assigner des points que si l'équipe a joué au moins un match
+        if (entry.played === 0) return;
         const pts = pool.standingPoints![entry.position] ?? 0;
         if (!rankMap[entry.team]) {
           rankMap[entry.team] = { ...entry, points: pts };
@@ -1077,6 +1113,8 @@ export default function TournamentViewPage() {
 
   // Charger le classement final depuis l'API (ignoré si les poules utilisent les points par position)
   useEffect(() => {
+    let cancelled = false;
+
     const loadFinalRanking = async () => {
       if (!params.id || typeof params.id !== "string") return;
       // Si au moins une poule utilise les points par position, on ne charge pas depuis l'API
@@ -1105,25 +1143,31 @@ export default function TournamentViewPage() {
         const rankingData = await rankingResponse.json();
         const apiRanking = rankingData.data || [];
 
-        // Convertir au format attendu par le frontend
-        const ranking = apiRanking.map((entry: any) => ({
-          position: entry.position,
-          team: entry.team_name,
-          played: entry.matches_played,
-          won: entry.wins,
-          drawn: entry.draws,
-          lost: entry.losses,
-          points: entry.total_points,
-          scoreDiff: entry.goal_difference,
-        }));
+        // Convertir au format attendu par le frontend (ignorer les équipes sans matchs joués)
+        const ranking = (apiRanking as Record<string, unknown>[])
+          .filter((entry) => (entry.matches_played as number) > 0)
+          .map((entry) => ({
+            position: entry.position,
+            team: entry.team_name,
+            played: entry.matches_played,
+            won: entry.wins,
+            drawn: entry.draws,
+            lost: entry.losses,
+            points: entry.total_points,
+            scoreDiff: entry.goal_difference,
+          }));
 
-        setFinalRanking(ranking);
+        // Ne pas mettre à jour si l'effet a été annulé (re-exécuté entre temps)
+        if (!cancelled) setFinalRanking(ranking);
       } catch (err) {
         console.error("Erreur lors du chargement du classement final:", err);
       }
     };
 
     loadFinalRanking();
+    return () => {
+      cancelled = true;
+    };
   }, [params.id, matches, pools]);
 
   // Polling des scores en direct pour les matchs à sets (en-cours ET terminés)
@@ -1349,6 +1393,14 @@ export default function TournamentViewPage() {
           data.pools.forEach((p: any) => {
             if (p.matches) {
               allMatches.push(...p.matches);
+            }
+          });
+        }
+
+        if (data.leagues) {
+          (data.leagues as Record<string, unknown>[]).forEach((l) => {
+            if (l.matches) {
+              allMatches.push(...(l.matches as unknown[]));
             }
           });
         }
@@ -2327,7 +2379,7 @@ export default function TournamentViewPage() {
                   } ${pools.length === 0 ? "opacity-50 cursor-not-allowed" : ""}`}
                   disabled={pools.length === 0}
                 >
-                  Classements de poules
+                  Poules
                 </button>
                 <button
                   onClick={() => setRankingFilter("ligues")}
@@ -2338,7 +2390,7 @@ export default function TournamentViewPage() {
                   } ${leagues.length === 0 ? "opacity-50 cursor-not-allowed" : ""}`}
                   disabled={leagues.length === 0}
                 >
-                  Classements de ligues
+                  Ligues
                 </button>
                 <button
                   onClick={() => setRankingFilter("final")}
@@ -2435,7 +2487,10 @@ export default function TournamentViewPage() {
                                 ) {
                                   bgColor =
                                     "bg-orange-50 hover:bg-orange-100 border-l-4 border-orange-500";
-                                } else if (entry.position === 3 && pool?.qualifiedAsBestThird) {
+                                } else if (
+                                  entry.position === 3 &&
+                                  pool?.qualifiedAsBestThird
+                                ) {
                                   // Meilleur 3ème - couleur bleue pour indiquer qu'il peut être repêché
                                   bgColor =
                                     "bg-blue-50 hover:bg-blue-100 border-l-4 border-blue-500";
@@ -2487,68 +2542,112 @@ export default function TournamentViewPage() {
             {/* Affichage des classements de ligues */}
             {rankingFilter === "ligues" && leagues.length > 0 && (
               <div className="space-y-6">
-                {Array.from(leagueRankings.entries()).map(([leagueName, ranking]) => {
-                  const league = leagues.find((l) => l.name === leagueName);
-                  const qualifiedToFinals = league?.qualifiedToFinals || 0;
-                  const qualifiedToLoserBracket = league?.qualifiedToLoserBracket || 0;
-                  return (
-                    <div key={leagueName} className="border border-gray-200 rounded-lg overflow-hidden">
-                      <div className="bg-blue-50 px-4 py-3 border-b border-blue-100">
-                        <h3 className="font-semibold text-black">{leagueName}</h3>
-                        <div className="flex flex-wrap gap-4 mt-1 text-xs text-black">
-                          {qualifiedToFinals > 0 && (
-                            <span className="flex items-center gap-1">
-                              <span className="w-3 h-3 bg-green-100 border border-green-400 rounded"></span>
-                              {qualifiedToFinals} qualifié{qualifiedToFinals > 1 ? "s" : ""} phase finale
-                            </span>
-                          )}
-                          {qualifiedToLoserBracket > 0 && (
-                            <span className="flex items-center gap-1">
-                              <span className="w-3 h-3 bg-orange-100 border border-orange-400 rounded"></span>
-                              {qualifiedToLoserBracket} qualifié{qualifiedToLoserBracket > 1 ? "s" : ""} loser bracket
-                            </span>
-                          )}
+                {Array.from(leagueRankings.entries()).map(
+                  ([leagueName, ranking]) => {
+                    const league = leagues.find((l) => l.name === leagueName);
+                    const qualifiedToFinals = league?.qualifiedToFinals || 0;
+                    const qualifiedToLoserBracket =
+                      league?.qualifiedToLoserBracket || 0;
+                    return (
+                      <div
+                        key={leagueName}
+                        className="border border-gray-200 rounded-lg overflow-hidden"
+                      >
+                        <div className="bg-blue-50 px-4 py-3 border-b border-blue-100">
+                          <h3 className="font-semibold text-black">
+                            {leagueName}
+                          </h3>
+                          <div className="flex flex-wrap gap-4 mt-1 text-xs text-black">
+                            {qualifiedToFinals > 0 && (
+                              <span className="flex items-center gap-1">
+                                <span className="w-3 h-3 bg-green-100 border border-green-400 rounded"></span>
+                                {qualifiedToFinals} qualifié
+                                {qualifiedToFinals > 1 ? "s" : ""} phase finale
+                              </span>
+                            )}
+                            {qualifiedToLoserBracket > 0 && (
+                              <span className="flex items-center gap-1">
+                                <span className="w-3 h-3 bg-orange-100 border border-orange-400 rounded"></span>
+                                {qualifiedToLoserBracket} qualifié
+                                {qualifiedToLoserBracket > 1 ? "s" : ""} loser
+                                bracket
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="overflow-x-auto">
+                          <table className="w-full">
+                            <thead className="bg-gray-50 border-b border-gray-200">
+                              <tr>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                                  Pos
+                                </th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                                  Équipe
+                                </th>
+                                <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider">
+                                  J
+                                </th>
+                                <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider">
+                                  G
+                                </th>
+                                <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider">
+                                  N
+                                </th>
+                                <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider">
+                                  P
+                                </th>
+                                <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider">
+                                  Pts
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-gray-200">
+                              {ranking.map((entry) => {
+                                let bgColor = "hover:bg-gray-50";
+                                if (entry.position <= qualifiedToFinals) {
+                                  bgColor =
+                                    "bg-green-50 hover:bg-green-100 border-l-4 border-green-500";
+                                } else if (
+                                  entry.position <=
+                                  qualifiedToFinals + qualifiedToLoserBracket
+                                ) {
+                                  bgColor =
+                                    "bg-orange-50 hover:bg-orange-100 border-l-4 border-orange-500";
+                                }
+                                return (
+                                  <tr key={entry.team} className={bgColor}>
+                                    <td className="px-4 py-3 text-sm font-medium text-black">
+                                      {entry.position}
+                                    </td>
+                                    <td className="px-4 py-3 text-sm text-black">
+                                      {entry.team}
+                                    </td>
+                                    <td className="px-4 py-3 text-sm text-center text-black">
+                                      {entry.played}
+                                    </td>
+                                    <td className="px-4 py-3 text-sm text-center text-green-600">
+                                      {entry.won}
+                                    </td>
+                                    <td className="px-4 py-3 text-sm text-center text-black">
+                                      {entry.drawn}
+                                    </td>
+                                    <td className="px-4 py-3 text-sm text-center text-red-600">
+                                      {entry.lost}
+                                    </td>
+                                    <td className="px-4 py-3 text-sm text-center font-bold text-black">
+                                      {entry.points}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
                         </div>
                       </div>
-                      <div className="overflow-x-auto">
-                        <table className="w-full">
-                          <thead className="bg-gray-50 border-b border-gray-200">
-                            <tr>
-                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Pos</th>
-                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Équipe</th>
-                              <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider">J</th>
-                              <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider">G</th>
-                              <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider">N</th>
-                              <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider">P</th>
-                              <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider">Pts</th>
-                            </tr>
-                          </thead>
-                          <tbody className="bg-white divide-y divide-gray-200">
-                            {ranking.map((entry) => {
-                              let bgColor = "hover:bg-gray-50";
-                              if (entry.position <= qualifiedToFinals) {
-                                bgColor = "bg-green-50 hover:bg-green-100 border-l-4 border-green-500";
-                              } else if (entry.position <= qualifiedToFinals + qualifiedToLoserBracket) {
-                                bgColor = "bg-orange-50 hover:bg-orange-100 border-l-4 border-orange-500";
-                              }
-                              return (
-                                <tr key={entry.team} className={bgColor}>
-                                  <td className="px-4 py-3 text-sm font-medium text-black">{entry.position}</td>
-                                  <td className="px-4 py-3 text-sm text-black">{entry.team}</td>
-                                  <td className="px-4 py-3 text-sm text-center text-black">{entry.played}</td>
-                                  <td className="px-4 py-3 text-sm text-center text-green-600">{entry.won}</td>
-                                  <td className="px-4 py-3 text-sm text-center text-black">{entry.drawn}</td>
-                                  <td className="px-4 py-3 text-sm text-center text-red-600">{entry.lost}</td>
-                                  <td className="px-4 py-3 text-sm text-center font-bold text-black">{entry.points}</td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  );
-                })}
+                    );
+                  },
+                )}
               </div>
             )}
 
@@ -2598,7 +2697,7 @@ export default function TournamentViewPage() {
                       {finalRanking.length > 0 ? (
                         finalRanking.map((entry) => (
                           <tr
-                            key={entry.team}
+                            key={`${entry.position}-${entry.team}`}
                             className={`hover:bg-gray-50 ${
                               entry.position === 1
                                 ? "bg-yellow-50"

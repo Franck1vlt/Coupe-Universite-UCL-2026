@@ -40,7 +40,7 @@ export default function BadmintonTableMarquagePage() {
   const [courts, setCourts] = useState<Court[]>([]);
   const [courtSchedules, setCourtSchedules] = useState<any[]>([]);
   const [loadingCourts, setLoadingCourts] = useState(true);
-  const [selectedDateTime, setSelectedDateTime] = useState<string>("");
+  const selectedDateTime = "";
 
   // Charger les équipes au montage du composant
   useEffect(() => {
@@ -70,11 +70,14 @@ export default function BadmintonTableMarquagePage() {
     stopChrono,
     addPoint,
     subPoint,
+    addSet,
+    subSet,
     setTeamName,
     setTeamLogo,
     setMatchType: setMatchTypeMeta,
     swapSides,
     court,
+    setCourt,
     handleEnd,
     changeService,
     updateMatchStatus,
@@ -90,31 +93,26 @@ export default function BadmintonTableMarquagePage() {
   };
 
 
-  // Synchroniser les données du match avec les states locaux
+  // Synchroniser les données du match avec les states locaux (mode tournoi uniquement)
   useEffect(() => {
-    console.log('[Badminton Scoreboard] Match data changed:', matchData);
-    console.log('[Badminton Scoreboard] Court:', court);
-    
+    if (!matchId) return;
+
     if (matchData.teamA.name && matchData.teamA.name !== "Team A") {
       setTeamA(matchData.teamA.name);
-      console.log('[Badminton Scoreboard] Set Team A to:', matchData.teamA.name);
     }
     if (matchData.teamB.name && matchData.teamB.name !== "Team B") {
       setTeamB(matchData.teamB.name);
-      console.log('[Badminton Scoreboard] Set Team B to:', matchData.teamB.name);
     }
     if (matchData.matchType) {
       setMatchType(matchData.matchType);
-      console.log('[Badminton Scoreboard] Set Match Type to:', matchData.matchType);
     }
     if (court) {
       setMatchGround(court);
-      console.log('[Badminton Scoreboard] Set Court to:', court);
     }
     if (typeof matchData.numberOfSets !== "undefined") {
       setNumberOfSets(matchData.numberOfSets);
     }
-  }, [matchData, court]);
+  }, [matchData, court, matchId]);
 
   const handleTeamAChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const value = e.target.value;
@@ -296,12 +294,17 @@ export default function BadmintonTableMarquagePage() {
           ) : (
             <select id="matchTypeSelector" value={matchType} onChange={handleMatchTypeChange}>
               <option value="">Sélectionner</option>
-              <option value="Qualification">Qualification</option>
+              <option value="Qualifications">Qualifications</option>
               <option value="Poule">Poule</option>
-              <option value="Quart de finale">Quart de finale</option>
+              <option value="Ligue">Ligue</option>
+              <option value="Quarts de finale">Quarts de finale</option>
               <option value="Demi-finale">Demi-finale</option>
               <option value="Petite Finale">Petite Finale</option>
               <option value="Finale">Finale</option>
+              <option value="Repechage">Repechage</option>
+              <option value="Demi-finale de LB">Demi-finale de LB</option>
+              <option value="Place de 7e">Place de 7e</option>
+              <option value="Place de 5e">Place de 5e</option>
             </select>
           )}
 
@@ -324,12 +327,15 @@ export default function BadmintonTableMarquagePage() {
               className="w-full text-center rounded-md border-none mb-2.5 bg-white text-black cursor-not-allowed p-2"
             />
           ) : (
-            <>
-              {/* Sélection du terrain avec désactivation des terrains occupés */}
-              <select
+            <select
                 id="matchGroundSelector"
                 value={matchGround}
-                onChange={(e) => setMatchGround(e.target.value)}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  setMatchGround(id);
+                  const name = courts.find((c) => c.id === id)?.name || id;
+                  setCourt(name);
+                }}
                 disabled={loadingCourts}
               >
                 <option value="">{loadingCourts ? "Chargement..." : "Sélectionner"}</option>
@@ -339,14 +345,6 @@ export default function BadmintonTableMarquagePage() {
                   </option>
                 ))}
               </select>
-              {/* Sélecteur de date/heure pour la planification (exemple simple) */}
-              <input
-                type="datetime-local"
-                value={selectedDateTime}
-                onChange={e => setSelectedDateTime(e.target.value)}
-                className="border border-gray-300 rounded px-2 py-1 mt-2"
-              />
-            </>
           )}
           
           <label htmlFor="numberOfSets">Nombre de sets :</label>
@@ -422,19 +420,33 @@ export default function BadmintonTableMarquagePage() {
           </div>
 
           <div className="points-section">
-            <div className="flex items-center gap-2">
-              <p>Points : {matchData.teamA.score}</p>
-              <button onClick={() => subPoint("A")} title="Q">- <span className="shortcut-hint">Q</span></button>
-              <button onClick={() => addPoint("A")} title="W">+ <span className="shortcut-hint">W</span></button>
+            <div className="flex flex-col items-center gap-1">
+              <div className="flex items-center gap-2">
+                <p>Points : {matchData.teamA.score}</p>
+                <button onClick={() => subPoint("A")} title="Q">- <span className="shortcut-hint">Q</span></button>
+                <button onClick={() => addPoint("A")} title="W">+ <span className="shortcut-hint">W</span></button>
+              </div>
+              <div className="flex items-center gap-2">
+                <p>Sets : {matchData.teamA.sets}</p>
+                <button onClick={() => subSet("A")}>-</button>
+                <button onClick={() => addSet("A")}>+</button>
+              </div>
             </div>
             <div>
               <p>Pause</p>
               <div className="timer">{formattedTime}</div>
             </div>
-            <div className="flex items-center gap-2">
-              <p>Points : {matchData.teamB.score}</p>
-              <button onClick={() => subPoint("B")} title="L">- <span className="shortcut-hint">L</span></button>
-              <button onClick={() => addPoint("B")} title="O">+ <span className="shortcut-hint">O</span></button>
+            <div className="flex flex-col items-center gap-1">
+              <div className="flex items-center gap-2">
+                <p>Points : {matchData.teamB.score}</p>
+                <button onClick={() => subPoint("B")} title="L">- <span className="shortcut-hint">L</span></button>
+                <button onClick={() => addPoint("B")} title="O">+ <span className="shortcut-hint">O</span></button>
+              </div>
+              <div className="flex items-center gap-2">
+                <p>Sets : {matchData.teamB.sets}</p>
+                <button onClick={() => subSet("B")}>-</button>
+                <button onClick={() => addSet("B")}>+</button>
+              </div>
             </div>
           </div>
 

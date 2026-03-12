@@ -35,7 +35,7 @@ export default function HandballTableMarquagePage() {
   const [courts, setCourts] = useState<Court[]>([]);
   const [courtSchedules, setCourtSchedules] = useState<any[]>([]);
   const [loadingCourts, setLoadingCourts] = useState(true);
-  const [selectedDateTime, setSelectedDateTime] = useState<string>("");
+  const selectedDateTime = "";
 
   const [chronoMinutes, setChronoMinutes] = useState(0);
   const [chronoSeconds, setChronoSeconds] = useState(0);
@@ -84,6 +84,7 @@ export default function HandballTableMarquagePage() {
     setMatchType: setMatchTypeMeta,
     swapSides,
     court,
+    setCourt,
     handleEnd,
     togglePeriod,
     periodSwitchChecked,
@@ -165,10 +166,9 @@ export default function HandballTableMarquagePage() {
     addSecond,
   ]);
 
-  // Synchroniser les données du match avec les states locaux
+  // Synchroniser les données du match avec les states locaux (mode tournoi uniquement)
   useEffect(() => {
-    console.log("[Handball Scoreboard] Match data changed:", matchData);
-    console.log("[Handball Scoreboard] Court:", court);
+    if (!matchId) return;
 
     if (matchData.teamA.name && matchData.teamA.name !== "Team A") {
       setTeamA(matchData.teamA.name);
@@ -182,7 +182,7 @@ export default function HandballTableMarquagePage() {
     if (court) {
       setMatchGround(court);
     }
-  }, [matchData, court]);
+  }, [matchData, court, matchId]);
 
   const handleTeamAChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const value = e.target.value;
@@ -345,12 +345,17 @@ export default function HandballTableMarquagePage() {
               onChange={handleMatchTypeChange}
             >
               <option value="">Sélectionner</option>
-              <option value="Qualification">Qualification</option>
+              <option value="Qualifications">Qualifications</option>
               <option value="Poule">Poule</option>
-              <option value="Quart de finale">Quart de finale</option>
+              <option value="Ligue">Ligue</option>
+              <option value="Quarts de finale">Quarts de finale</option>
               <option value="Demi-finale">Demi-finale</option>
               <option value="Petite Finale">Petite Finale</option>
               <option value="Finale">Finale</option>
+              <option value="Repechage">Repechage</option>
+              <option value="Demi-finale de LB">Demi-finale de LB</option>
+              <option value="Place de 7e">Place de 7e</option>
+              <option value="Place de 5e">Place de 5e</option>
             </select>
           )}
 
@@ -375,11 +380,15 @@ export default function HandballTableMarquagePage() {
               className="w-full text-center rounded-md border-none mb-2.5 bg-white text-black cursor-not-allowed p-2"
             />
           ) : (
-            <>
-              <select
+            <select
                 id="matchGroundSelector"
                 value={matchGround}
-                onChange={(e) => setMatchGround(e.target.value)}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  setMatchGround(id);
+                  const name = courts.find((c) => c.id === id)?.name || id;
+                  setCourt(name);
+                }}
                 disabled={loadingCourts}
               >
                 <option value="">
@@ -399,13 +408,6 @@ export default function HandballTableMarquagePage() {
                   </option>
                 ))}
               </select>
-              <input
-                type="datetime-local"
-                value={selectedDateTime}
-                onChange={(e) => setSelectedDateTime(e.target.value)}
-                className="border border-gray-300 rounded px-2 py-1 mt-2"
-              />
-            </>
           )}
 
           <label htmlFor="setChrono">Chrono :</label>

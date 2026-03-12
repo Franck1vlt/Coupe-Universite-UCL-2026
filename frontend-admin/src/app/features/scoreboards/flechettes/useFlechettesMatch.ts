@@ -663,6 +663,7 @@ export function useFlechettesMatch(initialMatchId: string | null) {
     setPlayerName,
     swapSides,
     court,
+    setCourt,
     updateMatchStatus,
   };
 }

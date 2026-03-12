@@ -889,6 +889,11 @@ def get_tournament_structure(
         if isinstance(schedule, list) and schedule:
             schedule = schedule[0]
 
+        # Calculer les points totaux depuis les sets (pour le goal average des sports à sets)
+        match_sets = db.query(MatchSet).filter(MatchSet.match_id == m.id).all()
+        total_points_a = sum(s.score_team_a for s in match_sets) if match_sets else None
+        total_points_b = sum(s.score_team_b for s in match_sets) if match_sets else None
+
         return {
             "id": m.id,
             "uuid": getattr(m, 'uuid', None),
@@ -916,6 +921,8 @@ def get_tournament_structure(
             "status": m.status,
             "score_a": m.score_a if m.score_a is not None else 0,
             "score_b": m.score_b if m.score_b is not None else 0,
+            "total_points_a": total_points_a,
+            "total_points_b": total_points_b,
             "court": m.court if m.court else "Terrain",
             "date": str(m.date) if m.date else None,
             "time": str(m.time) if m.time else None,
@@ -949,6 +956,8 @@ def get_tournament_structure(
                         "name": league.name,
                         "qualified_to_finals": league.qualified_to_finals if hasattr(league, 'qualified_to_finals') else 8,
                         "qualified_to_loser_bracket": league.qualified_to_loser_bracket if hasattr(league, 'qualified_to_loser_bracket') else 0,
+                        "use_standing_points": bool(league.use_standing_points) if hasattr(league, 'use_standing_points') else False,
+                        "standing_points": _json.loads(league.standing_points) if hasattr(league, 'standing_points') and league.standing_points else None,
                         "matches": [match_to_dict_internal(m) for m in league_matches]
                     })
             else:
@@ -1161,17 +1170,49 @@ def propagate_tournament_results(
                     and m.team_sport_b_id in ts_ids):
                 m.pool_id = pool.id
 
+    # Réparation spécifique aux ligues : aucune TeamPool n'est créée pour les ligues,
+    # donc la boucle ci-dessus les ignore. On répare ici par phase_id.
+    league_phases = [p for p in phases if p.phase_order == 5 or p.phase_type == "leagues"]
+    for lp in league_phases:
+        league_pools_in_phase = db.query(Pool).filter(Pool.phase_id == lp.id).all()
+        if len(league_pools_in_phase) == 1:
+            # Cas simple : une seule ligue → assigner tous les matchs non assignés de la phase
+            lp_pool = league_pools_in_phase[0]
+            for m in all_matches:
+                if m.phase_id == lp.id and m.pool_id is None:
+                    m.pool_id = lp_pool.id
+                    print(f"[REPAIR-LEAGUE] ✅ Match {m.id} → pool_id={lp_pool.id} ({lp_pool.name})")
+        elif len(league_pools_in_phase) > 1:
+            # Cas multi-ligues : inférer le bon pool via les équipes déjà assignées
+            for lp_pool in league_pools_in_phase:
+                known_teams: set = set()
+                for m in all_matches:
+                    if m.pool_id == lp_pool.id:
+                        if m.team_sport_a_id: known_teams.add(m.team_sport_a_id)
+                        if m.team_sport_b_id: known_teams.add(m.team_sport_b_id)
+                for m in all_matches:
+                    if m.phase_id == lp.id and m.pool_id is None and known_teams:
+                        if m.team_sport_a_id in known_teams or m.team_sport_b_id in known_teams:
+                            m.pool_id = lp_pool.id
+                            print(f"[REPAIR-LEAGUE] ✅ Match {m.id} → pool_id={lp_pool.id} ({lp_pool.name})")
+
+    # Normalise un nom de pool : minuscules, espaces simples → clés cohérentes pour les lookups
+    import re as _re_norm
+    def _norm(name: str) -> str:
+        return _re_norm.sub(r'\s+', ' ', (name or '').strip().lower())
+
     # Vérifier si toutes les poules sont terminées
     pools_status = {}
     for pool in pools:
         all_pool_matches = [m for m in all_matches if m.pool_id == pool.id]
         completed_pool_matches = [m for m in all_pool_matches if m.status == "completed"]
-        pools_status[pool.name] = {
+        pools_status[_norm(pool.name)] = {
             "total": len(all_pool_matches),
             "completed": len(completed_pool_matches),
-            "is_complete": len(all_pool_matches) > 0 and len(completed_pool_matches) == len(all_pool_matches)
+            "is_complete": len(all_pool_matches) > 0 and len(completed_pool_matches) == len(all_pool_matches),
+            "original_name": pool.name,
         }
-        print(f"[POOL-STATUS] {pool.name}: {completed_pool_matches}/{all_pool_matches} matchs terminés")
+        print(f"[POOL-STATUS] {pool.name} (norm='{_norm(pool.name)}'): {len(completed_pool_matches)}/{len(all_pool_matches)} matchs terminés")
 
     all_pools_complete = all(status["is_complete"] for status in pools_status.values()) if pools_status else False
     print(f"[POOL-STATUS] Toutes les poules terminées: {all_pools_complete}")
@@ -1234,8 +1275,8 @@ def propagate_tournament_results(
             reverse=True
         )
 
-        pool_standings[pool.name] = [(team_id, stats["points"], stats["goal_diff"]) for team_id, stats in sorted_teams]
-        print(f"[POOL-STANDINGS] {pool.name}: {pool_standings[pool.name]}")
+        pool_standings[_norm(pool.name)] = [(team_id, stats["points"], stats["goal_diff"]) for team_id, stats in sorted_teams]
+        print(f"[POOL-STANDINGS] {pool.name} (norm='{_norm(pool.name)}'): {pool_standings[_norm(pool.name)]}")
 
     # Upsert TournamentRanking avec les standing_points des poules
     for pool in pools:
@@ -1245,7 +1286,7 @@ def propagate_tournament_results(
             standing_pts = _json.loads(pool.standing_points) if isinstance(pool.standing_points, str) else pool.standing_points
         except Exception:
             continue
-        standings = pool_standings.get(pool.name, [])
+        standings = pool_standings.get(_norm(pool.name), [])
         for pos, (ts_id, _, _) in enumerate(standings, start=1):
             pts = standing_pts.get(str(pos), 0) or standing_pts.get(pos, 0)
             existing = db.query(TournamentRanking).filter_by(
@@ -1319,13 +1360,38 @@ def propagate_tournament_results(
                 pass
 
         # =========================================================================
+        # CODES GÉNÉRIQUES DE BRACKET: WQF1, LQF1, WLR1-1, LLR2-1, WLF, etc.
+        # Résolution par label du match : "W..." → vainqueur, "L..." → perdant
+        # Fonctionne pour tous les codes non couverts ci-dessus (quarts, LB, etc.)
+        # =========================================================================
+        if source_code and len(source_code) > 1 and source_code[0] in ('W', 'L'):
+            try:
+                is_winner = source_code[0] == 'W'
+                # Pour un code perdant "LXXX", le match a label "WXXX"
+                label_to_find = source_code if is_winner else 'W' + source_code[1:]
+                ref_match = next(
+                    (m for m in all_matches
+                     if m.label == label_to_find and m.status == "completed"
+                     and m.score_a is not None and m.score_b is not None
+                     and m.score_a != m.score_b),
+                    None
+                )
+                if ref_match:
+                    if is_winner:
+                        return ref_match.team_sport_a_id if ref_match.score_a > ref_match.score_b else ref_match.team_sport_b_id
+                    else:
+                        return ref_match.team_sport_b_id if ref_match.score_a > ref_match.score_b else ref_match.team_sport_a_id
+            except Exception:
+                pass
+
+        # =========================================================================
         # CODES DE POULE: "Poule A-1", "Poule 1-2", "Pool A-1", etc.
         # Format: <nom_poule>-<position> où position est 1, 2, 3...
         # =========================================================================
         import re
 
-        # Pattern pour matcher "Poule X-N" ou "Pool X-N" (avec ou sans espace)
-        pool_pattern = re.match(r'^(Poule\s*\d+|Poule\s*[A-Z]|Pool\s*\d+|Pool\s*[A-Z])-(\d+)$', source_code, re.IGNORECASE)
+        # Pattern pour matcher "Poule X-N", "Pool X-N" ou "Ligue X-N" (avec ou sans espace)
+        pool_pattern = re.match(r'^(Poule\s*\d+|Poule\s*[A-Z]|Pool\s*\d+|Pool\s*[A-Z]|Ligue\s*\d+|Ligue\s*[A-Z]|League\s*\d+|League\s*[A-Z])-(\d+)$', source_code, re.IGNORECASE)
 
         if pool_pattern:
             pool_name_raw = pool_pattern.group(1).strip()
@@ -1333,27 +1399,42 @@ def propagate_tournament_results(
 
             print(f"[RESOLVE-POOL] Tentative de résolution: {source_code} -> pool={pool_name_raw}, position={position}")
 
-            # Chercher la poule par son nom (essayer plusieurs variantes)
+            # Chercher la poule/ligue par son nom (essayer plusieurs variantes)
             pool_name_variants = [
                 pool_name_raw,
                 pool_name_raw.replace("Pool", "Poule"),
                 pool_name_raw.replace("Poule", "Pool"),
                 f"Poule {pool_name_raw.replace('Poule', '').replace('Pool', '').strip()}",
-                f"Pool {pool_name_raw.replace('Poule', '').replace('Pool', '').strip()}"
+                f"Pool {pool_name_raw.replace('Poule', '').replace('Pool', '').strip()}",
+                pool_name_raw.replace("League", "Ligue"),
+                pool_name_raw.replace("Ligue", "League"),
+                f"Ligue {pool_name_raw.replace('Ligue', '').replace('League', '').strip()}",
+                f"League {pool_name_raw.replace('Ligue', '').replace('League', '').strip()}",
             ]
 
+            pool_name_norm = _norm(pool_name_raw)
+            found_standings = None
             for variant in pool_name_variants:
-                if variant in pool_standings:
-                    standings = pool_standings[variant]
-                    if len(standings) >= position:
-                        team_id = standings[position - 1][0]  # position 1 = index 0
-                        print(f"[RESOLVE-POOL] ✅ {source_code} -> team_sport_id={team_id}")
-                        return team_id
-                    else:
-                        print(f"[RESOLVE-POOL] ⚠️ Position {position} invalide pour {variant} (seulement {len(standings)} équipes)")
+                norm_v = _norm(variant)
+                if norm_v in pool_standings:
+                    found_standings = pool_standings[norm_v]
+                    break
+            # Fallback insensible à la casse
+            if found_standings is None:
+                for key in pool_standings:
+                    if _norm(key) == pool_name_norm:
+                        found_standings = pool_standings[key]
                         break
 
-            print(f"[RESOLVE-POOL] ⚠️ Poule '{pool_name_raw}' non trouvée. Poules disponibles: {list(pool_standings.keys())}")
+            if found_standings is not None:
+                if len(found_standings) >= position:
+                    team_id = found_standings[position - 1][0]
+                    print(f"[RESOLVE-POOL] ✅ {source_code} -> team_sport_id={team_id}")
+                    return team_id
+                else:
+                    print(f"[RESOLVE-POOL] ⚠️ Position {position} invalide pour '{pool_name_raw}' (seulement {len(found_standings)} équipes)")
+            else:
+                print(f"[RESOLVE-POOL] ⚠️ Poule '{pool_name_raw}' non trouvée. Poules disponibles: {list(pool_standings.keys())}")
 
         # Pattern alternatif: "P1-1" pour "Poule 1, position 1"
         alt_pool_pattern = re.match(r'^P(\d+)-(\d+)$', source_code)
@@ -1402,13 +1483,13 @@ def propagate_tournament_results(
         if not code:
             return False
         return bool(
-            _re.match(r'^(Poule\s*\d+|Poule\s*[A-Z]|Pool\s*\d+|Pool\s*[A-Z])-\d+$', code, _re.IGNORECASE)
+            _re.match(r'^(Poule\s*\d+|Poule\s*[A-Z]|Pool\s*\d+|Pool\s*[A-Z]|Ligue\s*\d+|Ligue\s*[A-Z]|League\s*\d+|League\s*[A-Z])-\d+$', code, _re.IGNORECASE)
             or _re.match(r'^P\d+-\d+$', code)
         )
 
     def _pool_complete_for_source(code: str) -> bool:
         """Retourne True si la poule référencée est entièrement terminée."""
-        m = _re.match(r'^(Poule\s*\d+|Poule\s*[A-Z]|Pool\s*\d+|Pool\s*[A-Z])-\d+$', code, _re.IGNORECASE)
+        m = _re.match(r'^(Poule\s*\d+|Poule\s*[A-Z]|Pool\s*\d+|Pool\s*[A-Z]|Ligue\s*\d+|Ligue\s*[A-Z]|League\s*\d+|League\s*[A-Z])-\d+$', code, _re.IGNORECASE)
         if m:
             pool_name_raw = m.group(1).strip()
         else:
@@ -1416,18 +1497,31 @@ def propagate_tournament_results(
             if m2:
                 pool_name_raw = f"Poule {m2.group(1)}"
             else:
-                return True  # code non-poule → pas de blocage
+                return True  # code non-poule/ligue → pas de blocage
         variants = [
             pool_name_raw,
             pool_name_raw.replace("Pool", "Poule"),
             pool_name_raw.replace("Poule", "Pool"),
             f"Poule {pool_name_raw.replace('Poule', '').replace('Pool', '').strip()}",
             f"Pool {pool_name_raw.replace('Poule', '').replace('Pool', '').strip()}",
+            pool_name_raw.replace("League", "Ligue"),
+            pool_name_raw.replace("Ligue", "League"),
+            f"Ligue {pool_name_raw.replace('Ligue', '').replace('League', '').strip()}",
+            f"League {pool_name_raw.replace('Ligue', '').replace('League', '').strip()}",
         ]
+        pool_name_norm = _norm(pool_name_raw)
         for variant in variants:
-            if variant in pools_status:
-                return pools_status[variant]["is_complete"]
+            norm_v = _norm(variant)
+            if norm_v in pools_status:
+                return pools_status[norm_v]["is_complete"]
+        # Fallback insensible à la casse
+        for key in pools_status:
+            if _norm(key) == pool_name_norm:
+                return pools_status[key]["is_complete"]
+        print(f"[POOL-COMPLETE] ⚠️ Pool '{pool_name_raw}' non trouvée. Disponibles: {list(pools_status.keys())}")
         return False  # Poule inconnue → bloquer par précaution
+
+    debug_unresolved_sources = []  # Pour diagnostic
 
     for match in all_matches:
         for attr_source, attr_id, other_attr_id in [
@@ -1451,10 +1545,22 @@ def propagate_tournament_results(
                     print(f"[PROPAGATION] 🧹 Reset {attr_id} pour {source} (poule incomplète)")
                 else:
                     print(f"[PROPAGATION] ⏳ Poule incomplète, skip: {source}")
+                    debug_unresolved_sources.append({
+                        "match_id": match.id,
+                        "source": source,
+                        "reason": "pool_incomplete",
+                        "pool_status": pools_status.get(_norm(source.rsplit("-", 1)[0].strip()), None),
+                    })
                 continue
 
             resolved = resolve_source_code(source)
             if not resolved:
+                debug_unresolved_sources.append({
+                    "match_id": match.id,
+                    "source": source,
+                    "reason": "resolve_failed",
+                    "available_standings": list(pool_standings.keys()),
+                })
                 continue
 
             if current_id is None:
@@ -1482,7 +1588,11 @@ def propagate_tournament_results(
 
     return create_success_response({
         "tournament_id": tournament_id,
-        "propagated_matches": propagated_count
+        "propagated_matches": propagated_count,
+        "debug_pool_standings": {k: len(v) for k, v in pool_standings.items()},
+        "debug_pools_status": {k: {"total": v["total"], "completed": v["completed"], "is_complete": v["is_complete"], "original_name": v.get("original_name", k)} for k, v in pools_status.items()},
+        "debug_phases": [{"id": p.id, "order": p.phase_order, "type": p.phase_type} for p in phases],
+        "debug_unresolved_sources": debug_unresolved_sources,
     }, message=f"Successfully propagated {propagated_count} match results")
 
 

@@ -1706,15 +1706,71 @@ async def get_tournament_final_ranking(
                 team_points[team_sport_b.team_id]["total_points"] += draw_points
                 team_points[team_sport_b.team_id]["draws"] += 1
 
-    # Lire les standing_points depuis TournamentRanking (peuplé par propagation)
-    tr_entries = db.query(TournamentRanking).filter(
-        TournamentRanking.tournament_id == tournament_id
-    ).all()
-    for tr in tr_entries:
-        if tr.points_awarded and tr.points_awarded > 0:
-            ts = db.query(TeamSport).filter(TeamSport.id == tr.team_sport_id).first()
-            if ts:
-                team_points[ts.team_id]["total_points"] += tr.points_awarded
+    # Calculer les standing_points directement depuis les pools (sans dépendre de TournamentRanking)
+    from app.models.pool import Pool as _Pool
+    import json as _json
+
+    all_phase_ids = [p.id for p in db.query(TournamentPhase).filter(
+        TournamentPhase.tournament_id == tournament_id
+    ).all()]
+
+    # Repair pool_id null pour les matchs de ligue (phase_order=5)
+    league_phase_ids = {p.id for p in db.query(TournamentPhase).filter(
+        TournamentPhase.tournament_id == tournament_id,
+        TournamentPhase.phase_order == 5
+    ).all()}
+    for lp_pool in db.query(_Pool).filter(_Pool.phase_id.in_(league_phase_ids)).all():
+        for m in completed_matches:
+            if m.phase_id == lp_pool.phase_id and m.pool_id is None:
+                m.pool_id = lp_pool.id
+
+    for pool in db.query(_Pool).filter(_Pool.phase_id.in_(all_phase_ids)).all():
+        print(f"[FINAL-RANKING] Pool '{pool.name}' use_standing_points={pool.use_standing_points} standing_points={pool.standing_points!r}")
+        if not pool.use_standing_points or not pool.standing_points:
+            continue
+        try:
+            standing_pts = _json.loads(pool.standing_points) if isinstance(pool.standing_points, str) else pool.standing_points
+        except Exception:
+            continue
+        pool_matches = [m for m in completed_matches if m.pool_id == pool.id]
+        print(f"[FINAL-RANKING]   pool_matches count={len(pool_matches)}, pool.id={pool.id}")
+        if not pool_matches:
+            # Diagnostic: combien de matchs complétés ont un pool_id NULL ?
+            null_pool = [m for m in completed_matches if m.pool_id is None and m.phase_id in league_phase_ids]
+            print(f"[FINAL-RANKING]   aucun match pour ce pool — matchs ligue sans pool_id: {len(null_pool)}")
+            continue
+        pool_team_stats: dict = {}
+        for match in pool_matches:
+            if match.score_a is None or match.score_b is None:
+                continue
+            if not match.team_sport_a_id or not match.team_sport_b_id:
+                continue
+            for ts_id in [match.team_sport_a_id, match.team_sport_b_id]:
+                if ts_id not in pool_team_stats:
+                    pool_team_stats[ts_id] = {"pts": 0, "gd": 0, "gf": 0}
+            if match.score_a > match.score_b:
+                pool_team_stats[match.team_sport_a_id]["pts"] += 3
+            elif match.score_b > match.score_a:
+                pool_team_stats[match.team_sport_b_id]["pts"] += 3
+            else:
+                pool_team_stats[match.team_sport_a_id]["pts"] += 1
+                pool_team_stats[match.team_sport_b_id]["pts"] += 1
+            pool_team_stats[match.team_sport_a_id]["gd"] += match.score_a - match.score_b
+            pool_team_stats[match.team_sport_b_id]["gd"] += match.score_b - match.score_a
+            pool_team_stats[match.team_sport_a_id]["gf"] += match.score_a
+            pool_team_stats[match.team_sport_b_id]["gf"] += match.score_b
+
+        sorted_pool = sorted(pool_team_stats.items(),
+                             key=lambda x: (x[1]["pts"], x[1]["gd"], x[1]["gf"]), reverse=True)
+        print(f"[FINAL-RANKING]   sorted_pool (ts_id, pts): {[(ts_id, s['pts']) for ts_id, s in sorted_pool]}")
+        for pos, (ts_id, _) in enumerate(sorted_pool, start=1):
+            sp = standing_pts.get(str(pos), 0) or standing_pts.get(pos, 0)
+            if sp > 0:
+                ts = db.query(TeamSport).filter(TeamSport.id == ts_id).first()
+                in_tp = ts.team_id in team_points if ts else False
+                print(f"[FINAL-RANKING]   pos={pos} ts_id={ts_id} team={ts.team_id if ts else None} sp={sp} in_team_points={in_tp}")
+                if ts and ts.team_id in team_points:
+                    team_points[ts.team_id]["total_points"] += sp
 
     # Convertir en liste et trier par points (puis par différence de buts)
     ranking_list = []

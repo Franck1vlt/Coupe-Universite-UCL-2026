@@ -604,6 +604,7 @@ export function usePetanqueMatch(initialMatchId: string | null) {
         setTargetScore,
         swapSides,
         court,
+        setCourt,
         updateMatchStatus,
         changeService,
         isMatchWon,
