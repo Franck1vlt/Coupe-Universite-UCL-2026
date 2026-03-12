@@ -419,9 +419,10 @@ export function useBasketballMatch(initialMatchId: string | null) {
         [k]: { ...p[k], score: p[k].score + points },
       };
     });
-    // Après chaque panier, la possession est remise à 24 secondes
+    // Après chaque panier : arrêt shot clock, reset 24s, possession à l'adversaire
+    stopShotClock();
     setShotClockState(240); // 24.0s
-    shotClockRunningRef.current = matchData.chrono.running;
+    setPossession(team === "A" ? "B" : "A");
   }
 
   /** Crée un événement de panier local */
@@ -714,22 +715,33 @@ export function useBasketballMatch(initialMatchId: string | null) {
         case "0": // Buzzer
           buzzer.play();
           break;
-        case "1": // +1 seconde
+        case "2": // +1 seconde chrono principal
           addSecond();
           break;
-        case "4": // Reset shot clock 24s + bascule possession
+        case "8": // Reset shot clock 24s + bascule possession
           resetShotClock();
           togglePossession();
           break;
-        case "6": // Shot clock 14s + bascule possession
+        case "5": // Shot clock 14s + bascule possession
           setShotClock(14);
           togglePossession();
           break;
-        case "Enter": // Start/Stop
+        case "Enter": // Start/Stop chrono principal
           if (matchData.chrono.running) {
             stopChrono();
           } else {
             startChrono();
+          }
+          break;
+        case " ": // ESPACE = Start/Stop shot clock (lance aussi le chrono principal si arrêté)
+          e.preventDefault();
+          if (shotClockRunningRef.current) {
+            stopShotClock();
+          } else {
+            if (!matchData.chrono.running) {
+              startMainChrono();
+            }
+            startShotClock();
           }
           break;
       }
