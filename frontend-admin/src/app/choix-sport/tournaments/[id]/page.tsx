@@ -1147,14 +1147,14 @@ export default function TournamentViewPage() {
         const ranking = (apiRanking as Record<string, unknown>[])
           .filter((entry) => (entry.matches_played as number) > 0)
           .map((entry) => ({
-            position: entry.position,
-            team: entry.team_name,
-            played: entry.matches_played,
-            won: entry.wins,
-            drawn: entry.draws,
-            lost: entry.losses,
-            points: entry.total_points,
-            scoreDiff: entry.goal_difference,
+            position: entry.position as number,
+            team: entry.team_name as string,
+            played: entry.matches_played as number,
+            won: entry.wins as number,
+            drawn: entry.draws as number,
+            lost: entry.losses as number,
+            points: entry.total_points as number,
+            scoreDiff: entry.goal_difference as number,
           }));
 
         // Ne pas mettre à jour si l'effet a été annulé (re-exécuté entre temps)
