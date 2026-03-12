@@ -615,7 +615,7 @@ export default function BasketballTableMarquagePage() {
               <button onClick={() => { resetShotClock(); togglePossession(); }}>
                 24s<span className="shortcut-hint">8</span>
               </button>
-              <button onClick={() => { setShotClock(14); togglePossession(); }}>
+              <button onClick={() => setShotClock(14)}>
                 14s<span className="shortcut-hint">5</span>
               </button>
               <button onClick={addSecond}>
