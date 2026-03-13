@@ -230,7 +230,7 @@ from app.models.sport import Sport
 from app.schemas.sport import SportResponse, SportCreate, SportUpdate
 
 @app.get("/sports", tags=["Sports"])
-async def get_sports(
+def get_sports(
     db: Session = Depends(get_db),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=200),
@@ -285,7 +285,7 @@ async def get_sports(
         )
 
 @app.get("/sports/{sport_id}", tags=["Sports"])
-async def get_sport_by_id(
+def get_sport_by_id(
     sport_id: int,
     db: Session = Depends(get_db),
 ):
@@ -464,7 +464,7 @@ from app.models.team import Team
 from app.schemas.team import TeamResponse, TeamCreate, TeamUpdate
 
 @app.get("/teams", tags=["Teams"])
-async def get_teams(
+def get_teams(
     db: Session = Depends(get_db),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=200),
@@ -499,7 +499,7 @@ async def get_teams(
         }
 
 @app.get("/teams/{team_id}", tags=["Teams"])
-async def get_team_by_id(
+def get_team_by_id(
     team_id: int,
     db: Session = Depends(get_db),
 ):
@@ -621,7 +621,7 @@ from app.schemas.teamsport import TeamSportResponse, TeamSportCreate, TeamSportU
     summary="Get team's sports",
     description="Récupère tous les sports auxquels une équipe est inscrite avec leur statut (actif/inactif)"
 )
-async def get_team_sports(
+def get_team_sports(
     team_id: int,
     db: Session = Depends(get_db),
 ):
@@ -799,7 +799,7 @@ from app.models.player import Player
 from app.schemas.player import PlayerResponse
 
 @app.get("/players", tags=["Players"])
-async def get_players(
+def get_players(
     db: Session = Depends(get_db),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=200),
@@ -827,7 +827,7 @@ async def get_players(
     )
 
 @app.get("/players/{player_id}", tags=["Players"])
-async def get_player_by_id(
+def get_player_by_id(
     player_id: int,
     db: Session = Depends(get_db),
 ):
@@ -841,7 +841,7 @@ async def get_player_by_id(
     )
 
 @app.get("/team-sports/{team_sport_id}/players", tags=["Players"])
-async def get_players_of_team_sport(
+def get_players_of_team_sport(
     team_sport_id: int,
     db: Session = Depends(get_db),
 ):
@@ -853,7 +853,7 @@ async def get_players_of_team_sport(
     )
 
 @app.get("/team-sports/{team_sport_id}", tags=["TeamSport"])
-async def get_team_sport(
+def get_team_sport(
     team_sport_id: int,
     db: Session = Depends(get_db),
 ):
@@ -872,7 +872,7 @@ from app.schemas.court import CourtResponse, CourtCreate, CourtUpdate
 from app.models.sport import Sport
 
 @app.get("/courts", status_code=status.HTTP_200_OK, tags=["Courts"])
-async def get_courts(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+def get_courts(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     """Liste tous les terrains avec pagination"""
     try:
         courts = db.query(Court).offset(skip).limit(limit).all()
@@ -892,7 +892,7 @@ async def get_courts(skip: int = 0, limit: int = 100, db: Session = Depends(get_
         raise
 
 @app.get("/courts/sports", status_code=status.HTTP_200_OK, tags=["Courts"])
-async def get_available_sports_for_courts(db: Session = Depends(get_db)):
+def get_available_sports_for_courts(db: Session = Depends(get_db)):
     """Liste tous les sports disponibles pour les terrains"""
     try:
         sports = db.query(Sport).all()
@@ -905,7 +905,7 @@ async def get_available_sports_for_courts(db: Session = Depends(get_db)):
         raise
 
 @app.get("/courts/{court_id}", status_code=status.HTTP_200_OK, tags=["Courts"])
-async def get_court_by_id(court_id: int, db: Session = Depends(get_db)):
+def get_court_by_id(court_id: int, db: Session = Depends(get_db)):
     """Récupère un terrain par ID"""
     court = db.query(Court).filter(Court.id == court_id).first()
     if not court:
@@ -1079,7 +1079,7 @@ from app.models.tournament import Tournament
 from app.schemas.tournament import TournamentResponse
 
 @app.get("/tournaments", tags=["Tournaments"])
-async def get_tournaments(
+def get_tournaments(
     skip: int = 0,
     limit: int = 100,
     sport_id: Optional[int] = Query(None, description="Filtrer par sport"),
@@ -1103,7 +1103,7 @@ async def get_tournaments(
     )
 
 @app.get("/tournaments/{tournament_id}", tags=["Tournaments"])
-async def get_tournament_by_id(
+def get_tournament_by_id(
     tournament_id: int,
     db: Session = Depends(get_db),
 ):
@@ -1591,7 +1591,7 @@ from app.models.tournamentranking import TournamentRanking
 from app.schemas.tournamentranking import TournamentRankingResponse
 
 @app.get("/tournaments/{tournament_id}/phases", tags=["Tournaments"])
-async def get_phases_of_tournament(
+def get_phases_of_tournament(
     tournament_id: int,
     db: Session = Depends(get_db),
 ):
@@ -1603,7 +1603,7 @@ async def get_phases_of_tournament(
     )
 
 @app.get("/tournaments/{tournament_id}/ranking", tags=["Tournaments"])
-async def get_ranking_of_tournament(
+def get_ranking_of_tournament(
     tournament_id: int,
     db: Session = Depends(get_db),
 ):
@@ -1615,7 +1615,7 @@ async def get_ranking_of_tournament(
     )
 
 @app.get("/tournaments/{tournament_id}/final-ranking", tags=["Tournaments"])
-async def get_tournament_final_ranking(
+def get_tournament_final_ranking(
     tournament_id: int,
     db: Session = Depends(get_db),
 ):
@@ -1809,7 +1809,7 @@ async def get_tournament_final_ranking(
     )
 
 @app.get("/final-ranking", tags=["Rankings"])
-async def get_global_final_ranking(
+def get_global_final_ranking(
     db: Session = Depends(get_db),
 ):
     """
@@ -1999,7 +1999,7 @@ from app.models.tournamentconfiguration import TournamentConfiguration
 from app.schemas.tournamentconfiguration import TournamentConfigurationResponse
 
 @app.get("/tournaments/{tournament_id}/configuration", tags=["TournamentConfiguration"])
-async def get_tournament_configuration(
+def get_tournament_configuration(
     tournament_id: int,
     db: Session = Depends(get_db),
 ):
@@ -2016,7 +2016,7 @@ async def get_tournament_configuration(
 from app.schemas.tournamentphase import TournamentPhaseCreate, TournamentPhaseUpdate
 
 @app.get("/tournament-phases/{phase_id}", tags=["TournamentPhases"])
-async def get_tournament_phase_by_id(
+def get_tournament_phase_by_id(
     phase_id: int,
     db: Session = Depends(get_db),
 ):
@@ -2092,7 +2092,7 @@ async def delete_tournament_phase(
     )
 
 @app.get("/tournament-phases/{phase_id}/matches", tags=["TournamentPhases"])
-async def get_matches_of_tournament_phase(
+def get_matches_of_tournament_phase(
     phase_id: int,
     db: Session = Depends(get_db),
 ):
@@ -2116,7 +2116,7 @@ from app.schemas.teampool import TeamPoolResponse
 from app.services.pool_service import calculate_pool_standings
 
 @app.get("/pools/{pool_id}", response_model=dict, tags=["Pools"])
-async def get_pool(pool_id: int, db: Session = Depends(get_db)):
+def get_pool(pool_id: int, db: Session = Depends(get_db)):
     """Récupère une poule par ID"""
     pool = db.query(Pool).filter(Pool.id == pool_id).first()
     if not pool:
@@ -2189,7 +2189,7 @@ async def delete_pool(
     )
 
 @app.get("/pools/{pool_id}/teams", response_model=dict, tags=["Pools"])
-async def get_teams_in_pool(pool_id: int, db: Session = Depends(get_db)):
+def get_teams_in_pool(pool_id: int, db: Session = Depends(get_db)):
     """Liste les équipes d'une poule"""
     pool = db.query(Pool).filter(Pool.id == pool_id).first()
     if not pool:
@@ -2202,7 +2202,7 @@ async def get_teams_in_pool(pool_id: int, db: Session = Depends(get_db)):
     )
 
 @app.get("/pools/{pool_id}/matches", response_model=dict, tags=["Pools"])
-async def get_matches_in_pool(pool_id: int, db: Session = Depends(get_db)):
+def get_matches_in_pool(pool_id: int, db: Session = Depends(get_db)):
     """Liste les matchs d'une poule"""
     pool = db.query(Pool).filter(Pool.id == pool_id).first()
     if not pool:
@@ -2214,7 +2214,7 @@ async def get_matches_in_pool(pool_id: int, db: Session = Depends(get_db)):
     )
 
 @app.get("/pools/{pool_id}/standings", response_model=dict, tags=["Pools"])
-async def get_pool_standings(pool_id: int, db: Session = Depends(get_db)):
+def get_pool_standings(pool_id: int, db: Session = Depends(get_db)):
     """Classement d'une poule (récupère les données mises à jour automatiquement)"""
     pool = db.query(Pool).filter(Pool.id == pool_id).first()
     if not pool:
@@ -2250,7 +2250,7 @@ async def get_pool_standings(pool_id: int, db: Session = Depends(get_db)):
 from app.schemas.teampool import TeamPoolResponse
 
 @app.get("/team-pools/{team_pool_id}", response_model=dict, tags=["TeamPool"])
-async def get_team_pool(team_pool_id: int, db: Session = Depends(get_db)):
+def get_team_pool(team_pool_id: int, db: Session = Depends(get_db)):
     """Récupère une équipe-poule par ID"""
     team_pool = db.query(TeamPool).filter(TeamPool.id == team_pool_id).first()
     if not team_pool:
@@ -2307,7 +2307,7 @@ from app.models.matchset import MatchSet
 from app.schemas.matchset import MatchSetResponse
 
 @app.get("/matches", response_model=dict, tags=["Matches"])
-async def get_matches(
+def get_matches(
     sport_id: Optional[int] = Query(None),
     phase_id: Optional[int] = Query(None),
     status: Optional[str] = Query(None),
@@ -2333,7 +2333,7 @@ async def get_matches(
     )
 
 @app.get("/matches/{match_id}", response_model=dict, tags=["Matches"])
-async def get_match(match_id: int, db: Session = Depends(get_db)):
+def get_match(match_id: int, db: Session = Depends(get_db)):
     """Récupère un match par ID"""
     match = db.query(Match).filter(Match.id == match_id).first()
     if not match:
@@ -2399,7 +2399,7 @@ async def delete_match(
     )
 
 @app.get("/matches/{match_id}/sets", response_model=dict, tags=["Matches"])
-async def get_match_sets(match_id: int, db: Session = Depends(get_db)):
+def get_match_sets(match_id: int, db: Session = Depends(get_db)):
     """Liste les sets d'un match"""
     match = db.query(Match).filter(Match.id == match_id).first()
     if not match:

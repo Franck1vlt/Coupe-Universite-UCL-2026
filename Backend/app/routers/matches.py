@@ -64,7 +64,7 @@ def _player_to_response(player: Player, team: str) -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 
 @router.get("/matches/{match_id}/players", tags=["Match Players"])
-async def get_match_players(match_id: int, db: Session = Depends(get_db)):
+def get_match_players(match_id: int, db: Session = Depends(get_db)):
     """Retourne les joueurs actifs des deux équipes du match"""
     match = _get_match_or_404(match_id, db)
 
@@ -200,7 +200,7 @@ async def delete_match_player(
 # ─────────────────────────────────────────────────────────────────────────────
 
 @router.get("/matches/{match_id}/events", tags=["Match Events"])
-async def get_match_events(match_id: int, db: Session = Depends(get_db)):
+def get_match_events(match_id: int, db: Session = Depends(get_db)):
     """Retourne tous les événements d'un match, triés par chrono"""
     _get_match_or_404(match_id, db)
 
