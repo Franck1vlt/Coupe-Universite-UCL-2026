@@ -11,6 +11,7 @@ services:
     volumes:
       - /run/user/1001/podman/podman.sock:/var/run/docker.sock:ro
       - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
       - ./traefik/acme:/letsencrypt
     networks:
       - coupe-network
