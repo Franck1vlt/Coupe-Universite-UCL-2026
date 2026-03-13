@@ -128,7 +128,7 @@ export default function BasketballTableMarquagePage() {
   // Redéfinir les handlers pour intégrer la gestion du statut
   const handleStart = () => {
     updateMatchStatus("in_progress");
-    startChrono();
+    startMainChrono();
   };
 
   // État local pour masquer/afficher le shotClock
@@ -734,10 +734,10 @@ export default function BasketballTableMarquagePage() {
               style={{ display: "flex", flexWrap: "wrap", gap: 8 }}
             >
               <button onClick={handleStart}>
-                Start<span className="shortcut-hint">NumEntr</span>
+                Start<span className="shortcut-hint">Entrer</span>
               </button>
               <button onClick={stopMainChrono}>
-                Stop<span className="shortcut-hint">NumEntr</span>
+                Stop<span className="shortcut-hint">Entrer</span>
               </button>
               <button onClick={() => {
                 if (!matchData.chrono.running) startMainChrono();

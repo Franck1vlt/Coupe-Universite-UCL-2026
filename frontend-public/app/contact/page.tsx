@@ -1,15 +1,32 @@
 "use client";
 
+import ContactCard from "./ContactCard";
+
 interface Contact {
-  role: string;
   name: string;
-  phone: string;
-  email: string;
+  role: string;
 }
 
-export default function ContactPage() {
-  const contacts: Contact[] = [];
+const contacts: Contact[] = [
+  {
+    name: "Julien Croppi",
+    role: "Responsable Général Technique",
+  },
+  {
+    name: "Nathanaël Chombard",
+    role: "Responsable Gestion Sportive",
+  },
+  {
+    name: "Thomas Courtois",
+    role: "Responsable Bénévoles",
+  },
+  {
+    name: "Eva Mercier",
+    role: "Responsable Bénévoles",
+  },
+];
 
+export default function ContactPage() {
   return (
     <main className="min-h-screen bg-gray-100 flex flex-col items-center justify-center px-4 py-8">
       <button
@@ -41,70 +58,15 @@ export default function ContactPage() {
         />
         <h1 className="text-4xl font-bold text-gray-800 mb-2">Contact</h1>
         <p className="text-gray-600 text-lg">
-          Retrouvez ici les contacts de l'organisation de la Coupe de
-          l'Université selon votre besoin.
+          Retrouvez ici les contacts de l&apos;organisation de la Coupe de
+          l&apos;Université selon votre besoin.
         </p>
       </header>
 
       <section className="w-full px-2 sm:px-4 max-w-6xl">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 justify-items-center">
           {contacts.map((contact, idx) => (
-            <div
-              key={idx}
-              className="bg-white rounded-2xl shadow-lg border-2 border-blue-100 p-4 sm:p-6 flex flex-col items-center text-center hover:shadow-2xl transition min-w-0"
-            >
-              <div className="mb-2 text-blue-700 font-semibold text-base sm:text-lg">
-                {contact.role}
-              </div>
-              <div className="mb-1 text-gray-800 text-lg sm:text-xl font-bold break-words">
-                {contact.name}
-              </div>
-              <div className="mb-1 text-gray-600 flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2">
-                <svg
-                  className="w-5 h-5 text-blue-400 flex-shrink-0"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M3 5a2 2 0 012-2h2.28a2 2 0 011.7 1.06l1.1 2.2a2 2 0 01-.45 2.45l-.9.9a16.06 16.06 0 006.36 6.36l.9-.9a2 2 0 012.45-.45l2.2 1.1A2 2 0 0121 18.72V21a2 2 0 01-2 2h-1C9.163 23 1 14.837 1 5V4a2 2 0 012-2z"
-                  />
-                </svg>
-                <span className="break-all">{contact.phone}</span>
-              </div>
-              <div className="mb-1 text-gray-600 flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2">
-                <svg
-                  className="w-5 h-5 text-blue-400 flex-shrink-0"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M16 12H8m0 0l4-4m-4 4l4 4"
-                  />
-                  <circle
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth={1.5}
-                    fill="none"
-                  />
-                </svg>
-                <a
-                  href={`mailto:${contact.email}`}
-                  className="text-blue-600 underline hover:text-blue-800 break-all"
-                >
-                  {contact.email}
-                </a>
-              </div>
-            </div>
+            <ContactCard key={idx} name={contact.name} role={contact.role} />
           ))}
         </div>
       </section>

@@ -7,7 +7,7 @@ const links = [
     href: "/tournois",
     title: "Tournois et programmation",
     description: "Consultez la liste des tournois et leur programmation.",
-    color: "bg-white border border-blue-300 hover:bg-blue-50",
+    color: "bg-blue-50 border border-blue-300 hover:bg-blue-100",
     icon: (
       <svg
         className="mx-auto mb-3 h-9 w-9 text-blue-500"
@@ -31,39 +31,10 @@ const links = [
     ),
   },
   {
-    href: "/FAQ",
-    title: "FAQ",
-    description: "Trouvez les réponses aux questions fréquentes.",
-    color: "bg-white border border-yellow-300 hover:bg-yellow-50",
-    icon: (
-      <svg
-        className="mx-auto mb-3 h-9 w-9 text-yellow-500"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-      >
-        <circle
-          cx="12"
-          cy="12"
-          r="10"
-          stroke="currentColor"
-          strokeWidth={1.5}
-          fill="none"
-        />
-        <path
-          d="M12 16h.01M12 12a2 2 0 10-2-2"
-          strokeWidth={1.5}
-          strokeLinecap="round"
-        />
-        <path d="M12 14v2" strokeWidth={1.5} strokeLinecap="round" />
-      </svg>
-    ),
-  },
-  {
     href: "/contact",
     title: "Contact",
     description: "Contactez l'organisation pour toute question.",
-    color: "bg-white border border-purple-300 hover:bg-purple-50",
+    color: "bg-purple-200 border border-purple-400 hover:bg-purple-300",
     icon: (
       <svg
         className="mx-auto mb-3 h-9 w-9 text-purple-500"
@@ -107,7 +78,7 @@ export default function PublicHome() {
         </p>
       </header>
 
-      <section className="w-full px-2 sm:px-4 max-w-6xl grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3">
+      <section className="w-full px-2 sm:px-4 max-w-2xl mx-auto grid grid-cols-1 gap-4 sm:grid-cols-2">
         {links.map((item) => (
           <Link
             key={item.href}

@@ -2440,12 +2440,6 @@ export default function TournamentViewPage() {
                                 bracket
                               </span>
                             )}
-                            {pool?.qualifiedAsBestThird && (
-                              <span className="flex items-center gap-1">
-                                <span className="w-3 h-3 bg-blue-100 border border-blue-400 rounded"></span>
-                                3ème (repêchage possible)
-                              </span>
-                            )}
                           </div>
                         </div>
                         <div className="overflow-x-auto">
@@ -2487,13 +2481,6 @@ export default function TournamentViewPage() {
                                 ) {
                                   bgColor =
                                     "bg-orange-50 hover:bg-orange-100 border-l-4 border-orange-500";
-                                } else if (
-                                  entry.position === 3 &&
-                                  pool?.qualifiedAsBestThird
-                                ) {
-                                  // Meilleur 3ème - couleur bleue pour indiquer qu'il peut être repêché
-                                  bgColor =
-                                    "bg-blue-50 hover:bg-blue-100 border-l-4 border-blue-500";
                                 }
 
                                 return (

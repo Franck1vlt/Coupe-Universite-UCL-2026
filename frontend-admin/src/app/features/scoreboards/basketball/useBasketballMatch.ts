@@ -725,11 +725,12 @@ export function useBasketballMatch(initialMatchId: string | null) {
         case "5": // Shot clock 14s uniquement — pas de changement de possession
           setShotClock(14);
           break;
-        case "Enter": // Start/Stop chrono principal
+        case "Enter": // Start/Stop chrono principal uniquement
+          e.preventDefault(); // Évite le clic sur le bouton focalisé (ex: Possession)
           if (matchData.chrono.running) {
             stopChrono();
           } else {
-            startChrono();
+            startMainChrono();
           }
           break;
         case " ": // ESPACE = Start/Stop shot clock (lance aussi le chrono principal si arrêté)
