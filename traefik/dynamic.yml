@@ -17,6 +17,12 @@ tls:
 
 http:
   middlewares:
+    api-rate-limit:
+      rateLimit:
+        # Limite par IP : 30 req/s en régime normal, jusqu'à 60 en burst
+        # Les connexions SSE ne comptent qu'une seule fois (connexion longue durée)
+        average: 30
+        burst: 60
     security-headers:
       headers:
         stsSeconds: 31536000

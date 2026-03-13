@@ -19,6 +19,8 @@ services:
     container_name: coupe-backend
     build: ./Backend
     restart: unless-stopped
+    mem_limit: 1g
+    cpus: 1.5
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
     volumes:
       - ./Backend/data:/app/data
@@ -35,6 +37,7 @@ services:
       - "traefik.http.routers.backend.entrypoints=websecure"
       - "traefik.http.routers.backend.tls=true"
       - "traefik.http.routers.backend.tls.certresolver=myresolver"
+      - "traefik.http.routers.backend.middlewares=api-rate-limit@file"
       - "traefik.http.services.backend.loadbalancer.server.port=8000"
     networks:
       - coupe-network
@@ -43,6 +46,8 @@ services:
     container_name: coupe-frontend-public
     build: ./frontend-public
     restart: unless-stopped
+    mem_limit: 512m
+    cpus: 1.0
     command: ["npm", "start", "--", "-p", "3100"]
     environment:
       - NEXT_PUBLIC_API_URL=https://api.${DOMAIN}
@@ -63,6 +68,8 @@ services:
     container_name: coupe-frontend-admin
     build: ./frontend-admin
     restart: unless-stopped
+    mem_limit: 512m
+    cpus: 0.5
     command: ["npm", "start"]
     environment:
       - NEXT_PUBLIC_API_URL=https://api.${DOMAIN}

@@ -98,6 +98,7 @@ export default function BasketballTableMarquagePage() {
     shotClock,
     startChrono,
     stopChrono,
+    startMainChrono,
     stopMainChrono,
     startShotClock,
     stopShotClock,
@@ -272,7 +273,7 @@ export default function BasketballTableMarquagePage() {
     swapSides();
   };
 
-  // Raccourcis clavier
+  // Raccourcis clavier — pavé numérique
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (
@@ -281,68 +282,37 @@ export default function BasketballTableMarquagePage() {
       )
         return;
       switch (e.key) {
-        case "q":
-        case "Q":
-          subScore("A", 1);
-          break;
-        case "w":
-        case "W":
+        case "7":
           addScore("A", 1);
           break;
-        case "e":
-        case "E":
+        case "4":
           addScore("A", 2);
           break;
-        case "r":
-        case "R":
+        case "1":
           addScore("A", 3);
           break;
-        case "l":
-        case "L":
-          subScore("B", 1);
-          break;
-        case "i":
-        case "I":
+        case "9":
           addScore("B", 1);
           break;
-        case "o":
-        case "O":
+        case "6":
           addScore("B", 2);
           break;
-        case "p":
-        case "P":
+        case "3":
           addScore("B", 3);
           break;
-        case "t":
-        case "T":
-          handleStart();
+        case "-":
+          subScore("A", 1);
           break;
-        case "s":
-        case "S":
-          stopChrono();
+        case "+":
+          subScore("B", 1);
           break;
-        case "x":
-        case "X":
-          handleSwipe();
-          break;
-        case "b":
-        case "B":
-          buzzer.play();
-          break;
-        case "j":
-        case "J":
-          setShotClock(Math.floor(shotClock / 10) + 1);
-          break;
-        case "m":
-        case "M":
+        case "/":
           setHideShotClock((v) => !v);
           break;
-        case "k":
-        case "K":
-          setPauseShotClock((v) => !v);
+        case "*":
+          handleSwipe();
           break;
-        case "z":
-        case "Z":
+        case ".":
           stopChrono();
           setPauseShotClock(true);
           buzzer.play();
@@ -354,7 +324,6 @@ export default function BasketballTableMarquagePage() {
   }, [
     subScore,
     addScore,
-    handleStart,
     stopChrono,
     handleSwipe,
     buzzer,
@@ -644,27 +613,26 @@ export default function BasketballTableMarquagePage() {
               style={{ display: "flex", flexWrap: "wrap", gap: 8 }}
             >
               <button onClick={() => { resetShotClock(); togglePossession(); }}>
-                24s<span className="shortcut-hint">4</span>
+                24s<span className="shortcut-hint">8</span>
               </button>
-              <button onClick={() => { setShotClock(14); togglePossession(); }}>
-                14s<span className="shortcut-hint">6</span>
+              <button onClick={() => setShotClock(14)}>
+                14s<span className="shortcut-hint">5</span>
               </button>
               <button onClick={addSecond}>
-                +1s<span className="shortcut-hint">1</span>
+                +1s<span className="shortcut-hint">2</span>
               </button>
               <button
                 onClick={() => setShotClock(Math.floor(shotClock / 10) + 1)}
                 title="+1s shot clock"
               >
-                +1s SC<span className="shortcut-hint">J</span>
+                +1s SC
               </button>
               <button onClick={() => setHideShotClock((v) => !v)}>
                 {hideShotClock ? "Afficher SC" : "Masquer SC"}
-                <span className="shortcut-hint">M</span>
+                <span className="shortcut-hint">/</span>
               </button>
               <button onClick={() => setPauseShotClock((v) => !v)}>
                 {pauseShotClock ? "Reprendre SC" : "Pause SC"}
-                <span className="shortcut-hint">K</span>
               </button>
               <button
                 style={{ background: "#e53935", color: "white" }}
@@ -674,7 +642,7 @@ export default function BasketballTableMarquagePage() {
                   buzzer.play();
                 }}
               >
-                BUZZER STOP<span className="shortcut-hint">Z</span>
+                BUZZER STOP<span className="shortcut-hint">.</span>
               </button>
             </div>
 
@@ -697,16 +665,16 @@ export default function BasketballTableMarquagePage() {
                   <p>Points : </p>
                   <div className="team-controls a">
                     <button onClick={() => subScore("A", 1)}>
-                      -1<span className="shortcut-hint">Q</span>
+                      -1<span className="shortcut-hint">-</span>
                     </button>
                     <button onClick={() => addScore("A", 1)}>
-                      +1<span className="shortcut-hint">W</span>
+                      +1<span className="shortcut-hint">7</span>
                     </button>
                     <button onClick={() => addScore("A", 2)}>
-                      +2<span className="shortcut-hint">E</span>
+                      +2<span className="shortcut-hint">4</span>
                     </button>
                     <button onClick={() => addScore("A", 3)}>
-                      +3<span className="shortcut-hint">R</span>
+                      +3<span className="shortcut-hint">1</span>
                     </button>
                   </div>
                 </div>
@@ -716,16 +684,16 @@ export default function BasketballTableMarquagePage() {
                   <p> Points :</p>
                   <div className="team-controls b">
                     <button onClick={() => subScore("B", 1)}>
-                      -1<span className="shortcut-hint">L</span>
+                      -1<span className="shortcut-hint">+</span>
                     </button>
                     <button onClick={() => addScore("B", 1)}>
-                      +1<span className="shortcut-hint">I</span>
+                      +1<span className="shortcut-hint">9</span>
                     </button>
                     <button onClick={() => addScore("B", 2)}>
-                      +2<span className="shortcut-hint">O</span>
+                      +2<span className="shortcut-hint">6</span>
                     </button>
                     <button onClick={() => addScore("B", 3)}>
-                      +3<span className="shortcut-hint">P</span>
+                      +3<span className="shortcut-hint">3</span>
                     </button>
                   </div>
                 </div>
@@ -766,16 +734,19 @@ export default function BasketballTableMarquagePage() {
               style={{ display: "flex", flexWrap: "wrap", gap: 8 }}
             >
               <button onClick={handleStart}>
-                Start<span className="shortcut-hint">T</span>
+                Start<span className="shortcut-hint">NumEntr</span>
               </button>
               <button onClick={stopMainChrono}>
-                Stop<span className="shortcut-hint">S</span>
+                Stop<span className="shortcut-hint">NumEntr</span>
               </button>
-              <button onClick={startShotClock}>
-                Start SC
+              <button onClick={() => {
+                if (!matchData.chrono.running) startMainChrono();
+                startShotClock();
+              }}>
+                Start SC<span className="shortcut-hint">Espace</span>
               </button>
               <button onClick={stopShotClock}>
-                Stop SC
+                Stop SC<span className="shortcut-hint">Espace</span>
               </button>
               <button
                 onClick={togglePossession}
@@ -784,10 +755,10 @@ export default function BasketballTableMarquagePage() {
                 {possession ? `Poss. ${possession}` : "Possession"}
               </button>
               <button onClick={handleSwipe}>
-                Swipe<span className="shortcut-hint">X</span>
+                Swipe<span className="shortcut-hint">*</span>
               </button>
               <button onClick={() => buzzer.play()}>
-                Buzzer<span className="shortcut-hint">B</span>
+                Buzzer<span className="shortcut-hint">0</span>
               </button>
               <button
                 onClick={async () => {

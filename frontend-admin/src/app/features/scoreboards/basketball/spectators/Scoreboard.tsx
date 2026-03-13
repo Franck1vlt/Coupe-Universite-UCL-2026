@@ -173,35 +173,8 @@ export default function BasketballTableSpectatorPage() {
         <main>
             <div className="score-board">
                 <div className="content-wrapper">
-                    {/* Équipes et score */}
+                    {/* Équipes et score — Team B à gauche, Team A à droite (comme football) */}
                     <div className="teams">
-                        <div className="team">
-                            {logoA ? (
-                                <Image
-                                    src={logoA}
-                                    alt="Logo Team A"
-                                    width={300}
-                                    height={100}
-                                    className="team-logo"
-                                    onError={() => setLogoA(null)}
-                                    loading="eager"
-                                />
-                            ) : (
-                                <div className="team-logo-placeholder">A</div>
-                            )}
-                            <div className="team-name" id="teamAName">{matchData.team1 || 'ÉQUIPE A'}</div>
-                        </div>
-
-                        <div className="score-container">
-                            <span id="teamAScore" className={`score ${animateScoreA ? 'score-change' : ''}`}>
-                                {matchData.score1 || 0}
-                            </span>
-                            <span className="score-divider">-</span>
-                            <span id="teamBScore" className={`score ${animateScoreB ? 'score-change' : ''}`}>
-                                {matchData.score2 || 0}
-                            </span>
-                        </div>
-
                         <div className="team">
                             {logoB ? (
                                 <Image
@@ -218,16 +191,43 @@ export default function BasketballTableSpectatorPage() {
                             )}
                             <div className="team-name" id="teamBName">{matchData.team2 || 'ÉQUIPE B'}</div>
                         </div>
+
+                        <div className="score-container">
+                            <span id="teamBScore" className={`score ${animateScoreB ? 'score-change' : ''}`}>
+                                {matchData.score2 || 0}
+                            </span>
+                            <span className="score-divider">-</span>
+                            <span id="teamAScore" className={`score ${animateScoreA ? 'score-change' : ''}`}>
+                                {matchData.score1 || 0}
+                            </span>
+                        </div>
+
+                        <div className="team">
+                            {logoA ? (
+                                <Image
+                                    src={logoA}
+                                    alt="Logo Team A"
+                                    width={300}
+                                    height={100}
+                                    className="team-logo"
+                                    onError={() => setLogoA(null)}
+                                    loading="eager"
+                                />
+                            ) : (
+                                <div className="team-logo-placeholder">A</div>
+                            )}
+                            <div className="team-name" id="teamAName">{matchData.team1 || 'ÉQUIPE A'}</div>
+                        </div>
                     </div>
 
-                    {/* Fautes — order:2 pour apparaître après teams(1) et avant timers(3) */}
+                    {/* Fautes — Team B à gauche, Team A à droite */}
                     <div style={{ textAlign: "center", fontSize: "3vw", margin: "0.5vh 0", order: 2, width: "100%" }}>
-                        <span style={{ color: (matchData.fouls1 ?? 0) >= 5 ? "red" : "inherit", fontWeight: "bold" }}>
-                            {matchData.fouls1 ?? 0}
-                        </span>
-                        {" Fautes "}
                         <span style={{ color: (matchData.fouls2 ?? 0) >= 5 ? "red" : "inherit", fontWeight: "bold" }}>
                             {matchData.fouls2 ?? 0}
+                        </span>
+                        {" Fautes "}
+                        <span style={{ color: (matchData.fouls1 ?? 0) >= 5 ? "red" : "inherit", fontWeight: "bold" }}>
+                            {matchData.fouls1 ?? 0}
                         </span>
                     </div>
 
