@@ -18,6 +18,9 @@ providers:
     endpoint: "unix:///var/run/docker.sock"
     exposedByDefault: false
     network: coupe-network
+  file:
+    filename: /etc/traefik/dynamic.yml
+    watch: true
 
 # C'est cette partie qui crée le cadenas vert gratuitement
 certificatesResolvers:
